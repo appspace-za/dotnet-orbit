@@ -216,6 +216,21 @@ body {
   line-height: 60px;
 }
 
+/* The navbar stays at the top of the window (sticky-top on the layout's header). Leave room for it when the browser
+   scrolls something into view - a field that failed validation, the next Tab stop - so it doesn't land underneath. */
+html {
+  scroll-padding-top: 4.5rem;
+}
+
+/* Below the breakpoint the opened menu is a list that can be taller than a phone's window; as the bar no longer
+   scrolls away, the list scrolls inside it. */
+@media (max-width: 991.98px) {
+  header .navbar-collapse {
+    max-height: calc(100vh - 4rem);
+    overflow-y: auto;
+  }
+}
+
 /* Theme toggle icon in the navbar: show the moon in light mode, the sun in dark mode. */
 .js-theme-toggle {
   display: inline-flex;

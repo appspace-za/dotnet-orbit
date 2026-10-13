@@ -108,6 +108,7 @@ there and adapts: someone who can view tasks but not edit them sees their depart
 and someone who can't see tasks gets links to what they can use. Anyone who can log requests also gets a **My waiting
 approvals** card there: the requests waiting for their approval, oldest first. **New task** shows only with **Create
 tasks** and **New project** only with **Create projects**, and the create pages behind them need the same permission.
+The navbar itself stays at the top of the window while a page scrolls.
 
 A role with any grant at Department scope needs its users and keys to belong to a department. The same rules
 are enforced in `AccessPolicy` and `Scoping` for signed-in users and for API keys; grants are read from the

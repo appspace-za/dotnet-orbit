@@ -35,8 +35,8 @@
         var menu = actor is null ? [] : Navigation.Visible(actor);
         var adminMenu = actor is null ? [] : Navigation.AdminVisible(actor);
     }
-    <header>
-        <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-3">
+    <header class="sticky-top mb-3">
+        <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
             <div class="container-fluid px-3 px-lg-4">
                 <a class="navbar-brand fw-semibold" asp-area="" asp-page="/Index">Orbit</a>
                 <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse" aria-controls="navbarSupportedContent"
