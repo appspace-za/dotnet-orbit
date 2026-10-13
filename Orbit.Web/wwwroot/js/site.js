@@ -6,8 +6,9 @@ document.addEventListener('change', function (e) {
   }
 });
 
-// "Select all" checkbox for bulk planning and the directory import. Rows hidden by a table filter (below) and disabled
-// boxes are left alone, so "all" means "all shown". A .js-selected-count shows how many boxes are ticked.
+// "Select all" checkbox for bulk planning and the directory import: every box in its own table, as a page may have two
+// such tables. Rows hidden by a table filter (below) and disabled boxes are left alone, so "all" means "all shown".
+// A .js-selected-count shows how many boxes are ticked.
 function orbitUpdateSelectedCounts() {
   document.querySelectorAll('.js-selected-count').forEach(function (el) {
     var scope = el.dataset.countOf ? document.querySelector(el.dataset.countOf) : document;
@@ -18,7 +19,7 @@ document.addEventListener('change', function (e) {
   var el = e.target;
   if (!el || !el.classList) return;
   if (el.classList.contains('js-select-all')) {
-    document.querySelectorAll('input.js-select-item').forEach(function (cb) {
+    (el.closest('table') || document).querySelectorAll('input.js-select-item').forEach(function (cb) {
       var row = cb.closest('tr');
       if (!cb.disabled && !(row && row.hidden)) cb.checked = el.checked;
     });
@@ -38,13 +39,23 @@ document.addEventListener('input', function (e) {
     row.hidden = !words.every(function (w) { return text.indexOf(w) >= 0; });
   });
 });
+// Enter in a filter box is not a submit: the box may sit in a form with several actions (the directory import).
+document.addEventListener('keydown', function (e) {
+  var el = e.target;
+  if (e.key === 'Enter' && el && el.classList && el.classList.contains('js-table-filter')) e.preventDefault();
+});
 
-// Confirmations
+// Confirmations: data-confirm on a form, or on one button of a form with several (Decline beside Approve; the directory
+// import's Import and Update managers).
 document.addEventListener('submit', function (e) {
   var form = e.target;
   if (form && form.dataset && form.dataset.confirm) {
     if (!window.confirm(form.dataset.confirm)) e.preventDefault();
   }
+});
+document.addEventListener('click', function (e) {
+  var button = e.target.closest && e.target.closest('button[data-confirm]');
+  if (button && button.form && !window.confirm(button.dataset.confirm)) e.preventDefault();
 });
 
 // Setting your own task Done without having logged time on it (spec §6.10): a status select with data-done-check asks that

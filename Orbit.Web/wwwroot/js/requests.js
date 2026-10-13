@@ -203,12 +203,6 @@
     if (done) setTimeout(function () { if (done.requestSubmit) done.requestSubmit(); else done.submit(); }, 400);
   });
 
-  // A confirmation on one button of a form with several (Decline beside Approve): site.js only knows data-confirm on the form.
-  document.addEventListener('click', function (e) {
-    var button = e.target.closest && e.target.closest('button[data-confirm]');
-    if (button && button.form && !window.confirm(button.dataset.confirm)) e.preventDefault();
-  });
-
   document.addEventListener('DOMContentLoaded', function () {
     document.querySelectorAll('.js-request-flow').forEach(setupFlow);
     document.querySelectorAll('.js-sync').forEach(sync);

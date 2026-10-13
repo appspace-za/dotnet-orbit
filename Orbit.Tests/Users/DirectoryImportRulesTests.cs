@@ -4,7 +4,7 @@ using Orbit.Application.Models;
 
 namespace Orbit.Tests.Users;
 
-/// <summary>The rules of "Import from directory" (spec §6.13, DIM-001 to DIM-011).</summary>
+/// <summary>The rules of "Import from directory" (spec §6.13, DIM-001 to DIM-017).</summary>
 public class DirectoryImportRulesTests
 {
     private static readonly ImportDepartment Finance = new(Guid.NewGuid(), "Finance", false);
@@ -13,20 +13,43 @@ public class DirectoryImportRulesTests
     private static readonly ImportDepartment[] Departments = [Finance, SalesEmea, OldIt];
     private static readonly Dictionary<string, Guid> NoUsers = [];
 
-    private static LdapDirectoryUser Entry(string name, string? mail, string? department = null, bool disabled = false, string? upn = null) => new()
+    private static string Dn(string name) => $"CN={name},OU=Staff,DC=corp,DC=example,DC=com";
+
+    /// <summary><paramref name="manager"/> is the name of the entry they report to, as <see cref="Dn"/> spells it.</summary>
+    private static LdapDirectoryUser Entry(string name, string? mail, string? department = null, bool disabled = false, string? upn = null, string? manager = null) => new()
     {
         Id = Guid.NewGuid().ToString(),
-        Dn = $"CN={name},OU=Staff,DC=corp,DC=example,DC=com",
+        Dn = Dn(name),
         DisplayName = name,
         Mail = mail,
         UserPrincipalName = upn,
         SamAccountName = name.Replace(" ", "").ToLowerInvariant(),
         Department = department,
+        Manager = manager is null ? null : Dn(manager),
         Disabled = disabled
     };
 
     private static DirectoryImportClassification Classify(IReadOnlyDictionary<string, Guid>? users = null, params LdapDirectoryUser[] entries) =>
         DirectoryImportRules.Classify(entries, DirectoryImportRules.MailAttribute, users ?? NoUsers, Departments);
+
+    /// <summary>An Orbit user whose email is their name at corp.com, as <see cref="Mail"/> spells it.</summary>
+    private static ImportPerson Person(string name, ImportPerson? manager = null, bool active = true) => new(Guid.NewGuid(), name, manager?.Id, active, false);
+
+    private static string Mail(string name) => $"{name.ToLowerInvariant()}@corp.com";
+
+    /// <summary>What <see cref="DirectoryImportRules.ImportManager"/> answers: the manager to create someone with, or why there is none.</summary>
+    private static (Guid? ManagerId, string? Note) With(Guid? managerId, string? note = null) => (managerId, note);
+
+    /// <summary>The rows by name, classified against <paramref name="people"/> and with their managers matched.</summary>
+    private static (Dictionary<string, DirectoryImportRow> Rows, IReadOnlyList<DirectoryManagerChange> Changes) Managers(
+        ImportPerson[] people, bool managersRead, params LdapDirectoryUser[] entries)
+    {
+        var byId = people.ToDictionary(p => p.Id);
+        var emails = people.ToDictionary(p => Mail(p.DisplayName), p => p.Id);
+        var classified = DirectoryImportRules.Classify(entries, DirectoryImportRules.MailAttribute, emails, Departments).Rows;
+        var rows = DirectoryImportRules.ResolveManagers(classified, byId, managersRead);
+        return (rows.ToDictionary(r => r.DisplayName), DirectoryImportRules.ManagerChanges(rows, byId));
+    }
 
     /// <summary>DIM-001: the default list is the sign-in filter with * for {0}, restricted to people.</summary>
     [Fact]
@@ -212,5 +235,189 @@ public class DirectoryImportRulesTests
         Assert.Equal(SalesEmea.Id, DirectoryImportRules.ResolveDepartment(rows["Cat"], mappings));
         Assert.Null(DirectoryImportRules.ResolveDepartment(rows["Dan"], mappings));
         Assert.Null(DirectoryImportRules.ResolveDepartment(rows["Dan"], new Dictionary<string, Guid?>()));
+    }
+
+    /// <summary>DIM-012: a manager is matched through the listing - the DN, ignoring case, to the entry listed with it, and that entry's email to an active Orbit user.</summary>
+    [Fact]
+    public void A_manager_is_matched_through_the_listing()
+    {
+        var ann = Person("Ann");
+        var bob = Person("Bob");
+        var bobEntry = Entry("Bob", "BOB@corp.com", manager: "Ann");
+        bobEntry.Manager = bobEntry.Manager!.ToLowerInvariant();
+        var (rows, _) = Managers([ann, bob], true,
+            Entry("Ann", Mail("Ann")),
+            bobEntry,
+            Entry("Cat", Mail("Cat"), manager: "Ann"));
+
+        Assert.Equal(new DirectoryManager(DirectoryManagerStatus.Resolved, "Ann", Dn("Ann").ToLowerInvariant(), rows["Ann"].Key, ann.Id), rows["Bob"].Manager);
+        // Someone not in Orbit yet is matched the same way: Cat is created with Ann as her manager.
+        Assert.Equal(DirectoryImportStatus.Ready, rows["Cat"].Status);
+        Assert.Equal(ann.Id, rows["Cat"].Manager.UserId);
+        Assert.Equal(With(ann.Id), DirectoryImportRules.ImportManager(rows["Cat"], new Dictionary<string, Guid>()));
+        Assert.Null(DirectoryImportRules.ManagerNote(rows["Cat"].Manager));
+    }
+
+    /// <summary>DIM-013: no manager, or oneself, is none; a manager who isn't listed, isn't in Orbit, is deactivated there or is disabled in the directory isn't matched, and says why.</summary>
+    [Fact]
+    public void A_manager_who_cannot_be_matched_says_why()
+    {
+        var bob = Person("Bob");
+        var gus = Person("Gus", active: false);
+        var ian = Person("Ian");
+        var (rows, _) = Managers([bob, gus, ian], true,
+            Entry("Ann", Mail("Ann")),
+            Entry("Bob", Mail("Bob"), manager: "Bob"),
+            Entry("Bob Admin", Mail("Bob"), manager: "Bob"), // a second account of the same person
+            Entry("Cat", Mail("Cat"), manager: "Zed"),
+            Entry("Dan", Mail("Dan"), manager: "Eve"),
+            Entry("Eve", null),
+            Entry("Fay", Mail("Fay"), manager: "Gus"),
+            Entry("Gus", Mail("Gus")),
+            Entry("Hal", Mail("Hal"), manager: "Ian"),
+            Entry("Ian", Mail("Ian"), disabled: true),
+            Entry("Jo", Mail("Jo"), manager: "Kim"),
+            Entry("Kim", Mail("Kim")));
+
+        Assert.Equal(DirectoryManager.None, rows["Ann"].Manager);
+        Assert.Equal(DirectoryManager.None, rows["Bob"].Manager);
+        Assert.Equal(DirectoryManager.None, rows["Bob Admin"].Manager);
+
+        (string Name, DirectoryManagerStatus Status, string Note)[] unmatched =
+        [
+            ("Cat", DirectoryManagerStatus.NotListed, "Not in this list"),
+            ("Dan", DirectoryManagerStatus.NotInOrbit, "Not in Orbit"),
+            ("Fay", DirectoryManagerStatus.Deactivated, "Deactivated in Orbit"),
+            ("Hal", DirectoryManagerStatus.DisabledInDirectory, "Disabled in the directory"),
+            ("Jo", DirectoryManagerStatus.ToBeImported, "Set if imported together")
+        ];
+        foreach (var (name, status, note) in unmatched)
+        {
+            Assert.Equal(status, rows[name].Manager.Status);
+            Assert.Null(rows[name].Manager.UserId);
+            Assert.Equal(note, DirectoryImportRules.ManagerNote(rows[name].Manager));
+        }
+        Assert.Equal("Zed", rows["Cat"].Manager.Name);
+        Assert.Equal(rows["Kim"].Key, rows["Jo"].Manager.Key);
+        // "Imported together" is no help to someone who is in Orbit already, or can't be imported.
+        Assert.Equal("Not in Orbit yet", DirectoryImportRules.ManagerNote(rows["Jo"].Manager, importable: false));
+    }
+
+    /// <summary>DIM-014: a manager is created before the people who report to them; a circle in the directory leaves whoever closes it without one.</summary>
+    [Fact]
+    public void Managers_are_created_before_their_reports()
+    {
+        var old = Person("Old");
+        var (rows, _) = Managers([old], true,
+            Entry("Old", Mail("Old")),
+            Entry("Ann", Mail("Ann"), manager: "Zed"),
+            Entry("Bob", Mail("Bob"), manager: "Ann"),
+            Entry("Cy", Mail("Cy"), manager: "Di"),
+            Entry("Di", Mail("Di"), manager: "Cy"),
+            Entry("Eve", Mail("Eve"), manager: "Old"),
+            Entry("Zed", Mail("Zed")));
+        var ready = new[] { "Ann", "Bob", "Cy", "Di", "Eve", "Zed" }.Select(n => rows[n]).ToList();
+
+        var order = DirectoryImportRules.ImportOrder(ready);
+        Assert.Equal(["Zed", "Ann", "Bob", "Di", "Cy", "Eve"], order.Select(r => r.DisplayName));
+
+        var created = new Dictionary<string, Guid>();
+        var managers = new Dictionary<string, (Guid? ManagerId, string? Note)>();
+        foreach (var row in order)
+        {
+            managers[row.DisplayName] = DirectoryImportRules.ImportManager(row, created);
+            created[row.Key] = Guid.NewGuid();
+        }
+        Assert.Equal(With(null), managers["Zed"]);
+        Assert.Equal(With(created[rows["Zed"].Key]), managers["Ann"]);
+        Assert.Equal(With(created[rows["Ann"].Key]), managers["Bob"]);
+        Assert.Equal(With(null, "Cy wasn't in Orbit yet"), managers["Di"]);
+        Assert.Equal(With(created[rows["Di"].Key]), managers["Cy"]);
+        Assert.Equal(With(old.Id), managers["Eve"]);
+
+        // Ticked without their manager: created all the same, and told why they have none.
+        Assert.Equal(With(null, "Zed wasn't in Orbit yet"),
+            DirectoryImportRules.ImportManager(DirectoryImportRules.ImportOrder([rows["Ann"]]).Single(), new Dictionary<string, Guid>()));
+    }
+
+    /// <summary>
+    /// DIM-015: for someone already in Orbit a manager is offered only when the one matched differs from theirs. Nothing the directory
+    /// leaves blank or Orbit can't match clears a manager, and a person two entries claim, deactivated in Orbit or disabled in the
+    /// directory is offered nothing.
+    /// </summary>
+    [Fact]
+    public void A_manager_is_offered_only_where_the_directory_and_orbit_differ()
+    {
+        var ann = Person("Ann");
+        var old = Person("Old", active: false);
+        var bob = Person("Bob", ann);
+        var cat = Person("Cat", ann);
+        var dan = Person("Dan", old);
+        var eve = Person("Eve", ann);
+        var fay = Person("Fay", active: false);
+        var gus = Person("Gus");
+        var hal = Person("Hal");
+        var ian = Person("Ian");
+        var jo = Person("Jo");
+        var (rows, changes) = Managers([ann, old, bob, cat, dan, eve, fay, gus, hal, ian, jo], true,
+            Entry("Ann", Mail("Ann")),
+            Entry("Bob", Mail("Bob"), manager: "Ann"),          // the same in both
+            Entry("Cat", Mail("Cat"), manager: "Bob"),          // another in Orbit
+            Entry("Dan", Mail("Dan"), manager: "Ann"),          // a deactivated one in Orbit
+            Entry("Eve", Mail("Eve")),                          // blank in the directory
+            Entry("Fay", Mail("Fay"), manager: "Ann"),          // deactivated in Orbit
+            Entry("Gus", Mail("Gus"), manager: "Ann"),          // none in Orbit
+            Entry("Hal", Mail("Hal"), manager: "Zed"),          // not matched
+            Entry("Ian", Mail("Ian"), manager: "Ann"),
+            Entry("Ian Admin", Mail("Ian"), manager: "Bob"),    // two entries, one Orbit user
+            Entry("Jo", Mail("Jo"), disabled: true, manager: "Ann"),
+            Entry("Kim", Mail("Kim"), manager: "Ann"));         // not in Orbit: that is an import
+
+        Assert.Collection(changes,
+            c =>
+            {
+                Assert.Equal((cat.Id, "Cat", ManagerChangeKind.Change), (c.UserId, c.DisplayName, c.Kind));
+                Assert.Equal(ann.Id, c.CurrentManagerId);
+                Assert.Equal(("Ann", false), (c.CurrentManagerName, c.CurrentManagerInactive));
+                Assert.Equal((bob.Id, "Bob"), (c.ManagerId, c.ManagerName));
+                Assert.Equal($"{cat.Id}:{bob.Id}", c.Tick);
+            },
+            c =>
+            {
+                Assert.Equal((dan.Id, ManagerChangeKind.Change, ann.Id), (c.UserId, c.Kind, c.ManagerId));
+                Assert.Equal(("Old", true), (c.CurrentManagerName, c.CurrentManagerInactive));
+            },
+            c => Assert.Equal((gus.Id, ManagerChangeKind.Set, ann.Id), (c.UserId, c.Kind, c.ManagerId)));
+
+        // The manager Orbit has is shown beside a blank in the directory, and kept.
+        Assert.Equal(DirectoryManager.None, rows["Eve"].Manager);
+        Assert.Equal("Ann", rows["Eve"].OrbitManagerName);
+    }
+
+    /// <summary>DIM-016: a manager the listing doesn't include is shown by the first name in their DN.</summary>
+    [Fact]
+    public void An_unlisted_manager_is_named_from_the_dn()
+    {
+        Assert.Equal("Zed", DirectoryImportRules.NameFromDn(Dn("Zed")));
+        Assert.Equal("Smith, Ann", DirectoryImportRules.NameFromDn(@"CN=Smith\, Ann,OU=Staff,DC=corp"));
+        Assert.Equal("Smith, Ann", DirectoryImportRules.NameFromDn(@"CN=Smith\2C Ann,OU=Staff,DC=corp"));
+        Assert.Equal("jdoe", DirectoryImportRules.NameFromDn("uid=jdoe,ou=people,dc=example,dc=org"));
+        Assert.Equal("not a dn", DirectoryImportRules.NameFromDn(" not a dn "));
+    }
+
+    /// <summary>DIM-017: when the agent read no managers, every row says so; nobody is offered one and nobody is created with one.</summary>
+    [Fact]
+    public void Managers_that_were_not_read_are_not_guessed()
+    {
+        var ann = Person("Ann");
+        var bob = Person("Bob");
+        var (rows, changes) = Managers([ann, bob], false,
+            Entry("Ann", Mail("Ann")),
+            Entry("Bob", Mail("Bob"), manager: "Ann"),
+            Entry("Cat", Mail("Cat"), manager: "Ann"));
+
+        Assert.All(rows.Values, r => Assert.Equal(DirectoryManager.NotRead, r.Manager));
+        Assert.Empty(changes);
+        Assert.Equal(With(null), DirectoryImportRules.ImportManager(rows["Cat"], new Dictionary<string, Guid>()));
     }
 }

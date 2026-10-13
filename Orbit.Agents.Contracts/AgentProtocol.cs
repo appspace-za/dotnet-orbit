@@ -37,6 +37,12 @@ public static class AgentCapabilities
     public const string LdapAuthenticate = "ldap.authenticate";
     public const string LdapTest = "ldap.test";
     public const string LdapListUsers = "ldap.list-users";
+    /// <summary>
+    /// Reads each person's manager while listing users (<see cref="LdapListUsersRequest.ManagerAttribute"/>); announced by
+    /// agent 1.4 and later. It extends <see cref="AgentMethods.ListDirectoryUsers"/> rather than adding a command: an older
+    /// agent answers the same request without the managers.
+    /// </summary>
+    public const string LdapListManagers = "ldap.list-managers";
     /// <summary>Runs request action scripts (<see cref="AgentMethods.RunScript"/>); announced by agent 1.2 and later.</summary>
     public const string ScriptRun = "script.run";
     /// <summary>Reads Nagios status (<see cref="AgentMethods.QueryNagios"/>); announced by agent 1.3 and later.</summary>

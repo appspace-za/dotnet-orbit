@@ -62,7 +62,7 @@ A user may be given a **manager** (whom they report to) on their page under **Ad
 **manager** (who runs it, in the department or not) under **Admin > Departments**. Both are optional and grant
 nothing by themselves: they are who a request flow asks when an approval names *the requester's manager* or *the
 manager of the requester's department* (below). Nobody can be their own manager, or report to someone who reports
-to them.
+to them. A user's manager can also be taken from Active Directory: see **Import from directory** below.
 
 ## Permissions and scopes
 
@@ -193,7 +193,8 @@ dotnet run --project Orbit.Agent -- help
 
 **Admin > Users > Import from directory** creates Orbit accounts for people already in AD, so a take-on of a hundred
 staff isn't a hundred trips through *Create user* (spec §6.13.1). It needs directory sign-in enabled and an agent of
-**version 1.1 or later** - older agents keep handling sign-ins but can't list, and the page says so.
+**version 1.1 or later** - older agents keep handling sign-ins but can't list, and the page says so. Reading managers
+(below) needs **version 1.4 or later**; with an older agent everything else on the page still works.
 
 1. **Load directory users.** The filter defaults to your sign-in filter with `*` for `{0}` (so it lists the people who
    could sign in); narrow it with `memberOf`, or narrow the search base to one OU. Up to 5,000 people per listing.
@@ -204,8 +205,21 @@ staff isn't a hundred trips through *Create user* (spec §6.13.1). It needs dire
    Orbit, disabled in AD, without an email or sharing one with someone else can't be ticked, and say why.
 
 Imported users sign in with their directory email and password. If the role needs a department and a ticked person
-has none, nothing is imported until you choose one. Each account is audited as imported from the directory. It is a
-one-off: nothing is kept in step with AD afterwards.
+has none, nothing is imported until you choose one. Each account is audited as imported from the directory. After an
+import the list is shown again under the result, with your department choices and role kept for the next people.
+
+**Managers.** The listing also reads AD's `manager` attribute, and matches it to an Orbit user through the list: the
+manager's own entry has to be in it (widen the filter or the search base if a manager shows as *Not in this list*) and
+its email has to be an active Orbit user's.
+
+- People you import are created with their manager - a manager ticked in the same import is created first.
+- People **already in Orbit** whose manager differs from AD's are listed under **Managers that differ from the
+  directory**. Tick the ones to change and **Update ticked managers**; nothing is ticked for you.
+- A manager AD leaves blank, or names but Orbit can't match, never removes one set in Orbit.
+- **Import ticked** and **Update ticked managers** are two buttons of one list: either keeps what you ticked and chose
+  for the other.
+
+Nothing happens by itself: Orbit follows AD only when you load the directory and act here.
 
 ## Claude / MCP
 

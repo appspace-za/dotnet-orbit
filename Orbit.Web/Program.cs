@@ -216,8 +216,9 @@ builder.Services.AddMcpServer(o =>
     .WithTools<OrbitTools>();
 
 // --- Orbit Agents (on-premises connector, outbound SignalR connection) ----------------------
-// A directory listing for the user import comes back as one message, far above SignalR's 32 KB default (about 400 bytes
-// a person, at most DirectoryImportService.MaxUsers people). Only an authenticated agent can reach this hub at all.
+// A directory listing for the user import comes back as one message, far above SignalR's 32 KB default (about 500 bytes
+// a person with their manager's DN, at most DirectoryImportService.MaxUsers people). Only an authenticated agent can reach
+// this hub at all.
 builder.Services.AddSignalR().AddHubOptions<AgentHub>(o => o.MaximumReceiveMessageSize = 8 * 1024 * 1024);
 builder.Services.AddSingleton<AgentConnectionRegistry>();
 builder.Services.AddRateLimiter(o =>

@@ -6,16 +6,30 @@
     var s = Model.Setup;
     var p = Model.Preview;
     var o = Model.Outcome;
+    var mo = Model.ManagersOutcome;
     var q = Model.Query;
     var selected = Model.SelectedKeys;
+    var tickedManagers = Model.TickedManagers;
     var emailSource = p?.EmailSource ?? s.EmailSource;
 
-    // The query travels with the Import and "Load again" forms, so they read the directory exactly as it was listed.
-    void QueryFields(DirectoryImportQuery query)
+    // Who an import or an update left out, and why: the same table in both results.
+    void Skipped(IReadOnlyList<SkippedUser> skipped)
     {
-        <input type="hidden" name="Query.Filter" value="@query.Filter" />
-        <input type="hidden" name="Query.SearchBase" value="@query.SearchBase" />
-        <input type="hidden" name="Query.DepartmentAttribute" value="@query.DepartmentAttribute" />
+        if (skipped.Count == 0) return;
+        <details open>
+            <summary class="small fw-semibold">Skipped</summary>
+            <div class="table-responsive mt-2" style="max-height:24rem">
+                <table class="table table-sm align-middle mb-0">
+                    <thead class="table-light"><tr><th>Name</th><th>Email</th><th>Why</th></tr></thead>
+                    <tbody>
+                        @foreach (var u in skipped)
+                        {
+                            <tr><td>@u.DisplayName</td><td>@(u.Email ?? "-")</td><td>@u.Reason</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </details>
     }
 }
 
@@ -27,7 +41,7 @@
 </nav>
 <div class="mb-3">
     <h1 class="h3 mb-0">Import from directory</h1>
-    <div class="text-muted small">Creates Orbit accounts for people in your company directory (Active Directory), who then sign in with their directory password. An <a asp-page="/Admin/Agents/Index">Orbit Agent</a> reads the directory; you choose who is imported, their role and their department. It is a one-off: nothing is kept in step with the directory afterwards.</div>
+    <div class="text-muted small">Creates Orbit accounts for people in your company directory (Active Directory), who then sign in with their directory password. An <a asp-page="/Admin/Agents/Index">Orbit Agent</a> reads the directory; you choose who is imported, their role and their department, and each person gets the manager the directory names when that manager is in Orbit. People already in Orbit whose manager differs from the directory's are listed for you to update. Nothing happens by itself: Orbit follows the directory only when you do it here.</div>
 </div>
 
 @if (!s.DirectoryEnabled)
@@ -51,6 +65,14 @@ else if (s.AgentsAbleToList == 0)
         <a asp-page="/Admin/Agents/Index">Manage agents</a>
     </div>
 }
+else if (s.AgentsAbleToReadManagers == 0)
+{
+    <div class="alert alert-info">
+        <span class="fw-semibold">Managers aren't read.</span>
+        The connected Orbit Agent@(s.AgentsAbleToList == 1 ? " is" : "s are") older than version 1.4, so people are imported without a manager and managers can't be updated from the directory. Everything else on this page works as before.
+        <a asp-page="/Admin/Agents/Index">Manage agents</a>
+    </div>
+}
 
 @if (ViewData.ModelState[string.Empty]?.Errors.Count > 0)
 {
@@ -67,43 +89,65 @@ else if (s.AgentsAbleToList == 0)
             @if (o.Imported.Count > 0)
             {
                 <p class="small mb-2">They can sign in now with their directory email and password. Each account is recorded in the activity log as imported from the directory.</p>
+                @if (!o.ManagersRead && s.AgentsAbleToReadManagers > 0)
+                {
+                    <p class="small text-warning-emphasis mb-2">Their managers weren't read: the agent that answered this time is older than version 1.4. Load the directory again and set them with <span class="fw-semibold">Update ticked managers</span>.</p>
+                }
                 <details class="mb-2" open="@(o.Imported.Count <= 20)">
                     <summary class="small fw-semibold">Imported</summary>
                     <div class="table-responsive mt-2" style="max-height:24rem">
                         <table class="table table-sm align-middle mb-0">
-                            <thead class="table-light"><tr><th>Name</th><th>Email</th><th>Department</th></tr></thead>
+                            <thead class="table-light"><tr><th>Name</th><th>Email</th><th>Department</th>@if (o.ManagersRead) { <th>Manager</th> }</tr></thead>
                             <tbody>
                                 @foreach (var u in o.Imported)
                                 {
-                                    <tr><td><a asp-page="/Admin/Users/Edit" asp-route-id="@u.Id">@u.DisplayName</a></td><td>@u.Email</td><td>@(u.DepartmentName ?? "-")</td></tr>
+                                    <tr>
+                                        <td><a asp-page="/Admin/Users/Edit" asp-route-id="@u.Id">@u.DisplayName</a></td><td>@u.Email</td><td>@(u.DepartmentName ?? "-")</td>
+                                        @if (o.ManagersRead)
+                                        {
+                                            <td>
+                                                @(u.ManagerName ?? "-")
+                                                @if (u.ManagerNote is not null) { <span class="small text-muted">(@u.ManagerNote)</span> }
+                                            </td>
+                                        }
+                                    </tr>
                                 }
                             </tbody>
                         </table>
                     </div>
                 </details>
             }
-            @if (o.Skipped.Count > 0)
+            @{ Skipped(o.Skipped); }
+        </div>
+    </div>
+}
+
+@if (mo is not null)
+{
+    <div class="card mb-3">
+        <div class="card-header fw-semibold">
+            @(mo.Updated.Count == 0 ? "No manager was changed" : $"Changed the manager of {People(mo.Updated.Count)}")@(mo.Skipped.Count == 0 ? "" : $", {mo.Skipped.Count} skipped")
+        </div>
+        <div class="card-body">
+            @if (mo.Updated.Count > 0)
             {
-                <details open>
-                    <summary class="small fw-semibold">Skipped</summary>
+                <p class="small mb-2">Each change is recorded in the activity log as made from the directory. Nobody was signed out.</p>
+                <details class="mb-2" open="@(mo.Updated.Count <= 20)">
+                    <summary class="small fw-semibold">Changed</summary>
                     <div class="table-responsive mt-2" style="max-height:24rem">
                         <table class="table table-sm align-middle mb-0">
-                            <thead class="table-light"><tr><th>Name</th><th>Email</th><th>Why</th></tr></thead>
+                            <thead class="table-light"><tr><th>Name</th><th>Manager was</th><th>Manager is now</th></tr></thead>
                             <tbody>
-                                @foreach (var u in o.Skipped)
+                                @foreach (var u in mo.Updated)
                                 {
-                                    <tr><td>@u.DisplayName</td><td>@(u.Email ?? "-")</td><td>@u.Reason</td></tr>
+                                    <tr><td><a asp-page="/Admin/Users/Edit" asp-route-id="@u.UserId">@u.DisplayName</a></td><td>@(u.FromName ?? "-")</td><td>@u.ToName</td></tr>
                                 }
                             </tbody>
                         </table>
                     </div>
                 </details>
             }
-            <form method="post" asp-page-handler="Load" class="mt-3">
-                @{ QueryFields(q); }
-                <input type="hidden" name="RoleId" value="@Model.RoleId" />
-                <button type="submit" class="btn btn-outline-primary btn-sm">Load the directory again</button>
-            </form>
+            @{ Skipped(mo.Skipped); }
         </div>
     </div>
 }
@@ -141,28 +185,85 @@ else if (s.AgentsAbleToList == 0)
 @if (p is not null)
 {
     var linked = p.Rows.Count(r => r.CanImport && r.IsLinked);
-    <form method="post" asp-page-handler="Import" id="importForm" data-confirm="Create Orbit accounts for the ticked people?">
-        @{ QueryFields(p.Query); }
-
-        <div class="d-flex flex-wrap gap-2 mb-3 small">
-            <span class="badge text-bg-light border">@p.Rows.Count found@(p.AgentName is null ? "" : $" by agent \"{p.AgentName}\"")</span>
-            <span class="badge text-bg-success">@p.ReadyCount ready to import</span>
-            @if (p.ReadyCount > 0)
-            {
-                <span class="badge text-bg-light border">@linked linked to a department</span>
-                @if (p.UnlinkedCount > 0) { <span class="badge text-bg-warning">@p.UnlinkedCount not linked</span> }
-            }
-            <span class="badge text-bg-secondary">@p.InOrbitCount already in Orbit</span>
-            @if (p.BlockedCount > 0) { <span class="badge text-bg-secondary">@p.BlockedCount can't be imported</span> }
-        </div>
-        @if (p.Truncated)
+    var changing = p.ManagerChanges.ToDictionary(c => c.UserId);
+    <div class="d-flex flex-wrap gap-2 mb-3 small">
+        <span class="badge text-bg-light border">@p.Rows.Count found@(p.AgentName is null ? "" : $" by agent \"{p.AgentName}\"")</span>
+        <span class="badge text-bg-success">@p.ReadyCount ready to import</span>
+        @if (p.ReadyCount > 0)
         {
-            <div class="alert alert-warning py-2">The directory has more entries than the @DirectoryImportService.MaxUsers.ToString("N0") read. Narrow the filter or the search base, and import in parts.</div>
+            <span class="badge text-bg-light border">@linked linked to a department</span>
+            @if (p.UnlinkedCount > 0) { <span class="badge text-bg-warning">@p.UnlinkedCount not linked</span> }
         }
-        <p class="small text-muted">
-            Emails come from each person's <code>@emailSource.Attribute</code> attribute, the one your sign-in filter looks people up by.
-            @if (emailSource.Warning is not null) { <span class="text-warning-emphasis d-block">@emailSource.Warning</span> }
-        </p>
+        <span class="badge text-bg-secondary">@p.InOrbitCount already in Orbit</span>
+        @if (p.ManagerChanges.Count > 0) { <span class="badge text-bg-info">@p.ManagerChanges.Count with another manager in the directory</span> }
+        @if (p.BlockedCount > 0) { <span class="badge text-bg-secondary">@p.BlockedCount can't be imported</span> }
+    </div>
+    @if (p.Truncated)
+    {
+        <div class="alert alert-warning py-2">The directory has more entries than the @DirectoryImportService.MaxUsers.ToString("N0") read. Narrow the filter or the search base, and import in parts. A manager among the entries not read shows as "Not in this list".</div>
+    }
+    @if (!p.ManagersRead && s.AgentsAbleToReadManagers > 0)
+    {
+        <div class="alert alert-warning py-2">Agent "@p.AgentName" answered this time, and it is older than version 1.4, so managers weren't read. Load the directory again to ask a newer agent.</div>
+    }
+    <p class="small text-muted">
+        Emails come from each person's <code>@emailSource.Attribute</code> attribute, the one your sign-in filter looks people up by.
+        @if (emailSource.Warning is not null) { <span class="text-warning-emphasis d-block">@emailSource.Warning</span> }
+    </p>
+
+    @* One form with two actions, so that either keeps what was ticked and chosen for the other. Each button asks its own
+       question (data-confirm on the button, site.js) and Update names its own handler; the form's is the import's. *@
+    <form method="post" asp-page-handler="Import" id="importForm">
+        @* The query travels with the form, so both actions read the directory exactly as it was listed. *@
+        <input type="hidden" name="Query.Filter" value="@p.Query.Filter" />
+        <input type="hidden" name="Query.SearchBase" value="@p.Query.SearchBase" />
+        <input type="hidden" name="Query.DepartmentAttribute" value="@p.Query.DepartmentAttribute" />
+
+        @if (p.ManagerChanges.Count > 0)
+        {
+            <div class="card border-info mb-3">
+                <div class="card-header d-flex flex-wrap align-items-center gap-2">
+                    <span class="fw-semibold">Managers that differ from the directory</span>
+                    <input type="search" class="form-control form-control-sm js-table-filter" data-filter-target="#managerChanges" placeholder="Filter by name..." style="max-width:16rem" aria-label="Filter the managers" />
+                    <span class="small text-muted"><span class="js-selected-count" data-count-of="#managerChanges">@p.ManagerChanges.Count(c => tickedManagers.Contains(c.Tick))</span> ticked</span>
+                    <button type="submit" asp-page-handler="Managers" class="btn btn-primary btn-sm ms-auto" data-confirm="Change the manager of the ticked people to the one the directory names?">Update ticked managers</button>
+                </div>
+                <div class="card-body p-0">
+                    <p class="small text-muted px-3 pt-3 mb-2">These people are already in Orbit, and the directory names another manager for them who is in Orbit too. Tick the ones to change. Nobody else is touched: a manager the directory leaves blank, or names but Orbit can't match, never removes one set in Orbit.</p>
+                    <div class="table-responsive" style="max-height:28rem">
+                        <table class="table table-sm table-hover align-middle mb-0" id="managerChanges">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="width:2rem"><input type="checkbox" class="form-check-input js-select-all" title="Tick everyone shown" aria-label="Tick all managers" /></th>
+                                    <th>Person</th><th>Manager in Orbit</th><th>Manager in the directory</th><th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var c in p.ManagerChanges)
+                                {
+                                    <tr>
+                                        <td><input type="checkbox" class="form-check-input js-select-item" name="ManagerTicks" value="@c.Tick" checked="@tickedManagers.Contains(c.Tick)" aria-label="Change the manager of @c.DisplayName" /></td>
+                                        <td>
+                                            <a asp-page="/Admin/Users/Edit" asp-route-id="@c.UserId">@c.DisplayName</a>
+                                            <div class="small text-muted">@c.Email</div>
+                                        </td>
+                                        <td>
+                                            @(c.CurrentManagerName ?? "-")
+                                            @if (c.CurrentManagerInactive) { <span class="text-muted">(deactivated)</span> }
+                                        </td>
+                                        <td>@c.ManagerName</td>
+                                        <td>
+                                            @if (c.Kind == ManagerChangeKind.Set) { <span class="badge text-bg-light border">Sets a manager</span> }
+                                            else { <span class="badge text-bg-warning">Replaces</span> }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
 
         @if (p.Unlinked.Count > 0)
         {
@@ -215,7 +316,7 @@ else if (s.AgentsAbleToList == 0)
                             <option value="@r.Id" title="@r.Description" selected="@(r.Id == Model.RoleId)">@r.Name@(r.RequiresDepartment ? " (needs a department)" : "")</option>
                         }
                     </select>
-                    <button type="submit" class="btn btn-primary btn-sm" disabled="@(p.ReadyCount == 0)">Import ticked</button>
+                    <button type="submit" class="btn btn-primary btn-sm" disabled="@(p.ReadyCount == 0)" data-confirm="Create Orbit accounts for the ticked people?">Import ticked</button>
                 </div>
             </div>
             <div class="card-body p-0">
@@ -224,7 +325,9 @@ else if (s.AgentsAbleToList == 0)
                         <thead class="table-light">
                             <tr>
                                 <th style="width:2rem"><input type="checkbox" class="form-check-input js-select-all" title="Tick everyone shown who can be imported" aria-label="Tick all" /></th>
-                                <th>Name</th><th>Email</th><th>Account</th><th>Directory department</th><th>Orbit department</th><th>Status</th>
+                                <th>Name</th><th>Email</th><th>Account</th><th>Directory department</th><th>Orbit department</th>
+                                @if (p.ManagersRead) { <th>Manager in the directory</th> }
+                                <th>Status</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -250,6 +353,19 @@ else if (s.AgentsAbleToList == 0)
                                         else if (r.IsLinked) { @r.DepartmentName }
                                         else { <span class="badge text-bg-warning" title="Choose a department for it above">Not linked</span> }
                                     </td>
+                                    @if (p.ManagersRead)
+                                    {
+                                        var note = DirectoryImportRules.ManagerNote(r.Manager, r.CanImport);
+                                        // For someone already in Orbit: the manager they have there, wherever it isn't the one named here.
+                                        var inOrbit = r.ExistingUserId is Guid uid && changing.TryGetValue(uid, out var change) ? change.CurrentManagerName ?? "none"
+                                            : r.Manager.Status != DirectoryManagerStatus.Resolved ? r.OrbitManagerName
+                                            : null;
+                                        <td>
+                                            @(r.Manager.Name ?? "-")
+                                            @if (note is not null) { <div class="small text-muted">@note</div> }
+                                            @if (inOrbit is not null) { <div class="small text-muted">In Orbit: @inOrbit</div> }
+                                        </td>
+                                    }
                                     <td>
                                         @switch (r.Status)
                                         {

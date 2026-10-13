@@ -88,9 +88,12 @@ public sealed class DirectoryAuthService(
     /// (1.1 and later). The caller authorises and fills in the settings; this only carries the request. Agents are asked
     /// in turn while time remains, so one that dropped its connection doesn't sink the listing, but the whole attempt
     /// stays within <see cref="AgentOptions.DirectoryListTimeoutSeconds"/> - the admin's browser is waiting on it.
+    /// A request that names a manager attribute gets managers back only from an agent able to read them (1.4 and
+    /// later); an older one answers the same request without managers, and the outcome says which it was.
     /// </summary>
     public async Task<DirectoryListOutcome> ListUsersAsync(LdapListUsersRequest request, CancellationToken ct = default)
     {
+        var wantsManagers = !string.IsNullOrWhiteSpace(request.ManagerAttribute);
         var agents = registry.WithCapability(AgentCapabilities.LdapListUsers);
         if (agents.Count == 0)
             return new DirectoryListOutcome(null, null, registry.WithCapability(AgentCapabilities.LdapAuthenticate).Count == 0
@@ -106,7 +109,8 @@ public sealed class DirectoryAuthService(
             // The agent gets a little less than Orbit waits, so it can still report "timed out" itself.
             request.TimeLimitSeconds = Math.Max(5, (int)remaining.TotalSeconds - 5);
             var result = await InvokeAsync<LdapListUsersResult>(agent, AgentMethods.ListDirectoryUsers, request, remaining, ct);
-            if (result is not null) return new DirectoryListOutcome(agent.AgentName, result, null);
+            if (result is not null)
+                return new DirectoryListOutcome(agent.AgentName, result, null, wantsManagers && agent.Capabilities.Contains(AgentCapabilities.LdapListManagers));
             error = $"Agent \"{agent.AgentName}\" did not answer in time or lost its connection. Orbit's log has the details.";
         }
         return new DirectoryListOutcome(null, null, error ?? $"No agent could answer within {ListTimeoutSeconds} seconds.");

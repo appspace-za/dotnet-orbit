@@ -149,6 +149,9 @@ public sealed partial class LdapDirectory(ILogger<LdapDirectory> logger)
         var departmentAttribute = string.IsNullOrWhiteSpace(request.DepartmentAttribute) ? "department" : request.DepartmentAttribute.Trim();
         if (!AttributeName().IsMatch(departmentAttribute))
             return Failed(result, $"\"{departmentAttribute}\" is not an attribute name");
+        var managerAttribute = string.IsNullOrWhiteSpace(request.ManagerAttribute) ? null : request.ManagerAttribute.Trim();
+        if (managerAttribute is not null && !AttributeName().IsMatch(managerAttribute))
+            return Failed(result, $"\"{managerAttribute}\" is not an attribute name");
         var searchBase = string.IsNullOrWhiteSpace(request.SearchBase) ? settings.SearchBase ?? string.Empty : request.SearchBase.Trim();
         var max = Math.Clamp(request.MaxResults, 1, 50_000);
         var seconds = Math.Clamp(request.TimeLimitSeconds, 5, 600);
@@ -157,7 +160,7 @@ public sealed partial class LdapDirectory(ILogger<LdapDirectory> logger)
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(stopping);
         budget.CancelAfter(TimeSpan.FromSeconds(seconds));
         var ct = budget.Token;
-        string[] attributes = [.. ListAttributes, departmentAttribute];
+        string[] attributes = managerAttribute is null ? [.. ListAttributes, departmentAttribute] : [.. ListAttributes, departmentAttribute, managerAttribute];
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var step = $"connect to {settings.Server}:{settings.Port}";
         try
@@ -201,7 +204,7 @@ public sealed partial class LdapDirectory(ILogger<LdapDirectory> logger)
                         result.Truncated = true;
                         break;
                     }
-                    var user = ToDirectoryUser(entry, departmentAttribute);
+                    var user = ToDirectoryUser(entry, departmentAttribute, managerAttribute);
                     if (seen.Add(user.Id)) result.Users.Add(user);
                 }
                 if (result.Truncated) break;
@@ -245,7 +248,7 @@ public sealed partial class LdapDirectory(ILogger<LdapDirectory> logger)
         };
     }
 
-    private static LdapDirectoryUser ToDirectoryUser(LdapEntry entry, string departmentAttribute)
+    private static LdapDirectoryUser ToDirectoryUser(LdapEntry entry, string departmentAttribute, string? managerAttribute)
     {
         var guid = entry.GetBytesValueOrDefault("objectGUID", null);
         var control = Text(entry, "userAccountControl");
@@ -262,6 +265,7 @@ public sealed partial class LdapDirectory(ILogger<LdapDirectory> logger)
             SamAccountName = Text(entry, "sAMAccountName"),
             Title = Text(entry, "title"),
             Department = Text(entry, departmentAttribute),
+            Manager = managerAttribute is null ? null : Text(entry, managerAttribute),
             Disabled = int.TryParse(control, out var flags) && (flags & AccountDisabled) != 0
         };
     }

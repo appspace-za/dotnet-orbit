@@ -82,6 +82,11 @@ public sealed class LdapListUsersRequest
     public string? SearchBase { get; set; }
     /// <summary>The attribute read into <see cref="LdapDirectoryUser.Department"/>.</summary>
     public string DepartmentAttribute { get; set; } = "department";
+    /// <summary>
+    /// The attribute read into <see cref="LdapDirectoryUser.Manager"/>, e.g. <c>manager</c>; null reads none. Only an agent
+    /// announcing <see cref="AgentCapabilities.LdapListManagers"/> (1.4 and later) reads it; an older one ignores it.
+    /// </summary>
+    public string? ManagerAttribute { get; set; }
     /// <summary>Stop after this many entries and report <see cref="LdapListUsersResult.Truncated"/>.</summary>
     public int MaxResults { get; set; } = 5000;
     /// <summary>How long the agent may spend, so it answers before Orbit stops waiting.</summary>
@@ -102,6 +107,8 @@ public sealed class LdapDirectoryUser
     public string? Title { get; set; }
     /// <summary>The value of the requested department attribute.</summary>
     public string? Department { get; set; }
+    /// <summary>The value of the requested manager attribute: the DN of the manager's own entry. Null when none was asked for.</summary>
+    public string? Manager { get; set; }
     /// <summary>Active Directory's "account disabled" flag (userAccountControl bit 0x2).</summary>
     public bool Disabled { get; set; }
 }

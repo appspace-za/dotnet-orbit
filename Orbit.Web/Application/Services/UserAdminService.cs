@@ -67,9 +67,51 @@ public sealed class UserAdminService(
 
         audit.Add(actor, AuditEntity.User, user.Id, AuditAction.Created, departmentId, displayName, input.DirectoryDn is null
             ? new { email, role = role.Name, roleId = role.Id, departmentId, managerId, authSource = input.AuthSource }
-            : new { email, role = role.Name, roleId = role.Id, departmentId, authSource = input.AuthSource, source = "directoryImport", directoryDn = input.DirectoryDn });
+            : new { email, role = role.Name, roleId = role.Id, departmentId, managerId, authSource = input.AuthSource, source = DirectoryImportSource, directoryDn = input.DirectoryDn });
         await db.SaveChangesAsync(ct);
         return await GetAsync(user.Id, ct);
+    }
+
+    /// <summary>How the audit details mark a user created, or a manager set, by "Import from directory" (spec §6.13.1).</summary>
+    public const string DirectoryImportSource = "directoryImport";
+
+    /// <summary>
+    /// Sets the managers of several people at once, for the directory import's "Update managers" (spec §6.13.1). The people and
+    /// the reporting lines are read once and <see cref="ManagerRules.DecideAll"/> decides each change, so the rules are those of
+    /// the user's own page, and a refused person doesn't hold up the rest. The accepted changes are saved together with one
+    /// <c>Updated</c> audit entry each, marked <paramref name="source"/>. As for any change to the manager alone, nobody's
+    /// session is ended (§6.5).
+    /// </summary>
+    public async Task<IReadOnlyList<ManagerDecision>> SetManagersAsync(IReadOnlyList<ManagerChange> wanted, string source, CancellationToken ct = default)
+    {
+        var actor = await RequireAdminAsync(ct);
+        if (wanted.Count == 0) return [];
+
+        var ids = wanted.SelectMany(w => new[] { w.UserId, w.ManagerId }).ToHashSet();
+        var people = await db.Users.Where(u => ids.Contains(u.Id)).ToDictionaryAsync(u => u.Id, ct);
+        var decisions = ManagerRules.DecideAll(wanted, people, await ReportingLinesAsync(ct));
+
+        foreach (var decision in decisions.Where(d => d.Accepted))
+        {
+            var user = people[decision.UserId];
+            var changes = new ChangeSet().Track("managerId", user.ManagerId, (Guid?)decision.ManagerId);
+            if (!changes.HasChanges) continue;
+            user.ManagerId = decision.ManagerId;
+            // Identity's own saves do this. Without it, a save of the same user in flight elsewhere would write the old manager back.
+            user.ConcurrencyStamp = Guid.NewGuid().ToString();
+            audit.Add(actor, AuditEntity.User, user.Id, AuditAction.Updated, user.DepartmentId, user.DisplayName,
+                new Dictionary<string, object?>(changes.Changes) { ["source"] = source });
+        }
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            db.ChangeTracker.Clear();
+            throw new ValidationException("One of these people was changed by someone else at the same moment, so no manager was changed. Load the directory again.");
+        }
+        return decisions;
     }
 
     public async Task<UserSummary> UpdateAsync(Guid id, UserInput input, CancellationToken ct = default)
@@ -77,7 +119,7 @@ public sealed class UserAdminService(
         var actor = await RequireAdminAsync(ct);
         var user = await userManager.FindByIdAsync(id.ToString())
             ?? throw new NotFoundException("User not found.");
-        if (user.IsSystemAccount) throw new ValidationException("The system account can't be edited.");
+        if (user.IsSystemAccount) throw new ValidationException(ManagerRules.SystemAccount);
 
         var displayName = RequireDisplayName(input.DisplayName);
         var role = await RequireRoleAsync(input.RoleId, ct);
@@ -270,17 +312,18 @@ public sealed class UserAdminService(
     {
         if (wanted is not Guid id || id == Guid.Empty) return null;
         if (id == current) return current;
-        if (id == userId) throw new ValidationException("A person can't be their own manager.");
-        var manager = await UserDirectoryService.RequireManagerAsync(db, id, ct);
-        if (userId is Guid self)
-        {
-            var managerOf = await db.Users.AsNoTracking().Where(u => u.ManagerId != null)
-                .ToDictionaryAsync(u => u.Id, u => u.ManagerId!.Value, ct);
-            if (ManagerRules.ReportsInACircle(self, id, managerOf))
-                throw new ValidationException($"{manager.DisplayName} reports to {displayName}, directly or through others, so can't also be their manager.");
-        }
+        var manager = await UserDirectoryService.FindManagerAsync(db, id, ct);
+        // Nobody reports to a user who is only now being created, so for them MGR-001 is the whole of it.
+        var refusal = userId is Guid self
+            ? ManagerRules.RefusalFor(self, displayName, manager, await ReportingLinesAsync(ct))
+            : ManagerRules.Refusal(manager);
+        if (refusal is not null) throw new ValidationException(refusal);
         return id;
     }
+
+    /// <summary>Every reporting line as it stands, each person to their manager.</summary>
+    private async Task<Dictionary<Guid, Guid>> ReportingLinesAsync(CancellationToken ct) =>
+        await db.Users.AsNoTracking().Where(u => u.ManagerId != null).ToDictionaryAsync(u => u.Id, u => u.ManagerId!.Value, ct);
 
     private static string RequireEmail(string? email)
     {

@@ -127,7 +127,7 @@ public sealed class AgentWorker(AgentConfig config, LdapDirectory ldap, ScriptRu
                 Capabilities =
                 [
                     AgentCapabilities.LdapAuthenticate, AgentCapabilities.LdapTest, AgentCapabilities.LdapListUsers, AgentCapabilities.ScriptRun,
-                    AgentCapabilities.NagiosQuery
+                    AgentCapabilities.NagiosQuery, AgentCapabilities.LdapListManagers
                 ]
             }, ct);
         }

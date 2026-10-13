@@ -82,6 +82,8 @@ Razor Pages and MCP tools are thin. Both call the same scoped services in `Orbit
 - **An agent command** is a method and capability in `Orbit.Agents.Contracts/AgentProtocol.cs`, a handler and `Hello`
   entry in `Orbit.Agent/AgentWorker.cs`, and a dispatcher in the web app that asks only agents announcing the
   capability. Bump the agent's `<Version>`; deployed agents are updated rarely, so keep the logic in the web app.
+  A capability can also extend an existing command with an optional request field (`ldap.list-managers`): an older
+  agent ignores the field, so record which kind answered.
 
 ## Spec and documentation conventions
 

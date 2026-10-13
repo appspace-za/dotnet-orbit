@@ -146,11 +146,15 @@ public sealed class UserDirectoryService(ApplicationDbContext db, IActorProvider
     /// </summary>
     public static async Task<ApplicationUser> RequireManagerAsync(ApplicationDbContext db, Guid managerId, CancellationToken ct)
     {
-        var manager = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == managerId, ct)
-            ?? throw new ValidationException("The person chosen as manager doesn't exist.");
+        var manager = await FindManagerAsync(db, managerId, ct);
         if (ManagerRules.Refusal(manager) is string refusal) throw new ValidationException(refusal);
         return manager;
     }
+
+    /// <summary>The person a save names as a manager, whoever they are; a refusal when there is no such person.</summary>
+    public static async Task<ApplicationUser> FindManagerAsync(ApplicationDbContext db, Guid managerId, CancellationToken ct) =>
+        await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == managerId, ct)
+            ?? throw new ValidationException(ManagerRules.NoSuchManager);
 
     /// <summary>
     /// The people the caller may name through a permission that reaches people (<see cref="Scoping.People"/>), by name - e.g. the

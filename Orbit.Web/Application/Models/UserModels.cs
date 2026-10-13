@@ -40,6 +40,15 @@ public sealed record UserSummary(
     public bool IsLockedOut => IsActive && LockoutEnd > DateTimeOffset.UtcNow;
 }
 
+/// <summary>One person's new manager in a batch (<see cref="Services.UserAdminService.SetManagersAsync"/>).</summary>
+public sealed record ManagerChange(Guid UserId, Guid ManagerId);
+
+/// <summary>What became of a <see cref="ManagerChange"/>: <see cref="Refusal"/> is null when it was accepted.</summary>
+public sealed record ManagerDecision(Guid UserId, Guid ManagerId, string? Refusal)
+{
+    public bool Accepted => Refusal is null;
+}
+
 public sealed record CreatedApiKey(ApiKey Key, string RawKey);
 
 public sealed class ApiKeyInput
