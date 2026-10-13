@@ -20,6 +20,8 @@ html {
   --orbit-well-bg: #eef0f3;
   --orbit-overdue: #b02a37;
   --orbit-claude: #6f42c1;
+  --orbit-type-change-bg: #fecba1;
+  --orbit-type-change-text: #653208;
   --orbit-gantt-grid: #e9ecef;
   --orbit-gantt-nonworking: #f3f4f6;
   --orbit-gantt-holiday: #e2e5ea;
@@ -41,6 +43,8 @@ html {
   --orbit-well-bg: #2b3035;
   --orbit-overdue: #f1707a;
   --orbit-claude: #8f66d6;
+  --orbit-type-change-bg: #331904;
+  --orbit-type-change-text: #feb272;
   --orbit-gantt-grid: #343a40;
   --orbit-gantt-nonworking: #262a2e;
   --orbit-gantt-holiday: #30353b;
@@ -252,6 +256,14 @@ html {
 .badge-claude {
   background: var(--orbit-claude);
   color: #fff;
+}
+
+/* The Change task type's badge: Bootstrap's subtle formula (a 60% shade on an 80% tint, and in the dark theme a 40%
+   tint on an 80% shade) for its orange, which it ships no -subtle utilities for. The light background is the 60%
+   tint instead: at 80% it sat between Audit's pale yellow and Problem's pale red and read as either. */
+.badge-type-change {
+  background: var(--orbit-type-change-bg);
+  color: var(--orbit-type-change-text);
 }
 
 .table-tasks td {

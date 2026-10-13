@@ -129,6 +129,12 @@ on it. **Take** is for a task with nobody assigned. Wherever tasks are counted b
 dashboard, the Today page - a shared task is under each of its assignees, whole, and once in the total: an estimate
 is never split. Each person added is emailed, and the due-soon reminder goes to every assignee.
 
+A task has a **type**, the kind of work it is: Meeting, Planning, Task (the default), Training, Audit, Change, Request
+or Problem. It is chosen on the task form, shown as a coloured badge beside the title (a plain Task has none in the
+lists) and is a filter on the Tasks list. A request flow's task step sets the type of the task it creates, and
+`create_task`, `update_task` and `list_tasks` take it as `type`. A type is a label and nothing more: no workflow
+comes with one.
+
 A task can be created on someone else's behalf (spec §6.2.2). Besides its **assignees**, who do it, a task may have
 a **requestee**, whom it is for; its creator is always the person who actually created it. With **Create tasks for
 others** above Own, the task form shows a Requestee field under Assignees: anyone in your department at Department,

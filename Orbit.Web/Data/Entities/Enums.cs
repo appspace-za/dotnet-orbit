@@ -33,8 +33,10 @@ public enum TaskPriority
 
 /// <summary>
 /// What kind of work a task is. <see cref="Task"/> is the plain default for ordinary work items. A <see cref="Change"/> alters
-/// something that already exists (a process, setting, system or access); a <see cref="Request"/> asks for something new. The
-/// <see cref="Request"/> type is not <see cref="TaskSource.Request"/>: the type is what kind of work it is, the source where it came from.
+/// something that already exists (a process, setting, system or access); a <see cref="Request"/> asks for something new; a
+/// <see cref="Problem"/> is something broken or not working as it should. The <see cref="Request"/> type is not
+/// <see cref="TaskSource.Request"/>: the type is what kind of work it is, the source where it came from. Nor is a
+/// <see cref="Problem"/> what Nagios raises (§6.21): those tasks are a <see cref="Task"/> unless someone retypes them.
 /// </summary>
 public enum TaskType
 {
@@ -44,7 +46,8 @@ public enum TaskType
     Training,
     Audit,
     Change,
-    Request
+    Request,
+    Problem
 }
 
 /// <summary>
