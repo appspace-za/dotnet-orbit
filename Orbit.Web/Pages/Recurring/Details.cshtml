@@ -82,7 +82,7 @@
                 @if (!string.IsNullOrWhiteSpace(d.Description))
                 {
                     <hr />
-                    <div class="description-box">@d.Description</div>
+                    <div class="description-box">@Ui.Linkify(d.Description)</div>
                 }
             </div>
         </div>

@@ -163,6 +163,10 @@ department's project sees that project read-only, apart from its comment thread.
 A project has its own **Comments** card, like a task's: anyone who can see the project reads the thread and
 posts to it, the departments that only have tasks on it included, and an archived project still takes comments.
 
+Web addresses starting `http://` or `https://` in the descriptions and comments of tasks, projects and assets, and
+in a recurring task's description, are links that open in a new tab. The text is shown as typed; markdown isn't
+rendered.
+
 ## Directory sign-in (LDAP / Active Directory)
 
 Each user signs in with either a **local password** or their **company directory password** - a per-user setting under

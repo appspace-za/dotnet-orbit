@@ -354,6 +354,8 @@ html {
 
 .description-box {
   white-space: pre-wrap;
+  /* A long address has nowhere to break, and would otherwise push out of the card on a narrow screen. */
+  overflow-wrap: anywhere;
 }
 
 .form-inline-row .form-control,

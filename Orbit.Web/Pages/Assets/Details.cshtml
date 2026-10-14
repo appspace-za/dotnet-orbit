@@ -84,7 +84,7 @@
                 </dl>
                 @if (!string.IsNullOrWhiteSpace(a.Description))
                 {
-                    <div class="description-box mt-2">@a.Description</div>
+                    <div class="description-box mt-2">@Ui.Linkify(a.Description)</div>
                 }
             </div>
         </div>
@@ -281,7 +281,7 @@
                             @if (isClaude) { <span class="badge badge-claude">Claude</span> }
                             <span class="text-muted">· @Ui.When(c.CreatedAt)</span>
                         </div>
-                        <div class="description-box">@c.Body</div>
+                        <div class="description-box">@Ui.Linkify(c.Body)</div>
                     </div>
                 }
                 <form method="post" asp-page-handler="Comment" asp-route-id="@a.Id">

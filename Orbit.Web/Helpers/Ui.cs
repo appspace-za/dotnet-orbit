@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Html;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Orbit.Application;
 using Orbit.Data.Entities;
@@ -177,6 +178,30 @@ public static class Ui
 
     public static string Truncate(string? s, int max) =>
         string.IsNullOrEmpty(s) ? string.Empty : s.Length <= max ? s : s[..max].TrimEnd() + "...";
+
+    /// <summary>
+    /// A description or comment with its web addresses as links that open in a new tab (§6.2, <see cref="LinkRules"/>); the
+    /// rest is encoded as <c>@</c> would. <c>noreferrer</c> keeps Orbit's own addresses out of the other site's logs.
+    /// </summary>
+    public static IHtmlContent Linkify(string? text)
+    {
+        var html = new HtmlContentBuilder();
+        foreach (var segment in LinkRules.Split(text))
+        {
+            if (!segment.IsLink)
+            {
+                html.Append(segment.Text);
+                continue;
+            }
+            var link = new TagBuilder("a");
+            link.Attributes["href"] = segment.Text;
+            link.Attributes["target"] = "_blank";
+            link.Attributes["rel"] = "noopener noreferrer";
+            link.InnerHtml.Append(segment.Text);
+            html.AppendHtml(link);
+        }
+        return html;
+    }
 
     /// <summary>
     /// Who wrote or created something. Nobody means Orbit itself - a job such as the recurring-task generator or the Nagios

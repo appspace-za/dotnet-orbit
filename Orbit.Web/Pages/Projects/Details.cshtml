@@ -74,7 +74,7 @@
                 }
                 else
                 {
-                    <div class="description-box">@p.Description</div>
+                    <div class="description-box">@Ui.Linkify(p.Description)</div>
                 }
             </div>
         </div>
@@ -365,7 +365,7 @@
                     }
                     <span class="text-muted">· @Ui.When(c.CreatedAt)</span>
                 </div>
-                <div class="description-box">@c.Body</div>
+                <div class="description-box">@Ui.Linkify(c.Body)</div>
             </div>
         }
         <form method="post" asp-page-handler="Comment" asp-route-id="@p.Id">
