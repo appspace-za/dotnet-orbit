@@ -79,8 +79,9 @@ Razor Pages and MCP tools are thin. Both call the same scoped services in `Orbit
 - **Emails are messages** (§6.7). A change that should email someone calls the matching `NotificationService` method
   (`TaskCreatedAsync`, `TaskClosedAsync`, ...) *before* its `SaveChangesAsync`: it writes `OutboundEmail` rows into
   the same unit of work and `EmailDispatchJob` sends them. A new event is a `MessageTrigger`, a `MessageCatalogue`
-  entry (conditions, recipients, tokens) and a `NotificationService` method. Only Identity's account emails call
-  `IEmailSender` directly.
+  entry (conditions, recipients, tokens) and a `NotificationService` method. Only Identity's account emails and the
+  Admin > Messages test email call `IEmailSender` directly. The sender is `Email:Provider`: `LoggingEmailSender` (the
+  default) or `BrevoEmailSender`, whose pure request/error rules are `BrevoRules`.
 - **A job that writes tasks** (`RecurrenceService`, `NagiosMonitor`) builds the `TaskItem` itself as `Actor.System`:
   `TaskService` and `CommentService` read `IActorProvider`, which throws outside an HTTP request. A row with no
   author or creator is shown as *System*; Claude's writes carry the synthetic Claude user, never null.

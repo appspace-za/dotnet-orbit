@@ -13,7 +13,12 @@
             did themselves, and someone a message would reach twice for one change gets only the most personal one.
         </div>
     </div>
-    <a class="btn btn-outline-secondary btn-sm" asp-page="/Admin/Messages/Emails">Emails sent</a>
+    <div class="d-flex gap-2">
+        <form method="post" asp-page-handler="TestEmail">
+            <button type="submit" class="btn btn-outline-secondary btn-sm" title="Send a short email to your own address">Send test email</button>
+        </form>
+        <a class="btn btn-outline-secondary btn-sm" asp-page="/Admin/Messages/Emails">Emails sent</a>
+    </div>
 </div>
 
 @if (Model.OnlyLogged)
@@ -21,6 +26,12 @@
     <div class="alert alert-info small">
         No mail server is set up yet, so Orbit writes each email to its log instead of sending it.
         <a asp-page="/Admin/Messages/Emails">Emails sent</a> lists them as they would have gone.
+    </div>
+}
+else
+{
+    <div class="text-muted small mb-3">
+        Emails are sent through Brevo from @Model.Email.FromName &lt;@Model.Email.FromAddress&gt;.
     </div>
 }
 

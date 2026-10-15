@@ -3,8 +3,8 @@ using Microsoft.AspNetCore.Identity.UI.Services;
 namespace Orbit.Auth;
 
 /// <summary>
-/// v1 stand-in for a real sender: account and task notification emails are written to the log.
-/// Replace with an SMTP/SendGrid implementation of IEmailSender when one is chosen.
+/// The sender when <c>Email:Provider</c> is Log, the default (spec §6.7): account and message emails are written to the log, and
+/// nothing leaves Orbit. <see cref="BrevoEmailSender"/> sends them for real.
 /// </summary>
 public sealed class LoggingEmailSender(ILogger<LoggingEmailSender> logger) : IEmailSender
 {

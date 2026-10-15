@@ -447,7 +447,9 @@ Switch any off, change its words, or add more.
 
 Emails are written to an **outbox** in the same save as the change, so nobody hears of a change that was rolled back,
 and a job (`Jobs:EmailDispatch`, every 15 seconds) sends them, retrying one that fails. **Emails sent** lists the
-latest. Until a mail server is set up the sender only writes each email to the log; the outbox shows them all the same.
+latest, with the reason one failed. Orbit sends through **Brevo** once it is configured (see [Sending email through
+Brevo](#sending-email-through-brevo)); until then it only writes each email to the log, and the outbox shows them all
+the same. **Send test email** sends a short email to your own address straight away and shows why if it fails.
 
 ## Reports
 
@@ -500,6 +502,32 @@ old Nagios' own status data may be before a check is discarded.
 name the databases a script on the server may open; an agent's connections go in its own `actions.json` (deploy/README.md).
 `App:BaseUrl` is also the address put into an agent's `configure` command, so it must be the public `https` URL.
 Emails (see [Messages](#messages)) are sent from the outbox by `Jobs:EmailDispatch:*` (every 15 seconds) through
-Identity's `IEmailSender`; the shipped implementation only logs them. `Email:MaxAttempts` (6) is how many tries a
-failing email gets, `Email:KeepDays` (30) how long sent and failed ones stay in the outbox, and `Email:BatchSize` (50)
-how many one run sends. `App:BaseUrl` is the address the emails link to.
+Identity's `IEmailSender`: `Email:Provider` is `Log` (the default, which only logs them) or `Brevo`.
+`Email:MaxAttempts` (6) is how many tries a failing email gets, `Email:KeepDays` (30) how long sent and failed ones
+stay in the outbox, and `Email:BatchSize` (50) how many one run sends. `App:BaseUrl` is the address the emails link to.
+
+### Sending email through Brevo
+
+Orbit sends its emails (the outbox's, and Identity's password-reset emails) through Brevo's transactional email API.
+
+1. In Brevo, authenticate the domain you will send from (*Senders, Domains & Dedicated IPs > Domains*, adding the
+   DKIM and DMARC records it gives you), or at least verify the single sender address.
+2. Create an API key (*SMTP & API > API Keys*, a v3 key starting `xkeysib-`). It is shown once.
+3. Under *Security > Authorised IPs*, add the Orbit server's public address. Otherwise Brevo refuses its calls with a
+   401, and Admin > Messages > Emails sent shows that as the error.
+4. Set the settings, as environment variables in `/etc/orbit/orbit.env` in production, or
+   `dotnet user-secrets set Email:Brevo:ApiKey ...` (on `Orbit.Web`) in development. Never put the key in
+   `appsettings.json`:
+   ```
+   Email__Provider=Brevo
+   Email__FromAddress=orbit@your-domain
+   Email__FromName=Orbit
+   Email__Brevo__ApiKey=xkeysib-...
+   ```
+5. Restart Orbit. It refuses to start with Brevo chosen and the key or a valid From address missing, and says which.
+6. Press **Send test email** on Admin > Messages.
+
+A refused email stays in the outbox with Brevo's reason (e.g. *Brevo refused the email (401 unauthorized): Key not
+found*) and is tried again after 1, 5, 15 and 60 minutes, then every 4 hours, so emails held up by a setting go once
+it is fixed. Brevo's free plan sends 300 emails a day. `Email:Brevo:TimeoutSeconds` (30) caps one send, and
+`Email:Brevo:BaseUrl` defaults to `https://api.brevo.com/v3/`.

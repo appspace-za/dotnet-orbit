@@ -9,6 +9,7 @@ using ModelContextProtocol.AspNetCore;
 using Orbit.Agents;
 using Orbit.Agents.Contracts;
 using Orbit.Application;
+using Orbit.Application.Messages;
 using Orbit.Application.Services;
 using Orbit.Auth;
 using Orbit.Data;
@@ -183,7 +184,23 @@ builder.Services.AddScoped<AgentNagiosDispatcher>();
 builder.Services.AddSingleton<NagiosPasswordProtector>();
 // One script host per process (§6.20): compiled scripts are cached in it.
 builder.Services.AddSingleton<ScriptHost>();
-builder.Services.AddTransient<IEmailSender, LoggingEmailSender>();
+// The email sender (§6.7): Brevo's API when Email:Provider is Brevo, otherwise the log. Settings that won't send stop startup here.
+var email = config.GetSection(EmailOptions.Section).Get<EmailOptions>() ?? new EmailOptions();
+if (email.Provider == EmailProvider.Brevo)
+{
+    var problems = BrevoRules.ConfigProblems(email);
+    if (problems.Count > 0) throw new InvalidOperationException($"Email:Provider is Brevo, but {string.Join("; ", problems)}.");
+    builder.Services.AddHttpClient<IEmailSender, BrevoEmailSender>(c =>
+        {
+            c.BaseAddress = BrevoRules.BaseUri(email.Brevo);
+            c.Timeout = TimeSpan.FromSeconds(Math.Max(5, email.Brevo.TimeoutSeconds));
+        })
+        .RedactLoggedHeaders([BrevoRules.ApiKeyHeader]);
+}
+else
+{
+    builder.Services.AddTransient<IEmailSender, LoggingEmailSender>();
+}
 
 // --- MCP server (Streamable HTTP, stateless) ----------------------------------------------
 builder.Services.AddMcpServer(o =>

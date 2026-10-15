@@ -1,4 +1,6 @@
+using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Orbit.Application.Messages;
 using Orbit.Application.Models;
 using Orbit.Data;
@@ -11,7 +13,13 @@ namespace Orbit.Application.Services;
 /// outbox of what was sent. What a trigger offers is <see cref="MessageCatalogue"/>; the rules a message must keep are
 /// <see cref="MessageRules.Validate"/>.
 /// </summary>
-public sealed class MessageTemplateService(ApplicationDbContext db, IActorProvider actors, AuditService audit)
+public sealed class MessageTemplateService(
+    ApplicationDbContext db,
+    IActorProvider actors,
+    AuditService audit,
+    IEmailSender sender,
+    IOptions<EmailOptions> emailOptions,
+    ILogger<MessageTemplateService> logger)
 {
     public async Task<IReadOnlyList<MessageTemplate>> ListAsync(CancellationToken ct = default)
     {
@@ -145,6 +153,34 @@ public sealed class MessageTemplateService(ApplicationDbContext db, IActorProvid
         await RequireAsync(ct);
         return await db.OutboundEmails.AsNoTracking().FirstOrDefaultAsync(e => e.Id == id, ct)
             ?? throw new NotFoundException("Email not found.");
+    }
+
+    /// <summary>
+    /// Send a short email to the caller's own address straight through the sender, not the outbox, so whoever sets up the mail
+    /// settings sees at once whether they work. A failure is refused with the sender's reason. Returns the address it went to.
+    /// </summary>
+    public async Task<string> SendTestEmailAsync(CancellationToken ct = default)
+    {
+        var actor = await RequireAsync(ct);
+        var me = await db.Users.AsNoTracking().Where(u => u.Id == actor.UserId)
+            .Select(u => new { u.Email, u.DisplayName }).FirstOrDefaultAsync(ct);
+        var address = me?.Email?.Trim();
+        if (string.IsNullOrEmpty(address)) throw new ValidationException("Your account has no email address to send a test email to.");
+
+        var how = emailOptions.Value.Provider == EmailProvider.Brevo ? "through Brevo" : "to Orbit's log only";
+        var body = $"Hello {me!.DisplayName},\n\nThis is a test email from Orbit, sent {how} at {DateTime.UtcNow:yyyy-MM-dd HH:mm} UTC from Admin > Messages. " +
+                   "If you can read it, Orbit's emails reach you.";
+        try
+        {
+            await sender.SendEmailAsync(address, "Orbit test email", MessageRules.ToHtml(body));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "The test email to {To} failed.", address);
+            throw new ValidationException($"The test email to {address} failed: {ex.Message}");
+        }
+        logger.LogInformation("Test email sent to {To} {How}.", address, how);
+        return address;
     }
 
     /// <summary>The input made storable, or refused: a trimmed name, subject and body with plain line breaks, and each recipient once in rank order.</summary>
