@@ -27,7 +27,7 @@ public class IndexModel(
     public static readonly string[] RememberedFilters =
     [
         nameof(TaskFilter.Search), nameof(TaskFilter.DepartmentId), nameof(TaskFilter.ProjectId), nameof(TaskFilter.Priority),
-        nameof(TaskFilter.AssigneeId)
+        nameof(TaskFilter.AssigneeId), nameof(TaskFilter.Type), nameof(TaskFilter.Source)
     ];
     private const string MemoryKey = "backlog";
 
@@ -102,12 +102,12 @@ public class IndexModel(
         }
         return RedirectToPage(new
         {
-            Filter.ProjectId, Filter.DepartmentId, Filter.Priority, Filter.AssigneeId, Filter.Search, PageNumber
+            Filter.ProjectId, Filter.DepartmentId, Filter.Priority, Filter.AssigneeId, Filter.Type, Filter.Source, Filter.Search, PageNumber
         });
     }
 
     public string PageUrl(int page) => Url.Page("/Backlog/Index", new
     {
-        Filter.Search, Filter.DepartmentId, Filter.ProjectId, Filter.Priority, Filter.AssigneeId, PageNumber = page
+        Filter.Search, Filter.DepartmentId, Filter.ProjectId, Filter.Priority, Filter.AssigneeId, Filter.Type, Filter.Source, PageNumber = page
     })!;
 }

@@ -133,9 +133,9 @@ is never split. As shipped, each person added is emailed, and the due-soon remin
 
 A task has a **type**, the kind of work it is: Meeting, Planning, Task (the default), Training, Audit, Change, Request
 or Problem. It is chosen on the task form, shown as a coloured badge beside the title (a plain Task has none in the
-lists) and is a filter on the Tasks list. A request flow's task step sets the type of the task it creates, and
-`create_task`, `update_task` and `list_tasks` take it as `type`. A type is a label and nothing more: no workflow
-comes with one.
+lists) and is a filter on the Tasks list and the Backlog. A request flow's task step sets the type of the task it
+creates, and `create_task`, `update_task` and `list_tasks` take it as `type`. A type is a label and nothing more: no
+workflow comes with one.
 
 A task can be created on someone else's behalf (spec §6.2.2). Besides its **assignees**, who do it, a task may have
 a **requestee**, whom it is for; its creator is always the person who actually created it. With **Create tasks for
@@ -349,7 +349,7 @@ page lists the forms, pages and approvals waiting for you (the Dashboard's **My 
 approvals); **Your requests** what you logged or were addressed in (at Department scope, your whole department's);
 **Department requests** (needs **Manage requests**) everything filed with your department, where a manager can also
 cancel a request or retry and skip a step that failed. The tasks a flow creates carry the source *Request* and link
-back to their request; the Tasks list and `list_tasks` filter on the source.
+back to their request; the Tasks list, the Backlog and `list_tasks` filter on the source.
 
 Each department builds its own flows (**Admin > Request flows**, needs **Configure request flows**): categories with an
 icon and colour, flows, and each flow's steps with their fields, stages, dependencies and settings, with a *Not set
@@ -400,11 +400,11 @@ incident raises a task at most once, however many checks follow and whether the 
 - A check that can't be trusted - the agent offline, a wrong password, Nagios not updating its status - changes
   nothing and shows why on the instance.
 
-The raised tasks carry the source *Nagios* (the Tasks list and `list_tasks` filter on it), are created by *System*,
-and show the problem as Nagios last reported it, with a link to Nagios, to whoever can see the task. That includes
-what the check says *now*: if its text changes while the problem lasts (another order joins the list), nothing new is
-raised and no note is added, but the task page shows the latest text and when it was read. The task's description keeps
-what Nagios said when the task was raised.
+The raised tasks carry the source *Nagios* (the Tasks list, the Backlog and `list_tasks` filter on it), are created
+by *System*, and show the problem as Nagios last reported it, with a link to Nagios, to whoever can see the task.
+That includes what the check says *now*: if its text changes while the problem lasts (another order joins the list),
+nothing new is raised and no note is added, but the task page shows the latest text and when it was read. The task's
+description keeps what Nagios said when the task was raised.
 
 ## Messages
 
