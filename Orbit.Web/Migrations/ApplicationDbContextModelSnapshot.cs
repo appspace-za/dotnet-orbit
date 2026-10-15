@@ -2384,6 +2384,9 @@ namespace Orbit.Migrations
                     b.Property<Guid?>("RequesteeId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("SolutionNotes")
+                        .HasColumnType("text");
+
                     b.Property<string>("Source")
                         .IsRequired()
                         .HasMaxLength(32)

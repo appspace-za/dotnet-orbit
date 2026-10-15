@@ -20,7 +20,7 @@ public class RequestTokenRulesTests
         form.Fields.Add(new RequestFormField { Key = "segment", Prompt = "Segment", DisplayOrder = 1 });
         Assert.Equal(["details.segment", "details.description"], RequestTokenRules.Offered(form).Select(t => t.Name));
         var task = new RequestFlowStep { Key = "code", Title = "Code", Kind = RequestStepKind.Task, DisplayOrder = 2 };
-        Assert.Equal(["code.number", "code.title", "code.assignees", "code.completed-by", "code.completed-on"], RequestTokenRules.Offered(task).Select(t => t.Name));
+        Assert.Equal(["code.number", "code.title", "code.assignees", "code.completed-by", "code.completed-on", "code.solution"], RequestTokenRules.Offered(task).Select(t => t.Name));
         var approval = new RequestFlowStep { Key = "sign-off", Kind = RequestStepKind.Approval, DisplayOrder = 3 };
         Assert.Equal(["sign-off.outcome", "sign-off.comments"], RequestTokenRules.Offered(approval).Select(t => t.Name));
         var action = new RequestFlowStep { Key = "insert", Kind = RequestStepKind.Action };
@@ -29,7 +29,7 @@ public class RequestTokenRulesTests
 
         var available = RequestTokenRules.Available([task, form]);
         Assert.Equal("request.number", available[0].Name);
-        Assert.Equal(RequestTokenRules.RequestTokens.Count + 2 + 5, available.Count);
+        Assert.Equal(RequestTokenRules.RequestTokens.Count + 2 + 6, available.Count);
         Assert.Equal("{{details.segment}}", available[RequestTokenRules.RequestTokens.Count].Text);
         var names = available.Select(t => t.Name).ToHashSet();
 

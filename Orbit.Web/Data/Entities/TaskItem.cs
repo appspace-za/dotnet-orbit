@@ -25,6 +25,11 @@ public class TaskItem
     public string Number { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string? Description { get; set; }
+    /// <summary>
+    /// How the task was resolved (spec §6.2.4), as distinct from its comment thread: required to set it Done, optional on
+    /// Cancelled, and kept when it is reopened. Plain text, shown with its links made clickable like the description.
+    /// </summary>
+    public string? SolutionNotes { get; set; }
     public TaskItemStatus Status { get; set; } = TaskItemStatus.Todo;
     public TaskPriority Priority { get; set; } = TaskPriority.Medium;
     public TaskType Type { get; set; } = TaskType.Task;

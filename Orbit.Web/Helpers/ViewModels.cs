@@ -39,6 +39,27 @@ public sealed class TaskRowsVm
 }
 
 /// <summary>
+/// Model for the inline status control partial (spec §6.2): a select that posts to /Tasks/Status as soon as a status is picked, on
+/// task list rows, the task page and sprint board cards. Picking Done asks first, in site.js: the "no time logged" question
+/// (§6.10), then the solution-notes dialog the layout renders once (§6.2.4), whose notes are posted with the status.
+/// </summary>
+public sealed class StatusControlVm
+{
+    public required TaskItem Task { get; init; }
+    /// <summary>The statuses the viewer may pick: <see cref="Ui.AllowedStatuses"/>.</summary>
+    public required IReadOnlyList<TaskItemStatus> Statuses { get; init; }
+    public string? ReturnUrl { get; init; }
+    /// <summary>How the form sits in its cell, header or card.</summary>
+    public string FormClass { get; init; } = "d-inline";
+    /// <summary>Classes for the select beyond the small form-select: <c>status-select</c> sizes it for a table or the task page.</summary>
+    public string SelectClass { get; init; } = "status-select";
+    /// <summary>What the select is called: its aria-label, or with <see cref="ShowLabel"/> a visible label (which needs an <see cref="Id"/>).</summary>
+    public string Label { get; init; } = "Status";
+    public bool ShowLabel { get; init; }
+    public string? Id { get; init; }
+}
+
+/// <summary>
 /// Model for the dashboard's My waiting approvals card (spec §6.9): the request approvals asked of the viewer, oldest first, and
 /// who the viewer is, so a request they logged themselves reads "logged by you".
 /// </summary>

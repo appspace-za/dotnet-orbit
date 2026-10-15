@@ -58,15 +58,61 @@ document.addEventListener('click', function (e) {
   if (button && button.form && !window.confirm(button.dataset.confirm)) e.preventDefault();
 });
 
-// Setting your own task Done without having logged time on it (spec §6.10): a status select with data-done-check asks that
-// URL first, and confirms if it answers with a warning. Cancel puts the select back; a failed check lets the change through.
-// Registered before the task clock's submit listener, which must see the held-back first submit as cancelled. Razor
-// renders a null data- attribute as empty, so an empty data-done-check (a task already Done) means no check.
+// Setting a task Done from a status select with data-done-check: that URL is asked first. If it answers with a warning - your own
+// task with no time logged on it (spec §6.10) - that is confirmed. Then a status control (data-solution-dialog) opens the solution-notes
+// dialog (§6.2.4), started with any notes kept from an earlier close, and Mark Done posts the notes with the status; the edit form
+// has its own notes box. Cancel at either step puts the select back; a failed check goes on without its warning or kept notes.
+// Registered before the task clock's submit listener, which must see the held-back first submit as cancelled - and the dialog's
+// buttons are not a form, so they don't count as a submit. Razor renders a null data- attribute as empty, so an empty
+// data-done-check (a task already Done) means no check.
 (function () {
   function revert(select) {
     for (var i = 0; i < select.options.length; i++) {
       if (select.options[i].defaultSelected) { select.selectedIndex = i; return; }
     }
+  }
+  function send(form, submitter) {
+    form.dataset.doneChecked = '1';
+    form.requestSubmit(submitter || undefined);
+  }
+  function askForNotes(select, form, submitter, notes) {
+    var dialog = document.querySelector(select.dataset.solutionDialog);
+    // Without the dialog the change goes to the server, which refuses Done without notes and says so.
+    if (!dialog || !window.bootstrap) { send(form, submitter); return; }
+    var text = dialog.querySelector('.js-solution-text');
+    var confirmButton = dialog.querySelector('.js-solution-confirm');
+    dialog.querySelector('.js-solution-task').textContent = select.dataset.taskLabel || '';
+    text.value = notes || '';
+    text.classList.remove('is-invalid');
+    var confirmed = false;
+    var modal = bootstrap.Modal.getOrCreateInstance(dialog);
+    function accept() {
+      if (!text.value.trim()) { text.classList.add('is-invalid'); text.focus(); return; }
+      confirmed = true;
+      var field = form.querySelector('input[name="solutionNotes"]');
+      if (!field) {
+        field = document.createElement('input');
+        field.type = 'hidden';
+        field.name = 'solutionNotes';
+        form.appendChild(field);
+      }
+      field.value = text.value;
+      modal.hide();
+    }
+    function keydown(e) { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); accept(); } }
+    function shown() { text.focus(); }
+    function hidden() {
+      confirmButton.removeEventListener('click', accept);
+      text.removeEventListener('keydown', keydown);
+      dialog.removeEventListener('shown.bs.modal', shown);
+      dialog.removeEventListener('hidden.bs.modal', hidden);
+      if (confirmed) send(form, submitter); else revert(select);
+    }
+    confirmButton.addEventListener('click', accept);
+    text.addEventListener('keydown', keydown);
+    dialog.addEventListener('shown.bs.modal', shown);
+    dialog.addEventListener('hidden.bs.modal', hidden);
+    modal.show();
   }
   document.addEventListener('submit', function (e) {
     var form = e.target;
@@ -80,11 +126,29 @@ document.addEventListener('click', function (e) {
       .catch(function () { return null; })
       .then(function (data) {
         if (data && data.warning && !window.confirm(data.warning)) { revert(select); return; }
-        form.dataset.doneChecked = '1';
-        form.requestSubmit(submitter || undefined);
+        if (select.dataset.solutionDialog) askForNotes(select, form, submitter, data && data.solutionNotes);
+        else send(form, submitter);
       });
   });
 })();
+
+// Task edit form (spec §6.2.4): the Solution notes box shows for a closed status, or while it holds anything, and is required for
+// Done - unless the task was Done before solution notes existed and still has none (data-required-for-done). The server checks regardless.
+function orbitToggleSolutionNotes(select) {
+  var box = document.querySelector(select.dataset.solutionNotes);
+  var text = box ? box.querySelector('textarea') : null;
+  if (!text) return;
+  var closed = select.value === 'Done' || select.value === 'Cancelled';
+  box.classList.toggle('d-none', !closed && !text.value.trim());
+  text.required = select.value === 'Done' && box.dataset.requiredForDone === 'true';
+}
+document.addEventListener('change', function (e) {
+  var el = e.target;
+  if (el && el.classList && el.classList.contains('js-status-notes')) orbitToggleSolutionNotes(el);
+});
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('select.js-status-notes').forEach(orbitToggleSolutionNotes);
+});
 
 // Copy-to-clipboard buttons
 document.addEventListener('click', function (e) {

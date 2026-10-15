@@ -124,16 +124,8 @@
         }
         @if (Model.Statuses.Count > 1)
         {
-            <form method="post" asp-page="/Tasks/Status" asp-route-id="@t.Id" asp-route-returnUrl="@returnUrl" class="d-flex align-items-center gap-1">
-                <label class="small text-muted" for="quickStatus">Status</label>
-                <select id="quickStatus" name="status" class="form-select form-select-sm status-select js-autosubmit"
-                        data-done-check="@(t.Status != TaskItemStatus.Done ? Url.Page("/Tasks/Status", "DoneCheck", new { id = t.Id }) : null)">
-                    @foreach (var s in Model.Statuses)
-                    {
-                        <option value="@s" selected="@(s == t.Status)">@s.Label()</option>
-                    }
-                </select>
-            </form>
+            <partial name="_StatusControl" model="@(new StatusControlVm { Task = t, Statuses = Model.Statuses, ReturnUrl = returnUrl,
+                FormClass = "d-flex align-items-center gap-1", ShowLabel = true, Id = "quickStatus" })" />
         }
         @if (Model.CanEdit)
         {
@@ -156,6 +148,23 @@
                 }
             </div>
         </div>
+
+        @* How the task was resolved (§6.2.4); a reopened task keeps the notes of its last close. *@
+        @if (!string.IsNullOrWhiteSpace(t.SolutionNotes))
+        {
+            <div class="card mb-3">
+                <div class="card-header">
+                    <span class="fw-semibold">Solution notes</span>
+                    @if (t.IsOpen)
+                    {
+                        <span class="text-muted small">- from when it was last closed</span>
+                    }
+                </div>
+                <div class="card-body">
+                    <div class="description-box">@Ui.Linkify(t.SolutionNotes)</div>
+                </div>
+            </div>
+        }
 
         <div class="card mb-3">
             <div class="card-header d-flex justify-content-between align-items-center">

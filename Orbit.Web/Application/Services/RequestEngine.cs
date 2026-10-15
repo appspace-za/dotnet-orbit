@@ -613,8 +613,8 @@ public sealed class RequestEngine(
 
     /// <summary>
     /// Every token's value for a request as it stands (§6.20): the request's own, each form's answers by "step.field" (a picked
-    /// asset, project or person by its label; files by name), a task step's number, title, assignees and completion, an approval's
-    /// outcome and comments, an action's output. Needs the request loaded with <see cref="WithEverything"/>.
+    /// asset, project or person by its label; files by name), a task step's number, title, assignees, completion and solution notes,
+    /// an approval's outcome and comments, an action's output. Needs the request loaded with <see cref="WithEverything"/>.
     /// </summary>
     public static Dictionary<string, string?> BuildValues(Request request)
     {
@@ -648,6 +648,7 @@ public sealed class RequestEngine(
                     values[$"{key}.assignees"] = step.Task is null ? null : string.Join(", ", step.Task.Assignments.Select(a => a.User.DisplayName));
                     values[$"{key}.completed-by"] = step.Status == RequestStepStatus.Completed ? step.CompletedBy?.DisplayName : null;
                     values[$"{key}.completed-on"] = step.Status == RequestStepStatus.Completed ? step.CompletedAt?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : null;
+                    values[$"{key}.solution"] = step.Task?.SolutionNotes; // how its task was resolved (§6.2.4)
                     break;
                 case RequestStepKind.Approval:
                     values[$"{key}.outcome"] = step.Status switch

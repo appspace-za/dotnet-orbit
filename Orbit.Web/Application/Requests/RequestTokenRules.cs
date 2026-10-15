@@ -48,7 +48,8 @@ public static partial class RequestTokenRules
             new($"{step.Key}.title", $"{step.Title}: task title"),
             new($"{step.Key}.assignees", $"{step.Title}: assignees"),
             new($"{step.Key}.completed-by", $"{step.Title}: completed by"),
-            new($"{step.Key}.completed-on", $"{step.Title}: completed on")
+            new($"{step.Key}.completed-on", $"{step.Title}: completed on"),
+            new($"{step.Key}.solution", $"{step.Title}: solution notes")
         ],
         RequestStepKind.Approval =>
         [

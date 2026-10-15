@@ -143,7 +143,7 @@ public sealed class OrbitTools(
         [Description("Filter by sprint id (GUID).")] string? sprintId = null,
         [Description("true = only backlog tasks (no sprint).")] bool? backlogOnly = null,
         [Description("true = exclude Done and Cancelled tasks.")] bool? openOnly = null,
-        [Description("Free-text search over title and description.")] string? search = null,
+        [Description("Free-text search over title, description, solution notes and task number.")] string? search = null,
         [Description("Only tasks on the day plan for this date (yyyy-MM-dd), or the literal \"today\".")] string? plannedFor = null,
         [Description("Only the direct subtasks of this task id (GUID).")] string? parentTaskId = null,
         [Description("Only tasks about this asset: its id (GUID) or ERP asset number - the asset's task history.")] string? assetId = null,
@@ -185,6 +185,7 @@ public sealed class OrbitTools(
         "plannedFor \"none\" takes it off the day plan, plannedFor \"today\" puts it on today's plan - closed tasks can't be planned). " +
         "assigneeIds replaces the task's assignees with the set given: [] unassigns everyone, and to add or remove one person pass the whole new set (get_task has the current one). " +
         "A key whose Edit tasks permission is scoped to Own can only edit tasks the Claude user created or is assigned; that covers every field, including setting status to Done or Cancelled. " +
+        "Setting status to Done needs solutionNotes - how the task was resolved, kept apart from its comments - unless the task already has them (a reopened task keeps its notes). " +
         "Changing or clearing the requestee needs the key's Create tasks for others permission to reach both the person removed and the person added. " +
         "departmentId moves the task to another department (needs Edit tasks for that department); if that differs from the project's department the task " +
         "becomes a cross-department project task. Changing projectId without departmentId moves the task into the new project's department.")]
@@ -193,6 +194,7 @@ public sealed class OrbitTools(
         [Description("New title.")] string? title = null,
         [Description("New description.")] string? description = null,
         [Description("Todo, InProgress, Waiting, Blocked, Done or Cancelled.")] string? status = null,
+        [Description("Solution notes: how the task was resolved (what was done, the fix, the outcome) - not a comment. Required with status Done unless the task already has notes; optional for Cancelled (a reason); kept when the task is reopened. An empty string clears them, which a Done task refuses.")] string? solutionNotes = null,
         [Description("Low, Medium, High or Critical.")] string? priority = null,
         [Description("Meeting, Planning, Task, Training, Audit, Change, Request or Problem.")] string? type = null,
         [Description("The complete set of assignees' user ids (GUID); [] unassigns everyone. Omit to leave them as they are. Each person added must be an active user in the task's department, or one whose role sees tasks in every department; people kept aren't re-checked unless the task changes department.")] string[]? assigneeIds = null,
@@ -228,6 +230,7 @@ public sealed class OrbitTools(
             ParentTaskId = IsClear(parentTaskId) ? null : ParseGuid(parentTaskId, "parentTaskId") ?? current.ParentTaskId,
             EstimateMinutes = IsClear(estimateMinutes) ? null : ParseInt(estimateMinutes, "estimateMinutes") ?? current.EstimateMinutes,
             Status = ParseEnum<TaskItemStatus>(status, "status") ?? current.Status,
+            SolutionNotes = solutionNotes ?? current.SolutionNotes,
             SprintId = IsClear(sprintId) ? null : ParseGuid(sprintId, "sprintId") ?? current.SprintId
         };
         var task = await tasks.UpdateAsync(id, input, ct);
@@ -1232,6 +1235,7 @@ public sealed class OrbitTools(
         title = t.Title,
         description = t.Description,
         status = t.Status,
+        solutionNotes = t.SolutionNotes,
         priority = t.Priority,
         type = t.Type,
         estimateMinutes = t.EstimateMinutes,

@@ -63,7 +63,8 @@ public static class MessageCatalogue
         new("task.assignees", "Task: assignees (nobody when it has none)", "Jordan Lee, Priya Shah"),
         new("task.requestee", "Task: requestee (nobody when it has none)", "Alex Morgan"),
         new("task.creator", "Task: who created it", "Sam Taylor"),
-        new("task.description", "Task: description", "The projector in room 2.14 flickers and switches itself off after about ten minutes.")
+        new("task.description", "Task: description", "The projector in room 2.14 flickers and switches itself off after about ten minutes."),
+        new("task.solution", "Task: solution notes - how it was resolved (none when it has none)", "Replaced the lamp and cleaned the filter; it has run for an hour without switching off.")
     ];
 
     private static readonly MessageToken[] ProjectTokens =

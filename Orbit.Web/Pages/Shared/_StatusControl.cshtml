@@ -1,0 +1,21 @@
+@model StatusControlVm
+@* The inline status control (spec §6.2). Picking Done asks first (site.js): data-done-check for the "no time logged" question (§6.10),
+   then the solution-notes dialog named by data-solution-dialog (§6.2.4, _SolutionNotesDialog). Razor renders a null data- attribute
+   as empty, so a task already Done has an empty data-done-check and is asked nothing. *@
+@{
+    var t = Model.Task;
+}
+<form method="post" asp-page="/Tasks/Status" asp-route-id="@t.Id" asp-route-returnUrl="@Model.ReturnUrl" class="@Model.FormClass">
+    @if (Model.ShowLabel)
+    {
+        <label class="small text-muted" for="@Model.Id">@Model.Label</label>
+    }
+    <select id="@Model.Id" name="status" class="form-select form-select-sm @Model.SelectClass js-autosubmit" aria-label="@(Model.ShowLabel ? null : Model.Label)"
+            data-done-check="@(t.Status != TaskItemStatus.Done ? Url.Page("/Tasks/Status", "DoneCheck", new { id = t.Id }) : null)"
+            data-solution-dialog="#solution-notes-dialog" data-task-label="@($"{t.Number} {t.Title}")">
+        @foreach (var s in Model.Statuses)
+        {
+            <option value="@s" selected="@(s == t.Status)">@s.Label()</option>
+        }
+    </select>
+</form>

@@ -49,6 +49,10 @@ public sealed class TaskForm
 
     public TaskItemStatus Status { get; set; } = TaskItemStatus.Todo;
 
+    /// <summary>How the task was resolved (§6.2.4): required for Done, optional otherwise. On the edit form only.</summary>
+    [Display(Name = "Solution notes")]
+    public string? SolutionNotes { get; set; }
+
     [Display(Name = "Sprint")]
     public Guid? SprintId { get; set; }
 
@@ -71,6 +75,7 @@ public sealed class TaskForm
         DueDate = DueDate,
         ParentTaskId = ParentTaskId,
         Status = includeStatus ? Status : null,
+        SolutionNotes = includeStatus ? SolutionNotes : null,
         SprintId = SprintId,
         AssetId = AssetId
     };
@@ -90,6 +95,7 @@ public sealed class TaskForm
         DueDate = t.DueDate,
         ParentTaskId = t.ParentTaskId,
         Status = t.Status,
+        SolutionNotes = t.SolutionNotes,
         SprintId = t.SprintId,
         AssetId = t.AssetId
     };

@@ -11,20 +11,25 @@ public class StatusModel(TaskService tasks, TimeEntryService time) : OrbitPageMo
 {
     public IActionResult OnGet() => RedirectToPage("/Tasks/Index");
 
-    /// <summary>Asked by site.js before a status control sets the task Done (§6.10): the confirmation to show, or null.</summary>
-    public async Task<IActionResult> OnGetDoneCheckAsync(Guid id, CancellationToken ct) =>
-        new JsonResult(new
-        {
-            warning = await time.AskBeforeDoneWithoutTimeAsync(id, ct)
-                ? "You haven't logged any time on this task. Mark it Done anyway?"
-                : null
-        });
+    /// <summary>
+    /// Asked by site.js before a status control sets the task Done: the confirmation to show, or null (§6.10), and the task's
+    /// solution notes, kept from an earlier close, to start the solution-notes dialog with (§6.2.4).
+    /// </summary>
+    public async Task<IActionResult> OnGetDoneCheckAsync(Guid id, CancellationToken ct)
+    {
+        var warning = await time.AskBeforeDoneWithoutTimeAsync(id, ct)
+            ? "You haven't logged any time on this task. Mark it Done anyway?"
+            : null;
+        var task = await tasks.GetAsync(id, ct);
+        return new JsonResult(new { warning, solutionNotes = task.SolutionNotes });
+    }
 
-    public async Task<IActionResult> OnPostAsync(Guid id, TaskItemStatus status, string? returnUrl, CancellationToken ct)
+    /// <summary>The status control's change. <paramref name="solutionNotes"/> comes from its dialog when it sets the task Done (§6.2.4).</summary>
+    public async Task<IActionResult> OnPostAsync(Guid id, TaskItemStatus status, string? solutionNotes, string? returnUrl, CancellationToken ct)
     {
         try
         {
-            var task = await tasks.ChangeStatusAsync(id, status, ct);
+            var task = await tasks.ChangeStatusAsync(id, status, solutionNotes, ct);
             Success($"\"{Ui.Truncate(task.Title, 40)}\" is now {status.Label()}.");
         }
         catch (ValidationException ex)

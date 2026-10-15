@@ -86,6 +86,10 @@
             @RenderBody()
         </main>
     </div>
+    @if (signedIn)
+    {
+        <partial name="_SolutionNotesDialog" />
+    }
 
     <footer class="border-top footer text-muted">
         <div class="container-fluid px-3 px-lg-4">

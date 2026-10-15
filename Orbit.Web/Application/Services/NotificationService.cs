@@ -345,7 +345,8 @@ public sealed class NotificationService(
             ["task.assignees"] = Names(assignees, people, "nobody"),
             ["task.requestee"] = task.RequesteeId is Guid r ? Names([r], people, "nobody") : "nobody",
             ["task.creator"] = task.CreatedById is Guid c ? Names([c], people, Actor.System.DisplayName) : Actor.System.DisplayName,
-            ["task.description"] = MessageRules.Clip(task.Description, 2000)
+            ["task.description"] = MessageRules.Clip(task.Description, 2000),
+            ["task.solution"] = MessageRules.Clip(task.SolutionNotes, 2000) ?? "none"
         };
     }
 

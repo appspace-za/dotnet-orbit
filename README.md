@@ -152,6 +152,14 @@ sprint board, or the edit form) asks first if you haven't logged any time on it 
 (spec §6.10); Cancel leaves the status as it was. On a shared task each assignee is asked about their own time. It's a
 reminder, not a rule: nobody else is asked, and neither is MCP's `update_task`.
 
+Setting a task to **Done** needs its **solution notes**: how it was resolved - what was done, the fix, the outcome
+(spec §6.2.4). The notes are kept apart from the comment thread, which stays the place for discussion. Picking Done in
+a status control opens a **Mark Done** dialog that asks for them. On the edit form a **Solution notes** box appears
+under Status. Over MCP, `update_task` takes `solutionNotes`. Cancelled may carry notes too, for a reason, but doesn't
+need them. A reopened task keeps its notes, and they are offered again when it is closed. The task page shows them in
+a card under the description, and the search box finds a task by them. Tasks closed before solution notes existed
+have none, and can still be edited without adding any.
+
 The task clock (**Start Clock**) runs per task: each task page has its own, and leaving a page stops only that page's
 clock (spec §6.10). On a task page, subtasks and linked tasks (Waiting on, Blocks) open in a new tab, so you can run
 a clock on the task and on a subtask at the same time; overlapping time is logged on both. The page checks in every
@@ -166,8 +174,8 @@ department's project sees that project read-only, apart from its comment thread.
 A project has its own **Comments** card, like a task's: anyone who can see the project reads the thread and
 posts to it, the departments that only have tasks on it included, and an archived project still takes comments.
 
-Web addresses starting `http://` or `https://` in the descriptions and comments of tasks, projects and assets, and
-in a recurring task's description, are links that open in a new tab. The text is shown as typed; markdown isn't
+Web addresses starting `http://` or `https://` in the descriptions and comments of tasks, projects and assets, in a
+task's solution notes and in a recurring task's description, are links that open in a new tab. The text is shown as typed; markdown isn't
 rendered.
 
 ## Directory sign-in (LDAP / Active Directory)
@@ -273,6 +281,10 @@ Nothing happens by itself: Orbit follows AD only when you load the directory and
   id from `list_users`; `"none"` clears it on `update_task`), `list_tasks` filters on it, and task results carry
   `requesteeId` and `requestee` beside the assignees. The key's **Create tasks for others** scope decides whom it may
   name; a key on the shipped grants (Own) can name nobody.
+- Setting a task Done needs its solution notes (spec §6.2.4): `update_task` takes `solutionNotes`, how the task was
+  resolved, and refuses `status: "Done"` without them unless the task already has some. They are optional for
+  Cancelled and kept when omitted. An empty string clears them, which a Done task refuses. Task results carry
+  `solutionNotes`, and `list_tasks search` matches them.
 - Tasks can be subtasks (`parentTaskId`) and can depend on each other (`add_dependency`: FS, SS, FF or SF
   plus a lag in days, spec §6.15). Links gate status changes - the successor can't start / finish until the
   predecessor has - and a parent can't close while a subtask is open; `get_task` reports what a task is
@@ -342,7 +354,8 @@ tile (*Report a problem*, *Products*...), then a flow. A **flow** is a sequence 
 
 Each step waits for the steps the builder chose (an approval's accept or decline can send the request down different
 steps) and may use their values as tokens - `{{details.description}}` - in a task's title, a page's address or an
-action's inputs. Logging a request fills in the first form and creates a numbered request (`R-26-00007`) filed with the
+action's inputs. A task step's values include its task's number, assignees, who completed it and when, and its
+solution notes (`{{fix.solution}}` for a step keyed `fix`). Logging a request fills in the first form and creates a numbered request (`R-26-00007`) filed with the
 department; its page shows the steps as a timeline, what each is waiting for, and what you can do: fill in a form,
 open a page, approve or decline. The request is complete when every step is. **Needs your action** on the Requests
 page lists the forms, pages and approvals waiting for you (the Dashboard's **My waiting approvals** card repeats the
@@ -440,13 +453,15 @@ one or more people relative to the event, and has a subject and body written as 
   creator, the project's owner, the department's members, and last a listed address).
 - A body is plain text: a blank line starts a paragraph and web addresses become links. **Preview** fills a message in
   with sample values. A value it can't use is refused when you save.
+- Every task event offers the task's solution notes as `{{task.solution}}` (*none* when it has none), beside its
+  title, description and the rest.
 
 Orbit ships with eighteen messages, all on: the emails it always sent (assignment, created for you, named as
 requestee, due soon, a request step waiting, a request finished) and the department on an unassigned task, the
 requestee on a closed task, the requestee on an assignee's comment and the assignees on the requestee's, the
 requester on an approval given or declined and on an action that ran, a project's owner when someone else creates it
 for them, makes them its owner or comments on it, and the owner and the department when a project's status changes.
-Switch any off, change its words, or add more.
+The requestee's closed-task email ends with the task's solution notes. Switch any off, change its words, or add more.
 
 Emails are written to an **outbox** in the same save as the change, so nobody hears of a change that was rolled back,
 and a job (`Jobs:EmailDispatch`, every 15 seconds) sends them, retrying one that fails. **Emails sent** lists the

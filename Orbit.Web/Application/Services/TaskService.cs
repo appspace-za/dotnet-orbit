@@ -56,7 +56,8 @@ public sealed class TaskService(
         if (!string.IsNullOrWhiteSpace(f.Search))
         {
             var pattern = $"%{f.Search.Trim()}%";
-            q = q.Where(t => EF.Functions.ILike(t.Title, pattern) || EF.Functions.ILike(t.Description ?? "", pattern) || EF.Functions.ILike(t.Number, pattern));
+            q = q.Where(t => EF.Functions.ILike(t.Title, pattern) || EF.Functions.ILike(t.Description ?? "", pattern)
+                || EF.Functions.ILike(t.SolutionNotes ?? "", pattern) || EF.Functions.ILike(t.Number, pattern));
         }
 
         var page = Math.Max(1, f.Page);
@@ -130,6 +131,8 @@ public sealed class TaskService(
         await assets.CheckLinkAsync(input.AssetId, null, ct);
 
         var status = input.Status ?? TaskItemStatus.Todo;
+        var solutionNotes = Clean(input.SolutionNotes);
+        SolutionNoteRules.Require(TaskItemStatus.Todo, status, null, solutionNotes);
         DependencyRules.RequireDatesInOrder(input.StartDate, input.DueDate);
         var parent = await structure.ValidateParentAsync(null, input.ParentTaskId, input.ProjectId, departmentId, childOpen: !status.IsClosed(), ct);
 
@@ -137,6 +140,7 @@ public sealed class TaskService(
         {
             Title = title,
             Description = Clean(input.Description),
+            SolutionNotes = solutionNotes,
             DepartmentId = departmentId,
             ProjectId = input.ProjectId,
             AssetId = input.AssetId,
@@ -216,6 +220,8 @@ public sealed class TaskService(
             await ValidateSprintAsync(input.SprintId, ct);
         }
         DependencyRules.RequireDatesInOrder(input.StartDate, input.DueDate);
+        var solutionNotes = Clean(input.SolutionNotes);
+        SolutionNoteRules.Require(task.Status, newStatus, task.SolutionNotes, solutionNotes);
         if (newStatus != task.Status) await structure.EnsureStatusChangeAllowedAsync(task, newStatus, ct);
         // §6.15: a child can't leave its parent's project on its own, a parent takes its subtree along, and no link may end up crossing projects.
         var subtree = await structure.PrepareMoveAsync(task, input.ProjectId, departmentId, input.ParentTaskId, actor, ct);
@@ -237,6 +243,7 @@ public sealed class TaskService(
             .Track("startDate", task.StartDate, input.StartDate)
             .Track("dueDate", task.DueDate, input.DueDate)
             .Track("status", task.Status, newStatus)
+            .TrackText("solutionNotes", task.SolutionNotes, input.SolutionNotes)
             .Track("sprintId", task.SprintId, input.SprintId);
 
         if (!changes.HasChanges && assignees.IsEmpty) return task;
@@ -245,6 +252,7 @@ public sealed class TaskService(
         var closing = newStatus.IsClosed() && !task.Status.IsClosed();
         task.Title = title;
         task.Description = Clean(input.Description);
+        task.SolutionNotes = solutionNotes;
         task.DepartmentId = departmentId;
         task.ProjectId = input.ProjectId;
         task.AssetId = input.AssetId;
@@ -299,8 +307,11 @@ public sealed class TaskService(
         return await GetAsync(task.Id, ct);
     }
 
-    /// <summary>Quick inline status change (the kanban / list control).</summary>
-    public async Task<TaskItem> ChangeStatusAsync(Guid id, TaskItemStatus status, CancellationToken ct = default)
+    /// <summary>
+    /// Quick inline status change (the kanban / list control). <paramref name="solutionNotes"/> - how the task was resolved, asked
+    /// for by the control's dialog when it sets the task Done (§6.2.4) - replaces the task's notes; null keeps them.
+    /// </summary>
+    public async Task<TaskItem> ChangeStatusAsync(Guid id, TaskItemStatus status, string? solutionNotes = null, CancellationToken ct = default)
     {
         var actor = await actors.GetAsync(ct);
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == id, ct)
@@ -308,15 +319,21 @@ public sealed class TaskService(
         AccessPolicy.Require(AccessPolicy.CanViewTask(actor, task), "This task belongs to another department.");
         AccessPolicy.Require(AccessPolicy.CanChangeStatus(actor, task), "You don't have permission to change this task's status.");
         if (task.Status == status) return task;
+        var notes = Clean(solutionNotes) ?? task.SolutionNotes;
+        SolutionNoteRules.Require(task.Status, status, task.SolutionNotes, notes);
         await structure.EnsureStatusChangeAllowedAsync(task, status, ct);
 
         var previous = task.Status;
         var now = DateTime.UtcNow;
+        var changes = new ChangeSet()
+            .Track("status", previous, status)
+            .TrackText("solutionNotes", task.SolutionNotes, notes);
         ApplyStatus(task, status, now);
+        task.SolutionNotes = notes;
         task.UpdatedAt = now;
         audit.Add(actor, AuditEntity.Task, task.Id,
             status == TaskItemStatus.Done ? AuditAction.Completed : AuditAction.StatusChanged,
-            task.DepartmentId, task.Title, new { status = new { from = previous, to = status } });
+            task.DepartmentId, task.Title, changes.Changes);
         if (status.IsClosed() && !previous.IsClosed()) await notifications.TaskClosedAsync(task, actor, ct: ct);
         await db.SaveChangesAsync(ct);
         if (status.IsClosed()) await requests.OnTaskClosedAsync(task, actor, ct);

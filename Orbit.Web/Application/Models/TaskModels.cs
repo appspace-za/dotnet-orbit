@@ -80,6 +80,8 @@ public sealed class TaskInput
     public Guid? AssetId { get; set; }
     /// <summary>Null on create = Todo; null on update = unchanged.</summary>
     public TaskItemStatus? Status { get; set; }
+    /// <summary>How the task was resolved (§6.2.4); null = none. Like the description, the complete new value on update. Required when the status is Done.</summary>
+    public string? SolutionNotes { get; set; }
     /// <summary>Null = backlog.</summary>
     public Guid? SprintId { get; set; }
     /// <summary>Optional client-supplied key so retried API creates don't duplicate.</summary>
