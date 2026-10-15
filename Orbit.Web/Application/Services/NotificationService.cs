@@ -31,18 +31,18 @@ public sealed class NotificationService(
         TaskEventAsync(MessageTrigger.TaskCreated, task, actor, assignees => MessageRules.TaskConditions(assignees.Count > 0), null, ct);
 
     /// <summary>People were added to an existing task's assignees. Returns how many were emailed.</summary>
-    public Task<int> TaskAssignedAsync(TaskItem task, IReadOnlyCollection<Guid> added, Actor actor, HashSet<Guid>? told = null, CancellationToken ct = default) =>
+    public Task<int> TaskAssignedAsync(TaskItem task, IReadOnlyCollection<Guid> added, Actor actor, HashSet<string>? told = null, CancellationToken ct = default) =>
         added.Count == 0
             ? Task.FromResult(0)
             : TaskEventAsync(MessageTrigger.TaskAssigned, task, actor, _ => MessageRules.AlwaysHolds, told, ct, added,
                 (values, people) => values["assigned.names"] = Names(added, people, "nobody"));
 
     /// <summary>An edit named someone as the task's requestee.</summary>
-    public Task<int> RequesteeNamedAsync(TaskItem task, Actor actor, HashSet<Guid>? told = null, CancellationToken ct = default) =>
+    public Task<int> RequesteeNamedAsync(TaskItem task, Actor actor, HashSet<string>? told = null, CancellationToken ct = default) =>
         TaskEventAsync(MessageTrigger.RequesteeNamed, task, actor, _ => MessageRules.AlwaysHolds, told, ct);
 
     /// <summary>An open task was closed, as Done or Cancelled.</summary>
-    public Task<int> TaskClosedAsync(TaskItem task, Actor actor, HashSet<Guid>? told = null, CancellationToken ct = default) =>
+    public Task<int> TaskClosedAsync(TaskItem task, Actor actor, HashSet<string>? told = null, CancellationToken ct = default) =>
         TaskEventAsync(MessageTrigger.TaskClosed, task, actor, _ => MessageRules.ClosedConditions(task.Status), told, ct);
 
     /// <summary>Someone commented on a task: the actor is the author (the system for a comment with none).</summary>
@@ -105,12 +105,12 @@ public sealed class NotificationService(
         ProjectEventAsync(MessageTrigger.ProjectCreated, project, actor, MessageRules.AlwaysHolds, null, ct);
 
     /// <summary>A project's status changed from <paramref name="from"/> to the one it has now.</summary>
-    public Task<int> ProjectStatusChangedAsync(Project project, ProjectStatus from, Actor actor, HashSet<Guid>? told = null, CancellationToken ct = default) =>
+    public Task<int> ProjectStatusChangedAsync(Project project, ProjectStatus from, Actor actor, HashSet<string>? told = null, CancellationToken ct = default) =>
         ProjectEventAsync(MessageTrigger.ProjectStatusChanged, project, actor, MessageRules.ProjectStatusConditions(project.Status), told, ct, [],
             (values, _) => values["project.previous-status"] = from.Label());
 
     /// <summary>An edit made someone else the project's owner: the project's owner is the new one.</summary>
-    public Task<int> ProjectOwnerChangedAsync(Project project, Guid previousOwnerId, Actor actor, HashSet<Guid>? told = null, CancellationToken ct = default) =>
+    public Task<int> ProjectOwnerChangedAsync(Project project, Guid previousOwnerId, Actor actor, HashSet<string>? told = null, CancellationToken ct = default) =>
         ProjectEventAsync(MessageTrigger.ProjectOwnerChanged, project, actor, MessageRules.AlwaysHolds, told, ct, [previousOwnerId],
             (values, people) => values["project.previous-owner"] = Names([previousOwnerId], people, "nobody"));
 
@@ -143,7 +143,7 @@ public sealed class NotificationService(
         Func<IReadOnlyDictionary<Guid, MessagePerson>, CancellationToken, Task<Dictionary<string, string?>>> Values);
 
     private Task<int> TaskEventAsync(MessageTrigger trigger, TaskItem task, Actor actor,
-        Func<IReadOnlyList<Guid>, IReadOnlySet<MessageCondition>> holds, HashSet<Guid>? told, CancellationToken ct,
+        Func<IReadOnlyList<Guid>, IReadOnlySet<MessageCondition>> holds, HashSet<string>? told, CancellationToken ct,
         IReadOnlyCollection<Guid>? added = null, Action<Dictionary<string, string?>, IReadOnlyDictionary<Guid, MessagePerson>>? extra = null) =>
         GuardAsync(trigger, async () =>
         {
@@ -184,7 +184,7 @@ public sealed class NotificationService(
         });
 
     private Task<int> ProjectEventAsync(MessageTrigger trigger, Project project, Actor actor, IReadOnlySet<MessageCondition> holds,
-        HashSet<Guid>? told, CancellationToken ct, IReadOnlyCollection<Guid>? alsoNamed = null,
+        HashSet<string>? told, CancellationToken ct, IReadOnlyCollection<Guid>? alsoNamed = null,
         Action<Dictionary<string, string?>, IReadOnlyDictionary<Guid, MessagePerson>>? extra = null) =>
         GuardAsync(trigger, () =>
         {
@@ -204,10 +204,11 @@ public sealed class NotificationService(
 
     /// <summary>
     /// The work every event shares: the enabled messages for the trigger, those whose condition holds, the people in the roles they
-    /// name (a department's members fetched only when asked for), the plan, and one outbox row per email. Stops as soon as there is
-    /// nothing to send, so an event no message listens to costs one cached query.
+    /// name (a department's members fetched only when asked for) and the addresses they list, the plan, and one outbox row per email.
+    /// Stops as soon as there is nothing to send, so an event no message listens to costs one cached query. <paramref name="told"/> is
+    /// the addresses another event of the same save has emailed.
     /// </summary>
-    private async Task<int> QueueAsync(Draft draft, HashSet<Guid>? told, CancellationToken ct)
+    private async Task<int> QueueAsync(Draft draft, HashSet<string>? told, CancellationToken ct)
     {
         var messages = await MessagesAsync(draft.Trigger, ct);
         if (messages.Count == 0) return 0;
@@ -219,8 +220,8 @@ public sealed class NotificationService(
         if (wanted.Contains(MessageRecipientKind.DepartmentMembers) && draft.MembersOf is Guid department && draft.MembersPermission is { } permission)
             draft.People[MessageRecipientKind.DepartmentMembers] = await DepartmentMembersAsync(department, permission, ct);
         var candidates = wanted.SelectMany(k => draft.People.GetValueOrDefault(k) ?? [])
-            .Where(id => id != draft.Actor.UserId && told?.Contains(id) != true).ToHashSet();
-        if (candidates.Count == 0) return 0;
+            .Where(id => id != draft.Actor.UserId).ToHashSet();
+        if (candidates.Count == 0 && matching.All(m => m.Addresses.Count == 0)) return 0;
 
         var persons = await PeopleAsync([.. candidates, .. draft.NamesOf], ct);
         var e = new MessageEvent(draft.Trigger, draft.Actor.UserId, draft.Holds, draft.People, await draft.Values(persons, ct));
@@ -246,7 +247,7 @@ public sealed class NotificationService(
             };
         }).ToList();
         db.OutboundEmails.AddRange(emails);
-        foreach (var email in emails) told?.Add(email.ToUserId!.Value);
+        foreach (var email in emails) told?.Add(MessageRules.AddressKey(email.ToAddress));
         return emails.Count;
     }
 
@@ -272,7 +273,9 @@ public sealed class NotificationService(
         if (_messages.TryGetValue(trigger, out var cached)) return cached;
         var rows = await db.MessageTemplates.AsNoTracking().Include(m => m.Recipients)
             .Where(m => m.Enabled && m.Trigger == trigger).ToListAsync(ct);
-        var specs = rows.Select(m => new MessageSpec(m.Id, m.Name, m.Condition, m.Recipients.Select(r => r.Kind).ToList(), m.Subject, m.Body)).ToList();
+        // The addresses were checked when the message was saved; anything unreadable is left out rather than failing the event.
+        var specs = rows.Select(m => new MessageSpec(m.Id, m.Name, m.Condition, m.Recipients.Select(r => r.Kind).ToList(),
+            MessageRules.ParseAddresses(m.Addresses).Addresses, m.Subject, m.Body)).ToList();
         _messages[trigger] = specs;
         return specs;
     }

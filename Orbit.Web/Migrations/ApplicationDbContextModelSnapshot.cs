@@ -1038,6 +1038,10 @@ namespace Orbit.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Addresses")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
                     b.Property<string>("Body")
                         .IsRequired()
                         .HasMaxLength(8000)

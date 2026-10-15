@@ -24,7 +24,7 @@ public class MessageRulesTests
         new(id, name, $"{name.ToLowerInvariant()}@example.com", active, system);
 
     private static MessageSpec Message(string name, MessageCondition condition, params MessageRecipientKind[] to) =>
-        new(Guid.NewGuid(), name, condition, to, $"[Orbit] {name}: {{{{task.title}}}}", "Hi {{recipient.name}},\n\n{{actor.name}} did it.");
+        new(Guid.NewGuid(), name, condition, to, [], $"[Orbit] {name}: {{{{task.title}}}}", "Hi {{recipient.name}},\n\n{{actor.name}} did it.");
 
     private static MessageEvent Event(MessageTrigger trigger, Guid? actor, IReadOnlySet<MessageCondition> holds,
         params (MessageRecipientKind Kind, Guid[] Ids)[] people) =>
@@ -119,6 +119,75 @@ public class MessageRulesTests
         Assert.Equal(["Bob"], MessageRules.Plan(byOwner, [toDepartment, toOwner], People).Select(p => p.To.DisplayName));
     }
 
+    /// <summary>
+    /// MSG-019: the addresses a message lists - bare or with a name, separated by ; or line breaks, blanks skipped, each once ignoring
+    /// case - are stored in one form that reads back the same; an entry that isn't an address is named, at most 20 are taken, and a
+    /// message may go only to addresses but not to nobody.
+    /// </summary>
+    [Fact]
+    public void Listed_addresses_are_parsed_checked_and_stored_in_one_form()
+    {
+        var list = MessageRules.ParseAddresses(" helpdesk@example.com ;IT Support <it@example.com>\r\n\r\n; HELPDESK@Example.com;; \"Doe, Jo\" <jo@example.com>");
+        Assert.Empty(list.Invalid);
+        Assert.Equal(["helpdesk@example.com", "it@example.com", "jo@example.com"], list.Addresses.Select(a => a.Address));
+        Assert.Equal([null, "IT Support", "Doe, Jo"], list.Addresses.Select(a => a.Name));
+        var stored = MessageRules.FormatAddresses(list.Addresses);
+        Assert.Equal(list.Addresses, MessageRules.ParseAddresses(stored).Addresses);
+        Assert.StartsWith("helpdesk@example.com; ", stored);
+        Assert.Null(MessageRules.FormatAddresses([]));
+        Assert.Empty(MessageRules.ParseAddresses(null).Addresses);
+
+        var bad = MessageRules.ParseAddresses("helpdesk(at)example.com; ok@example.com; Jo jo@example.com");
+        Assert.Equal(["helpdesk(at)example.com", "Jo jo@example.com"], bad.Invalid);
+        Assert.Equal(["ok@example.com"], bad.Addresses.Select(a => a.Address));
+
+        MessageRecipientKind[] nobody = [];
+        Assert.Equal(["helpdesk@example.com"], MessageRules.Validate(MessageTrigger.TaskClosed, MessageCondition.Always, nobody, "n", "s", "b", "helpdesk@example.com").Select(a => a.Address));
+        Assert.Empty(MessageRules.Validate(MessageTrigger.TaskClosed, MessageCondition.Always, [MessageRecipientKind.Requestee], "n", "s", "b", " "));
+        var none = Assert.Throws<ValidationException>(() => MessageRules.Validate(MessageTrigger.TaskClosed, MessageCondition.Always, nobody, "n", "s", "b", "  ;  "));
+        Assert.Contains("list an address", none.Message);
+        var named = Assert.Throws<ValidationException>(() => MessageRules.Validate(MessageTrigger.TaskClosed, MessageCondition.Always, nobody, "n", "s", "b", "ok@example.com; helpdesk(at)example.com"));
+        Assert.Contains("\"helpdesk(at)example.com\"", named.Message);
+        var many = string.Join(";", Enumerable.Range(1, MessageRules.MaxAddresses + 1).Select(i => $"person{i}@example.com"));
+        Assert.Throws<ValidationException>(() => MessageRules.Validate(MessageTrigger.TaskClosed, MessageCondition.Always, nobody, "n", "s", "b", many));
+    }
+
+    /// <summary>
+    /// MSG-020: a message's listed addresses get it when its condition holds - whoever acted - each once per change: an address that
+    /// is someone's the event already emails by role gets only that email, an address listed on two messages one, and one told earlier
+    /// in the save none. The name given is the recipient's name.
+    /// </summary>
+    [Fact]
+    public void Listed_addresses_get_the_email_once_whoever_acted()
+    {
+        var closed = Message("Task closed: tell its requestee", MessageCondition.Always, MessageRecipientKind.Requestee) with
+        {
+            Addresses = MessageRules.ParseAddresses("helpdesk@example.com; IT Support <it@example.com>; ANN@example.com; me@example.com").Addresses
+        };
+        var e = Event(MessageTrigger.TaskClosed, Me, MessageRules.ClosedConditions(TaskItemStatus.Done), (MessageRecipientKind.Requestee, [Ann]));
+
+        var planned = MessageRules.Plan(e, [closed], People);
+
+        // Ann by role (her address listed too); the listed ones last, me@ included though Me closed it.
+        Assert.Equal(["Ann", "helpdesk@example.com", "IT Support", "me@example.com"], planned.Select(p => p.To.DisplayName));
+        Assert.Equal(MessageRecipientKind.Requestee, planned[0].As);
+        Assert.All(planned.Skip(1), p => { Assert.Null(p.As); Assert.Null(p.To.Id); });
+        Assert.StartsWith("Hi IT Support,", MessageRules.Render(planned[2], e).Body);
+
+        Assert.Empty(MessageRules.Plan(e, [closed with { Condition = MessageCondition.Cancelled }], People));
+
+        var copy = Message("A copy for the helpdesk", MessageCondition.Always) with
+        {
+            Addresses = MessageRules.ParseAddresses("HelpDesk@Example.com").Addresses
+        };
+        var both = MessageRules.Plan(e, [closed, copy], People);
+        Assert.Single(both, p => MessageRules.AddressKey(p.To.Email!) == "helpdesk@example.com");
+        Assert.Same(copy, both.Single(p => MessageRules.AddressKey(p.To.Email!) == "helpdesk@example.com").Message); // "A copy..." sorts first
+
+        var told = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "HELPDESK@example.com", "ann@example.com" };
+        Assert.Equal(["IT Support", "me@example.com"], MessageRules.Plan(e, [closed], People, told).Select(p => p.To.DisplayName));
+    }
+
     /// <summary>MSG-004 (and ASGN-014): nobody is told what they did themselves; an event of the system or an API key leaves nobody out.</summary>
     [Fact]
     public void The_actor_is_never_told()
@@ -186,7 +255,7 @@ public class MessageRulesTests
     {
         var e = Event(MessageTrigger.RequesteeNamed, Me, MessageRules.AlwaysHolds, (MessageRecipientKind.Requestee, [Ann]), (MessageRecipientKind.Assignees, [Ann, Bob]));
         var messages = new[] { Message("Named", MessageCondition.Always, MessageRecipientKind.Requestee, MessageRecipientKind.Assignees) };
-        Assert.Equal(["Bob"], MessageRules.Plan(e, messages, People, new HashSet<Guid> { Ann }).Select(p => p.To.DisplayName));
+        Assert.Equal(["Bob"], MessageRules.Plan(e, messages, People, new HashSet<string> { "ann@example.com" }).Select(p => p.To.DisplayName));
     }
 
     /// <summary>MSG-008: a message whose condition doesn't hold sends nothing, and a recipient role the trigger doesn't offer is ignored.</summary>
@@ -211,7 +280,7 @@ public class MessageRulesTests
     [Fact]
     public void Render_fills_in_the_values_and_cleans_the_subject()
     {
-        var message = new MessageSpec(Guid.NewGuid(), "Fallback", MessageCondition.Always, [MessageRecipientKind.Assignees],
+        var message = new MessageSpec(Guid.NewGuid(), "Fallback", MessageCondition.Always, [MessageRecipientKind.Assignees], [],
             "[Orbit] {{task.title}}{{nope}}", "Hi {{recipient.name}},\r\n\r\n{{actor.name}} assigned you {{task.title}}.\r\n");
         var e = Event(MessageTrigger.TaskCreated, null, MessageRules.AlwaysHolds, (MessageRecipientKind.Assignees, [Ann]));
         var (subject, body) = MessageRules.Render(MessageRules.Plan(e, [message], People).Single(), e);

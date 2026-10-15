@@ -63,8 +63,15 @@
                     }
                     @if (d.Offers(MessageRecipientKind.DepartmentMembers))
                     {
-                        <div class="form-text">The department's members are the active people in the task's department whose role shows them its tasks.</div>
+                        <div class="form-text">The department's members are the active people in the @(d.IsAboutProjects ? "project's" : "task's") department whose role shows them its @(d.IsAboutProjects ? "projects" : "tasks").</div>
                     }
+                    <label class="form-label small mt-2 mb-1" asp-for="Form.Addresses">Also to these addresses <span class="text-muted fw-normal">(optional)</span></label>
+                    <input class="form-control" asp-for="Form.Addresses" maxlength="@MessageRules.AddressesMaxLength" placeholder="helpdesk@example.com; IT Support <it@example.com>" />
+                    <div class="form-text">
+                        For anyone the roles above don't cover - a shared mailbox, a supplier. Separate addresses with <code>;</code>, at most
+                        @MessageRules.MaxAddresses. Each gets an email of its own whenever the message is sent, whoever acted; <code>{{recipient.name}}</code>
+                        is the name given before the address, or the address itself.
+                    </div>
                 </div>
                 <div class="mb-3">
                     <label class="form-label" asp-for="Form.Subject">Subject</label>
@@ -103,7 +110,8 @@
             <div class="card-header fw-semibold">Who gets it</div>
             <div class="card-body small text-muted">
                 <p class="mb-2">Everyone in the roles ticked who is active and has an email address, except whoever caused the event: nobody is told what they did themselves, and something done by a scheduled job or by Claude leaves nobody out.</p>
-                <p class="mb-0">One email per person per change: when several messages would reach the same person, they get the one whose recipient comes first in the list above.</p>
+                <p class="mb-2">The addresses listed get it too, whoever caused the event.</p>
+                <p class="mb-0">One email per address per change: when several messages would reach the same person, they get the one whose recipient comes first in the list above, and an address listed here gets nothing more when one of those people has it.</p>
             </div>
         </div>
         <div class="card mb-3">

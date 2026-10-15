@@ -19,19 +19,21 @@ public class EditModel(MessageTemplateService messages) : OrbitPageModel
         public string? Name { get; set; }
         public MessageCondition Condition { get; set; } = MessageCondition.Always;
         public List<MessageRecipientKind> Recipients { get; set; } = [];
+        /// <summary>Addresses it also goes to, separated by <c>;</c>.</summary>
+        public string? Addresses { get; set; }
         public string? Subject { get; set; }
         public string? Body { get; set; }
         public bool Enabled { get; set; } = true;
 
         public MessageTemplateInput ToInput() => new()
         {
-            Name = Name, Condition = Condition, Recipients = Recipients, Subject = Subject, Body = Body, Enabled = Enabled
+            Name = Name, Condition = Condition, Recipients = Recipients, Addresses = Addresses, Subject = Subject, Body = Body, Enabled = Enabled
         };
 
         public static MessageForm From(MessageTemplate m) => new()
         {
             Name = m.Name, Condition = m.Condition, Recipients = m.Recipients.Select(r => r.Kind).Order().ToList(),
-            Subject = m.Subject, Body = m.Body, Enabled = m.Enabled
+            Addresses = m.Addresses, Subject = m.Subject, Body = m.Body, Enabled = m.Enabled
         };
     }
 

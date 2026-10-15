@@ -48,21 +48,21 @@ public sealed class MessageTemplateService(
     {
         var actor = await RequireAsync(ct);
         if (!Enum.IsDefined(trigger)) throw new ValidationException("Choose what the message is sent on.");
-        var (name, subject, body, recipients) = Clean(trigger, input);
+        var (name, subject, body, recipients, addresses) = Clean(trigger, input);
         await RequireUniqueNameAsync(name, null, ct);
 
         var now = DateTime.UtcNow;
         var message = new MessageTemplate
         {
             Name = name, Trigger = trigger, Condition = input.Condition, Enabled = input.Enabled, Subject = subject, Body = body,
-            CreatedAt = now, UpdatedAt = now
+            Addresses = MessageRules.FormatAddresses(addresses), CreatedAt = now, UpdatedAt = now
         };
         foreach (var kind in recipients)
             message.Recipients.Add(new MessageTemplateRecipient { MessageTemplateId = message.Id, Kind = kind });
         db.MessageTemplates.Add(message);
         audit.Add(actor, AuditEntity.Message, message.Id, AuditAction.Created, null, message.Name, new
         {
-            message.Name, trigger, message.Condition, recipients, message.Enabled, message.Subject, message.Body
+            message.Name, trigger, message.Condition, recipients, message.Addresses, message.Enabled, message.Subject, message.Body
         });
         await db.SaveChangesAsync(ct);
         return message;
@@ -73,13 +73,15 @@ public sealed class MessageTemplateService(
         var actor = await RequireAsync(ct);
         var message = await db.MessageTemplates.Include(m => m.Recipients).FirstOrDefaultAsync(m => m.Id == id, ct)
             ?? throw new NotFoundException("Message not found.");
-        var (name, subject, body, recipients) = Clean(message.Trigger, input);
+        var (name, subject, body, recipients, addresses) = Clean(message.Trigger, input);
         if (!string.Equals(name, message.Name, StringComparison.OrdinalIgnoreCase)) await RequireUniqueNameAsync(name, id, ct);
+        var listed = MessageRules.FormatAddresses(addresses);
 
         var changes = new ChangeSet()
             .TrackText("name", message.Name, name)
             .Track("condition", message.Condition, input.Condition)
             .Track("recipients", Describe(message.Recipients.Select(r => r.Kind)), Describe(recipients))
+            .TrackText("addresses", message.Addresses, listed)
             .Track("enabled", message.Enabled, input.Enabled)
             .TrackText("subject", message.Subject, subject)
             .TrackText("body", message.Body, body);
@@ -87,6 +89,7 @@ public sealed class MessageTemplateService(
 
         message.Name = name;
         message.Condition = input.Condition;
+        message.Addresses = listed;
         message.Enabled = input.Enabled;
         message.Subject = subject;
         message.Body = body;
@@ -130,12 +133,16 @@ public sealed class MessageTemplateService(
     public async Task<MessagePreview> PreviewAsync(MessageTrigger trigger, MessageTemplateInput input, CancellationToken ct = default)
     {
         await RequireAsync(ct);
-        var (name, subject, body, recipients) = Clean(trigger, input);
+        var (name, subject, body, recipients, addresses) = Clean(trigger, input);
         var e = new MessageEvent(trigger, null, MessageRules.AlwaysHolds, new Dictionary<MessageRecipientKind, IReadOnlyCollection<Guid>>(),
             MessageRules.Samples(trigger));
+        var spec = new MessageSpec(Guid.Empty, name, input.Condition, recipients, addresses, subject, body);
+        // As one of its recipients would get it, or - for a message that only lists addresses - as the first of them would.
         var sample = MessageCatalogue.Get(trigger).Tokens.First(t => t.Name == "recipient.name").Sample;
-        var spec = new MessageSpec(Guid.Empty, name, input.Condition, recipients, subject, body);
-        var (renderedSubject, renderedBody) = MessageRules.Render(new PlannedEmail(spec, new MessagePerson(Guid.Empty, sample, null, true, false), recipients[0]), e);
+        var to = recipients.Count > 0
+            ? new PlannedEmail(spec, new MessagePerson(null, sample, null, true, false), recipients[0])
+            : new PlannedEmail(spec, new MessagePerson(null, addresses[0].Name ?? addresses[0].Address, addresses[0].Address, true, false), null);
+        var (renderedSubject, renderedBody) = MessageRules.Render(to, e);
         return new MessagePreview(renderedSubject, renderedBody, MessageRules.ToHtml(renderedBody));
     }
 
@@ -183,15 +190,19 @@ public sealed class MessageTemplateService(
         return address;
     }
 
-    /// <summary>The input made storable, or refused: a trimmed name, subject and body with plain line breaks, and each recipient once in rank order.</summary>
-    private static (string Name, string Subject, string Body, IReadOnlyList<MessageRecipientKind> Recipients) Clean(MessageTrigger trigger, MessageTemplateInput input)
+    /// <summary>
+    /// The input made storable, or refused: a trimmed name, subject and body with plain line breaks, each recipient once in rank order,
+    /// and the addresses listed, each once.
+    /// </summary>
+    private static (string Name, string Subject, string Body, IReadOnlyList<MessageRecipientKind> Recipients, IReadOnlyList<MessageAddress> Addresses)
+        Clean(MessageTrigger trigger, MessageTemplateInput input)
     {
         var name = input.Name?.Trim() ?? string.Empty;
         var subject = input.Subject?.Trim() ?? string.Empty;
         var body = MessageRules.Normalise(input.Body);
         var recipients = input.Recipients.Distinct().Order().ToList();
-        MessageRules.Validate(trigger, input.Condition, recipients, name, subject, body);
-        return (name, subject, body, recipients);
+        var addresses = MessageRules.Validate(trigger, input.Condition, recipients, name, subject, body, input.Addresses);
+        return (name, subject, body, recipients, addresses);
     }
 
     private static string Describe(IEnumerable<MessageRecipientKind> kinds) => string.Join(", ", kinds.Order());

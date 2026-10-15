@@ -66,7 +66,8 @@ else
                                         <div class="small text-muted">@Ui.Truncate(m.Subject, 100)</div>
                                     </td>
                                     <td class="small">
-                                        To @string.Join(", ", m.Recipients.Select(r => r.Kind).Order().Select(k => k.Label().ToLowerInvariant()))
+                                        To @string.Join(", ", m.Recipients.Select(r => r.Kind).Order().Select(k => k.Label().ToLowerInvariant())
+                                            .Concat(MessageRules.ParseAddresses(m.Addresses).Addresses.Select(a => a.Address)))
                                         @if (m.Condition != MessageCondition.Always) { <div class="text-muted">@m.Condition.Label()</div> }
                                     </td>
                                     <td class="d-none d-md-table-cell small text-muted text-nowrap">@(Model.Sent.GetValueOrDefault(m.Id)) in the outbox</td>

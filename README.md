@@ -432,9 +432,12 @@ one or more people relative to the event, and has a subject and body written as 
 - **Nobody is emailed about what they did themselves**, and only active people with an address are emailed.
 - **The department's members** are the active people of the task's or project's department who can see its tasks or
   projects.
-- **One email per person**: when several messages would reach someone for the same change, they get the most personal
+- **Also to these addresses**: a message can list up to 20 more addresses, separated by `;` (`helpdesk@example.com;
+  IT Support <it@example.com>`), for anyone the roles don't cover - a shared mailbox, a supplier. Each gets its own
+  email whenever the message is sent, whoever acted, and a message may go only to listed addresses.
+- **One email per address**: when several messages would reach someone for the same change, they get the most personal
   one (whoever a step waits for, then the people just assigned, the assignees, the requestee, the requester, the
-  creator, the project's owner, the department's members).
+  creator, the project's owner, the department's members, and last a listed address).
 - A body is plain text: a blank line starts a paragraph and web addresses become links. **Preview** fills a message in
   with sample values. A value it can't use is refused when you save.
 

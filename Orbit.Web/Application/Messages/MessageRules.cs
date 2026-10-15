@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Mail;
 using System.Text;
 using System.Text.RegularExpressions;
 using Orbit.Application.Requests;
@@ -6,11 +7,22 @@ using Orbit.Data.Entities;
 
 namespace Orbit.Application.Messages;
 
-/// <summary>A message as the rules see it (§6.7): when it goes, to whom, and its templates.</summary>
-public sealed record MessageSpec(Guid Id, string Name, MessageCondition Condition, IReadOnlyCollection<MessageRecipientKind> Recipients, string Subject, string Body);
+/// <summary>A message as the rules see it (§6.7): when it goes, to whom - its recipient roles and the addresses it lists - and its templates.</summary>
+public sealed record MessageSpec(Guid Id, string Name, MessageCondition Condition, IReadOnlyCollection<MessageRecipientKind> Recipients,
+    IReadOnlyList<MessageAddress> Addresses, string Subject, string Body);
 
-/// <summary>Someone a message might go to, as far as the rules need to know.</summary>
-public sealed record MessagePerson(Guid Id, string DisplayName, string? Email, bool IsActive, bool IsSystemAccount);
+/// <summary>Someone a message might go to, as far as the rules need to know. No id for an address a message lists.</summary>
+public sealed record MessagePerson(Guid? Id, string DisplayName, string? Email, bool IsActive, bool IsSystemAccount);
+
+/// <summary>An address a message lists beside its recipient roles (§6.7), with the name given before it, if any.</summary>
+public sealed record MessageAddress(string Address, string? Name)
+{
+    /// <summary>As stored and shown: <c>helpdesk@example.com</c>, or <c>IT Helpdesk &lt;helpdesk@example.com&gt;</c>, the name quoted when it needs to be.</summary>
+    public override string ToString() => Name is null ? Address : new MailAddress(Address, Name).ToString();
+}
+
+/// <summary>What a list of addresses held: the addresses, each once, and the entries that aren't addresses, as typed.</summary>
+public sealed record MessageAddressList(IReadOnlyList<MessageAddress> Addresses, IReadOnlyList<string> Invalid);
 
 /// <summary>
 /// One event that happened (§6.7): what it was, who did it (null for the system or no person), the conditions that hold, the people
@@ -23,8 +35,8 @@ public sealed record MessageEvent(
     IReadOnlyDictionary<MessageRecipientKind, IReadOnlyCollection<Guid>> People,
     IReadOnlyDictionary<string, string?> Values);
 
-/// <summary>One email the rules decided on: which message, to whom, and in which role they get it.</summary>
-public sealed record PlannedEmail(MessageSpec Message, MessagePerson To, MessageRecipientKind As);
+/// <summary>One email the rules decided on: which message, to whom, and in which role they get it - none for an address the message lists.</summary>
+public sealed record PlannedEmail(MessageSpec Message, MessagePerson To, MessageRecipientKind? As);
 
 /// <summary>
 /// Messages (spec §6.7): which messages an event sends, to whom, and what they say. No database access - the notification service
@@ -38,6 +50,10 @@ public static partial class MessageRules
 
     /// <summary>The longest a long value (a description, a comment, a script's output) is let into an email.</summary>
     public const int LongValueMaxLength = 4000;
+
+    /// <summary>The most addresses one message may list, and the longest the list may be as stored.</summary>
+    public const int MaxAddresses = 20;
+    public const int AddressesMaxLength = 2000;
 
     /// <summary>The waits between attempts to send an email, in minutes; the last repeats until the attempts run out.</summary>
     private static readonly int[] RetryMinutes = [1, 5, 15, 60, 240];
@@ -131,32 +147,78 @@ public static partial class MessageRules
         person.IsActive && !person.IsSystemAccount && !string.IsNullOrWhiteSpace(person.Email);
 
     /// <summary>
-    /// MSG-004, MSG-006, MSG-007, MSG-008: the emails an event sends. Only messages whose condition holds, to the recipient roles the
-    /// trigger offers; never to whoever caused the event (nobody needs telling what they just did, and an event of the system or an
-    /// API key leaves nobody out); only to people who can receive one; never to anyone in <paramref name="alreadyTold"/> (someone
-    /// told by another event of the same save); and at most one email per person - when several messages would reach them, the one
-    /// whose recipient role ranks first (the most personal), then by name, then by id. People not in <paramref name="people"/> are skipped.
+    /// MSG-004, MSG-006, MSG-007, MSG-008, MSG-020: the emails an event sends. Only messages whose condition holds, to the recipient
+    /// roles the trigger offers - never to whoever caused the event (nobody needs telling what they just did, and an event of the system
+    /// or an API key leaves nobody out), and only to people who can receive one - and to the addresses each lists, which the admin chose
+    /// and get it whoever acted. Never to an address in <paramref name="alreadyTold"/> (told by another event of the same save, compared
+    /// as <see cref="AddressKey"/>), and at most one email per address: when several would reach it, the one whose recipient role ranks
+    /// first (the most personal; a listed address last), then by message name, then by id. People not in <paramref name="people"/> are skipped.
     /// </summary>
     public static IReadOnlyList<PlannedEmail> Plan(MessageEvent e, IEnumerable<MessageSpec> messages,
-        IReadOnlyDictionary<Guid, MessagePerson> people, IReadOnlySet<Guid>? alreadyTold = null)
+        IReadOnlyDictionary<Guid, MessagePerson> people, IReadOnlySet<string>? alreadyTold = null)
     {
         var definition = MessageCatalogue.Get(e.Trigger);
-        var candidates =
-            from message in Matching(e, messages)
+        var matching = Matching(e, messages);
+        var byRole =
+            from message in matching
             from kind in message.Recipients.Distinct().Where(definition.Offers)
             from id in e.People.GetValueOrDefault(kind) ?? []
-            where id != e.ActorUserId && (alreadyTold is null || !alreadyTold.Contains(id))
+            where id != e.ActorUserId
             let person = people.GetValueOrDefault(id)
             where person is not null && CanReceive(person)
             select new PlannedEmail(message, person, kind);
-        return candidates
-            .GroupBy(p => p.To.Id)
-            .Select(g => g.OrderBy(p => p.As)
+        var listed =
+            from message in matching
+            from address in message.Addresses
+            select new PlannedEmail(message, new MessagePerson(null, address.Name ?? address.Address, address.Address, true, false), null);
+        return byRole.Concat(listed)
+            .Where(p => alreadyTold is null || !alreadyTold.Contains(AddressKey(p.To.Email!)))
+            .GroupBy(p => AddressKey(p.To.Email!))
+            .Select(g => g.OrderBy(Rank)
                 .ThenBy(p => p.Message.Name, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(p => p.Message.Id)
                 .First())
-            .OrderBy(p => p.As).ThenBy(p => p.To.DisplayName, StringComparer.OrdinalIgnoreCase).ThenBy(p => p.To.Id)
+            .OrderBy(Rank).ThenBy(p => p.To.DisplayName, StringComparer.OrdinalIgnoreCase).ThenBy(p => AddressKey(p.To.Email!))
             .ToList();
+    }
+
+    /// <summary>A recipient role's rank, the declaration order of <see cref="MessageRecipientKind"/>; an address the message lists ranks last.</summary>
+    private static int Rank(PlannedEmail email) => email.As is { } kind ? (int)kind : int.MaxValue;
+
+    /// <summary>An email address as it is compared: one mailbox is one recipient, however it is written.</summary>
+    public static string AddressKey(string address) => address.Trim().ToLowerInvariant();
+
+    // ---------------------------------------------------------------- the addresses a message lists
+
+    /// <summary>
+    /// MSG-019: the addresses in what was typed - separated by <c>;</c> or line breaks (not commas, which a quoted name may hold), each
+    /// <c>someone@example.com</c> or <c>Name &lt;someone@example.com&gt;</c>, blanks skipped and each address once, ignoring case - and the
+    /// entries that aren't addresses.
+    /// </summary>
+    public static MessageAddressList ParseAddresses(string? text)
+    {
+        var addresses = new List<MessageAddress>();
+        var invalid = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var entry in (text ?? string.Empty).Split([';', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            // A bare entry must be the address and nothing else; one with a name must put the address in angle brackets.
+            if (!MailAddress.TryCreate(entry, out var parsed) || (!entry.Contains('<') && parsed.Address != entry))
+            {
+                invalid.Add(entry);
+                continue;
+            }
+            if (!seen.Add(AddressKey(parsed.Address))) continue;
+            addresses.Add(new MessageAddress(parsed.Address, string.IsNullOrWhiteSpace(parsed.DisplayName) ? null : parsed.DisplayName.Trim()));
+        }
+        return new MessageAddressList(addresses, invalid);
+    }
+
+    /// <summary>MSG-019: the addresses as stored and shown, <c>; </c> between them; null for none.</summary>
+    public static string? FormatAddresses(IEnumerable<MessageAddress> addresses)
+    {
+        var text = string.Join("; ", addresses.Select(a => a.ToString()));
+        return text.Length == 0 ? null : text;
     }
 
     // ---------------------------------------------------------------- what it says
@@ -239,11 +301,12 @@ public static partial class MessageRules
     // ---------------------------------------------------------------- saving a message
 
     /// <summary>
-    /// MSG-002: refuses a message that can't be sent as written - a missing or too long name, subject or body; a condition or recipient
-    /// the trigger doesn't offer; no recipient; or a token that isn't one of the trigger's values.
+    /// MSG-002, MSG-019: refuses a message that can't be sent as written - a missing or too long name, subject or body; a condition or
+    /// recipient the trigger doesn't offer; an entry in <paramref name="addresses"/> that isn't an email address, or too many of them;
+    /// neither a recipient nor an address; or a token that isn't one of the trigger's values. Returns the addresses listed.
     /// </summary>
-    public static void Validate(MessageTrigger trigger, MessageCondition condition, IReadOnlyCollection<MessageRecipientKind> recipients,
-        string? name, string? subject, string? body)
+    public static IReadOnlyList<MessageAddress> Validate(MessageTrigger trigger, MessageCondition condition, IReadOnlyCollection<MessageRecipientKind> recipients,
+        string? name, string? subject, string? body, string? addresses = null)
     {
         var definition = MessageCatalogue.Get(trigger);
         Require(name, "A name", NameMaxLength);
@@ -251,13 +314,21 @@ public static partial class MessageRules
         Require(body, "A body", BodyMaxLength);
         if (!definition.Offers(condition))
             throw new ValidationException($"\"{condition.Label()}\" isn't a condition of {definition.Label}.");
-        if (recipients.Count == 0)
-            throw new ValidationException("Choose at least one recipient.");
         foreach (var kind in recipients.Where(k => !definition.Offers(k)))
             throw new ValidationException($"\"{kind.Label()}\" isn't a recipient of {definition.Label}.");
+        var listed = ParseAddresses(addresses);
+        if (listed.Invalid.Count > 0)
+            throw new ValidationException($"\"{listed.Invalid[0]}\" isn't an email address. Separate addresses with ;.");
+        if (listed.Addresses.Count > MaxAddresses)
+            throw new ValidationException($"List at most {MaxAddresses} addresses.");
+        if ((FormatAddresses(listed.Addresses)?.Length ?? 0) > AddressesMaxLength)
+            throw new ValidationException($"The addresses can be at most {AddressesMaxLength} characters.");
+        if (recipients.Count == 0 && listed.Addresses.Count == 0)
+            throw new ValidationException("Choose at least one recipient, or list an address.");
         var tokens = definition.Tokens.Select(t => t.Name).ToHashSet(StringComparer.Ordinal);
         CheckTokens(subject, "The subject", tokens, definition);
         CheckTokens(body, "The body", tokens, definition);
+        return listed.Addresses;
     }
 
     private static void Require(string? value, string what, int max)

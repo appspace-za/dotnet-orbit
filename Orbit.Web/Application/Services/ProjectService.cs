@@ -234,7 +234,7 @@ public sealed class ProjectService(NumberingService numbering, ApplicationDbCont
             departmentId, project.Name, changes.Changes);
         // The emails it raises (§6.7) are saved with it, at most one per person for the whole save: a new owner told of that
         // isn't also told of the status.
-        var told = new HashSet<Guid>();
+        var told = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (changes.Contains("ownerId")) await notifications.ProjectOwnerChangedAsync(project, previousOwnerId, actor, told, ct);
         if (changes.Contains("status")) await notifications.ProjectStatusChangedAsync(project, previousStatus, actor, told, ct);
         await db.SaveChangesAsync(ct);

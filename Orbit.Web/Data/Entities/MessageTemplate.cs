@@ -14,6 +14,11 @@ public class MessageTemplate
     public MessageTrigger Trigger { get; set; }
     public MessageCondition Condition { get; set; } = MessageCondition.Always;
     public bool Enabled { get; set; } = true;
+    /// <summary>
+    /// Addresses it also goes to, beside its recipients' roles - a shared mailbox, a supplier, someone in no role - as
+    /// <c>Name &lt;address&gt;; address</c>; null for none. They get it whenever its condition holds.
+    /// </summary>
+    public string? Addresses { get; set; }
     public string Subject { get; set; } = string.Empty;
     public string Body { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

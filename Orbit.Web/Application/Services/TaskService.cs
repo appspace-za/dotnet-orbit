@@ -288,7 +288,7 @@ public sealed class TaskService(
                 new { parent = new { from = previousParentId, to = parent?.Id }, parentTitle = parent?.Title });
         // The emails it raises (§6.7) are saved with it, at most one per person for the whole save: someone just assigned isn't
         // also told they are the requestee, or that the task closed (§6.2.2).
-        var told = new HashSet<Guid>();
+        var told = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         await notifications.TaskAssignedAsync(task, assignees.Added.Select(u => u.Id).ToList(), actor, told, ct);
         if (newRequestee is not null) await notifications.RequesteeNamedAsync(task, actor, told, ct);
         if (closing) await notifications.TaskClosedAsync(task, actor, told, ct);

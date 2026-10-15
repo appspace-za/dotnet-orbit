@@ -8,6 +8,8 @@ public sealed class MessageTemplateInput
     public string? Name { get; set; }
     public MessageCondition Condition { get; set; } = MessageCondition.Always;
     public IReadOnlyList<MessageRecipientKind> Recipients { get; set; } = [];
+    /// <summary>Addresses it also goes to, separated by <c>;</c>: <c>someone@example.com</c> or <c>Name &lt;someone@example.com&gt;</c>.</summary>
+    public string? Addresses { get; set; }
     public string? Subject { get; set; }
     public string? Body { get; set; }
     public bool Enabled { get; set; } = true;

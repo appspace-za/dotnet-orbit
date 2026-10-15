@@ -722,6 +722,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             b.Property(m => m.Name).HasMaxLength(100).IsRequired();
             b.Property(m => m.Subject).HasMaxLength(300).IsRequired();
             b.Property(m => m.Body).HasMaxLength(8000).IsRequired();
+            b.Property(m => m.Addresses).HasMaxLength(2000);
             b.HasIndex(m => m.Trigger);
         });
 
