@@ -38,6 +38,7 @@ builder.Services.Configure<AttachmentOptions>(config.GetSection(AttachmentOption
 builder.Services.Configure<AssetOptions>(config.GetSection(AssetOptions.Section));
 builder.Services.Configure<ActionOptions>(config.GetSection(ActionOptions.Section));
 builder.Services.Configure<NagiosOptions>(config.GetSection(NagiosOptions.Section));
+builder.Services.Configure<EmailOptions>(config.GetSection(EmailOptions.Section));
 var security = config.GetSection(SecurityOptions.Section).Get<SecurityOptions>() ?? new SecurityOptions();
 
 // Behind nginx/Caddy on the same host (deploy/README.md) the app only ever sees 127.0.0.1 over plain http.
@@ -112,6 +113,7 @@ builder.Services.AddRazorPages(options =>
         options.Conventions.AuthorizeFolder("/Admin/Directory", Policies.Permission(Permission.DirectoryManage));
         options.Conventions.AuthorizeFolder("/Admin/Agents", Policies.Permission(Permission.AgentsManage));
         options.Conventions.AuthorizeFolder("/Admin/Nagios", Policies.Permission(Permission.NagiosManage));
+        options.Conventions.AuthorizeFolder("/Admin/Messages", Policies.Permission(Permission.MessagesManage));
         options.Conventions.AuthorizeFolder("/Admin/Calendar", Policies.Permission(Permission.CalendarManage));
         options.Conventions.AuthorizeFolder("/Admin/Activity", Policies.Permission(Permission.AuditView));
         options.Conventions.AuthorizeFolder("/Reports", Policies.Permission(Permission.ReportsView));
@@ -142,6 +144,8 @@ builder.Services.AddScoped<IActorProvider, HttpActorProvider>();
 builder.Services.AddSingleton<LoginThrottle>();
 builder.Services.AddScoped<AuditService>();
 builder.Services.AddScoped<NotificationService>();
+builder.Services.AddScoped<EmailDispatcher>();
+builder.Services.AddScoped<MessageTemplateService>();
 builder.Services.AddScoped<TaskService>();
 builder.Services.AddScoped<TaskStructureService>();
 builder.Services.AddScoped<ProjectService>();

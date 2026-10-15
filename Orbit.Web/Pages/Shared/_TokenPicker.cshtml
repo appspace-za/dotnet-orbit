@@ -1,5 +1,5 @@
 @model (IReadOnlyList<Orbit.Application.Requests.RequestToken> Tokens, string TargetId)
-@* A select of the values a template may use (spec §6.20); choosing one inserts its token where the cursor is in the target box (requests.js). *@
+@* A select of the values a template may use (a request flow's, spec §6.20, or a message's, §6.7); choosing one inserts its token where the cursor is in the target box (requests.js). *@
 @if (Model.Tokens.Count > 0)
 {
     <div class="d-flex align-items-center gap-2 mt-1">

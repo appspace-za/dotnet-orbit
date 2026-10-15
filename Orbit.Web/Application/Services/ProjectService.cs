@@ -5,7 +5,7 @@ using Orbit.Data.Entities;
 
 namespace Orbit.Application.Services;
 
-public sealed class ProjectService(NumberingService numbering, ApplicationDbContext db, IActorProvider actors, AuditService audit)
+public sealed class ProjectService(NumberingService numbering, ApplicationDbContext db, IActorProvider actors, AuditService audit, NotificationService notifications)
 {
     /// <summary>
     /// Projects the caller may see (projects.view, §6.5): every project at All; at Department the caller's own department's
@@ -168,6 +168,8 @@ public sealed class ProjectService(NumberingService numbering, ApplicationDbCont
         db.Projects.Add(project);
         audit.Add(actor, AuditEntity.Project, project.Id, AuditAction.Created, departmentId, project.Name,
             new { project.Number, project.Name, project.Status, project.OwnerId, project.TargetDate, project.RequiredBufferWorkingDays });
+        // Its emails (§6.7) are saved with it.
+        await notifications.ProjectCreatedAsync(project, actor, ct);
         await db.SaveChangesAsync(ct);
         return await GetAsync(project.Id, ct);
     }
@@ -204,6 +206,8 @@ public sealed class ProjectService(NumberingService numbering, ApplicationDbCont
             .Track("requiredBufferWorkingDays", project.RequiredBufferWorkingDays, buffer);
         if (!changes.HasChanges) return project;
 
+        var previousOwnerId = project.OwnerId;
+        var previousStatus = project.Status;
         project.Name = name;
         project.Description = Clean(input.Description);
         project.Status = input.Status;
@@ -228,6 +232,11 @@ public sealed class ProjectService(NumberingService numbering, ApplicationDbCont
         audit.Add(actor, AuditEntity.Project, project.Id,
             input.Status == ProjectStatus.Archived && changes.Contains("status") ? AuditAction.Archived : AuditAction.Updated,
             departmentId, project.Name, changes.Changes);
+        // The emails it raises (§6.7) are saved with it, at most one per person for the whole save: a new owner told of that
+        // isn't also told of the status.
+        var told = new HashSet<Guid>();
+        if (changes.Contains("ownerId")) await notifications.ProjectOwnerChangedAsync(project, previousOwnerId, actor, told, ct);
+        if (changes.Contains("status")) await notifications.ProjectStatusChangedAsync(project, previousStatus, actor, told, ct);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return await GetAsync(project.Id, ct);
@@ -248,6 +257,7 @@ public sealed class ProjectService(NumberingService numbering, ApplicationDbCont
         project.UpdatedAt = DateTime.UtcNow;
         audit.Add(actor, AuditEntity.Project, project.Id, AuditAction.Archived, project.DepartmentId, project.Name,
             new { status = new { from = previous, to = ProjectStatus.Archived } });
+        await notifications.ProjectStatusChangedAsync(project, previous, actor, ct: ct);
         await db.SaveChangesAsync(ct);
     }
 

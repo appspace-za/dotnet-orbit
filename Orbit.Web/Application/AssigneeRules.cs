@@ -36,11 +36,4 @@ public static class AssigneeRules
     /// </summary>
     public static IReadOnlyList<Guid> ToCheck(IEnumerable<Guid> current, IReadOnlyList<Guid> added, IReadOnlyList<Guid> removed, bool departmentChanging) =>
         departmentChanging ? current.Distinct().Except(removed).Concat(added).ToList() : added;
-
-    /// <summary>
-    /// Who is emailed that a task is now theirs (§6.7): each person added, except whoever made the change - nobody needs telling
-    /// what they just did, and a change by the system or an API key leaves nobody out.
-    /// </summary>
-    public static IReadOnlyList<Guid> ToNotify(IEnumerable<Guid> added, Guid? actorUserId) =>
-        added.Distinct().Where(id => id != actorUserId).ToList();
 }

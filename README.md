@@ -31,7 +31,7 @@ Inside `Orbit.Web/`, folders stand in for the layers of spec §11, and namespace
 | `Auth/` | API-key and Orbit Agent authentication schemes, `OrbitSignInManager` (directory sign-in), claims factory, actor resolution, page filters |
 | `Agents/` | Server side of the Orbit Agent: the SignalR hub agents connect to, the registry of connected agents, the register/de-register endpoints |
 | `Mcp/` | `OrbitTools` - the 32 MCP tools, mapped onto the same services the UI uses |
-| `Jobs/` | Quartz.NET jobs: recurring-task generation, due-date notifications, the clock sweep, the request action runner and the Nagios check, cron-scheduled from `Jobs:*` |
+| `Jobs/` | Quartz.NET jobs: recurring-task generation, due-date notifications, the clock sweep, the request action runner, the Nagios check and the email dispatcher, cron-scheduled from `Jobs:*` |
 | `Reporting/` | QuestPDF report rendering |
 | `Pages/` | Razor Pages UI (dashboard, tasks, projects, backlog, sprints, recurring, time, assets, requests, admin, reports) |
 | `Areas/Identity/` | Overrides of the default Identity UI (login, self-registration disabled, no self-delete) |
@@ -100,6 +100,7 @@ scopes below it, and a role with no grants sees nothing.
 | `requests.manage` | Dept / All | See every request filed with the department, act on any step, cancel, retry or skip a failed step | - | Dept |
 | `actions.create` | All | Admin > Actions: the scripts request flows run, and where each runs (C# running as the server or an agent, so granted sparingly) | - | - |
 | `nagios.manage` | All | Admin > Nagios: the Nagios instances Orbit watches, their sign-ins, what raises a task and where it goes | - | - |
+| `messages.manage` | All | Admin > Messages: the emails Orbit sends when something happens, to whom and saying what, and the emails sent | - | - |
 
 The navbar follows the same grants: Today and My Tasks need **Edit tasks**, Tasks **View tasks**, Projects **Edit
 projects**, Backlog and Sprints **Plan tasks**, Recurring **Create tasks**, My Time **Log time** and Assets **View
@@ -127,7 +128,8 @@ about their own time before setting it Done. Only the people a save adds are che
 been deactivated stays on the task until someone removes them; moving a task to another department re-checks everyone
 on it. **Take** is for a task with nobody assigned. Wherever tasks are counted by assignee - the reports, the
 dashboard, the Today page - a shared task is under each of its assignees, whole, and once in the total: an estimate
-is never split. Each person added is emailed, and the due-soon reminder goes to every assignee.
+is never split. As shipped, each person added is emailed, and the due-soon reminder goes to every assignee (see
+[Messages](#messages)).
 
 A task has a **type**, the kind of work it is: Meeting, Planning, Task (the default), Training, Audit, Change, Request
 or Problem. It is chosen on the task form, shown as a coloured badge beside the title (a plain Task has none in the
@@ -138,8 +140,9 @@ comes with one.
 A task can be created on someone else's behalf (spec §6.2.2). Besides its **assignees**, who do it, a task may have
 a **requestee**, whom it is for; its creator is always the person who actually created it. With **Create tasks for
 others** above Own, the task form shows a Requestee field under Assignees: anyone in your department at Department,
-anyone at All (which badges the role company-wide). The requestee is emailed and the task counts as their own, so
-they can open, edit and plan it as its creator can, wherever it is filed. The edit form changes or clears the
+anyone at All (which badges the role company-wide). The requestee is emailed (as shipped - see
+[Messages](#messages)) and the task counts as their own, so they can open, edit and plan it as its creator can,
+wherever it is filed. The edit form changes or clears the
 requestee, if your reach covers both the old and the new person. The Tasks list's **Requestee** filter (*Me* first)
 also finds your tasks that other departments hold. The shipped roles hold the permission at Own, so an admin gives
 Department or All to the roles that need it (a helpdesk, a PA, a team lead).
@@ -403,6 +406,49 @@ what the check says *now*: if its text changes while the problem lasts (another 
 raised and no note is added, but the task page shows the latest text and when it was read. The task's description keeps
 what Nagios said when the task was raised.
 
+## Messages
+
+Every email Orbit sends about its work is a **message** you can change (spec §6.7). Under **Admin > Messages** (needs
+**Manage messages**, which no shipped role has) each message is sent on one event, may wait for one condition, goes to
+one or more people relative to the event, and has a subject and body written as plain text with `{{values}}`:
+
+| Event | Conditions | Can go to |
+|---|---|---|
+| Task created (form, MCP, recurring, Nagios, request flow) | always, has assignees, nobody assigned | assignees, requestee, creator, the department's members |
+| Task assigned (people added to an existing task) | always | the people just assigned, assignees, requestee, creator |
+| Requestee named | always | assignees, requestee, creator |
+| Task closed (Done or Cancelled) | always, Done, Cancelled | assignees, requestee, creator, the department's members |
+| Task commented on | always, by an assignee, by the requestee, by someone else | assignees, requestee, creator, the department's members |
+| Task due soon (the daily due-date job) | always, has assignees, nobody assigned | assignees, requestee, creator, the department's members |
+| Project created | always | the project's owner, the department's members |
+| Project status changed (edit form, Archive, MCP) | always, put on hold, completed, archived, made active again | the project's owner, the department's members |
+| Project owner changed | always | the project's owner (the new one), the department's members |
+| Project commented on | always, by the owner, by someone else | the project's owner, the department's members |
+| Request step waiting (a form, page or approval) | always | whoever it waits for, the requester |
+| Approval decided | always, approved, declined | the requester |
+| Action ran | always, succeeded, failed | the requester |
+| Request finished | always, completed, declined, cancelled | the requester |
+
+- **Nobody is emailed about what they did themselves**, and only active people with an address are emailed.
+- **The department's members** are the active people of the task's or project's department who can see its tasks or
+  projects.
+- **One email per person**: when several messages would reach someone for the same change, they get the most personal
+  one (whoever a step waits for, then the people just assigned, the assignees, the requestee, the requester, the
+  creator, the project's owner, the department's members).
+- A body is plain text: a blank line starts a paragraph and web addresses become links. **Preview** fills a message in
+  with sample values. A value it can't use is refused when you save.
+
+Orbit ships with eighteen messages, all on: the emails it always sent (assignment, created for you, named as
+requestee, due soon, a request step waiting, a request finished) and the department on an unassigned task, the
+requestee on a closed task, the requestee on an assignee's comment and the assignees on the requestee's, the
+requester on an approval given or declined and on an action that ran, a project's owner when someone else creates it
+for them, makes them its owner or comments on it, and the owner and the department when a project's status changes.
+Switch any off, change its words, or add more.
+
+Emails are written to an **outbox** in the same save as the change, so nobody hears of a change that was rolled back,
+and a job (`Jobs:EmailDispatch`, every 15 seconds) sends them, retrying one that fails. **Emails sent** lists the
+latest. Until a mail server is set up the sender only writes each email to the log; the outbox shows them all the same.
+
 ## Reports
 
 **Reports** (spec §12, needs **View reports**; at Department scope it is fixed to your own department) takes a date
@@ -446,11 +492,14 @@ And one about assets:
 ## Configuration
 
 See `Orbit.Web/appsettings.json` for defaults and `deploy/orbit.env.example` for the production environment
-variables (`Database:ApplyMigrations`, `DataProtection:KeyRingPath`, `Jobs:*`, `Security:*`, `Agents:*`, `CriticalPath:*`, `Assets:*`, `Attachments:*`, `Actions:*`, `Nagios:*`, `Seed:Admin:*`, `App:BaseUrl`).
+variables (`Database:ApplyMigrations`, `DataProtection:KeyRingPath`, `Jobs:*`, `Security:*`, `Agents:*`, `CriticalPath:*`, `Assets:*`, `Attachments:*`, `Actions:*`, `Nagios:*`, `Email:*`, `Seed:Admin:*`, `App:BaseUrl`).
 `Jobs:Nagios:*` schedules the look for Nagios instances that are due (every minute; each instance has its own
 interval), `Nagios:QueryTimeoutSeconds` caps an agent's read of one instance and `Nagios:StaleAfterSeconds` is how
 old Nagios' own status data may be before a check is discarded.
 `Actions:TimeoutSeconds` caps a request action's script, and `Actions:Connections:<name>:Provider` / `ConnectionString`
 name the databases a script on the server may open; an agent's connections go in its own `actions.json` (deploy/README.md).
 `App:BaseUrl` is also the address put into an agent's `configure` command, so it must be the public `https` URL.
-Notification emails go through Identity's `IEmailSender`; the shipped implementation only logs them.
+Emails (see [Messages](#messages)) are sent from the outbox by `Jobs:EmailDispatch:*` (every 15 seconds) through
+Identity's `IEmailSender`; the shipped implementation only logs them. `Email:MaxAttempts` (6) is how many tries a
+failing email gets, `Email:KeepDays` (30) how long sent and failed ones stay in the outbox, and `Email:BatchSize` (50)
+how many one run sends. `App:BaseUrl` is the address the emails link to.

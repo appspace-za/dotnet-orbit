@@ -54,6 +54,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<NagiosInstance> NagiosInstances => Set<NagiosInstance>();
     public DbSet<NagiosInstanceAssignee> NagiosInstanceAssignees => Set<NagiosInstanceAssignee>();
     public DbSet<NagiosIncident> NagiosIncidents => Set<NagiosIncident>();
+    public DbSet<MessageTemplate> MessageTemplates => Set<MessageTemplate>();
+    public DbSet<MessageTemplateRecipient> MessageTemplateRecipients => Set<MessageTemplateRecipient>();
+    public DbSet<OutboundEmail> OutboundEmails => Set<OutboundEmail>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -710,6 +713,43 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             b.HasIndex(i => new { i.NagiosInstanceId, i.ResolvedAt });
             b.HasIndex(i => i.TaskId);
             b.Ignore(i => i.IsService);
+        });
+
+        // --- Messages (§6.7): the emails Orbit sends, and the outbox they are sent from.
+        builder.Entity<MessageTemplate>(b =>
+        {
+            // Unique ignoring case: the index is on lower("Name"), which EF cannot express, so the migration creates it by hand.
+            b.Property(m => m.Name).HasMaxLength(100).IsRequired();
+            b.Property(m => m.Subject).HasMaxLength(300).IsRequired();
+            b.Property(m => m.Body).HasMaxLength(8000).IsRequired();
+            b.HasIndex(m => m.Trigger);
+        });
+
+        builder.Entity<MessageTemplateRecipient>(b =>
+        {
+            b.HasKey(r => new { r.MessageTemplateId, r.Kind });
+            b.HasOne(r => r.MessageTemplate).WithMany(m => m.Recipients)
+                .HasForeignKey(r => r.MessageTemplateId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<OutboundEmail>(b =>
+        {
+            b.Property(e => e.MessageName).HasMaxLength(100).IsRequired();
+            b.Property(e => e.EntityType).HasMaxLength(32).IsRequired();
+            b.Property(e => e.ToAddress).HasMaxLength(256).IsRequired();
+            b.Property(e => e.ToName).HasMaxLength(256).IsRequired();
+            b.Property(e => e.Subject).HasMaxLength(300).IsRequired();
+            b.Property(e => e.Body).IsRequired();
+            b.Property(e => e.LastError).HasMaxLength(1000);
+            // A message deleted, or a person removed by hand, leaves what was sent in the log.
+            b.HasOne(e => e.MessageTemplate).WithMany()
+                .HasForeignKey(e => e.MessageTemplateId).OnDelete(DeleteBehavior.SetNull);
+            b.HasOne(e => e.ToUser).WithMany()
+                .HasForeignKey(e => e.ToUserId).OnDelete(DeleteBehavior.SetNull);
+            b.HasIndex(e => new { e.Status, e.NextAttemptAt });
+            b.HasIndex(e => e.CreatedAt);
+            b.HasIndex(e => e.MessageTemplateId);
+            b.HasIndex(e => e.ToUserId);
         });
 
         // Store every enum as its name so the database is readable and filterable in SQL.

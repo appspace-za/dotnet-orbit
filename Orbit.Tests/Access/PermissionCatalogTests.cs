@@ -17,7 +17,7 @@ public class PermissionCatalogTests
     {
         var keys = PermissionCatalog.All.Select(p => p.Key).ToList();
         Assert.Equal(Constants.OrderBy(k => k), keys.OrderBy(k => k));
-        Assert.Equal(30, keys.Count);
+        Assert.Equal(31, keys.Count);
     }
 
     [Fact]
@@ -56,7 +56,7 @@ public class PermissionCatalogTests
     [Fact]
     public void Org_level_permissions_allow_only_all()
     {
-        foreach (var key in new[] { Permission.SprintsManage, Permission.DepartmentsManage, Permission.CalendarManage, Permission.DirectoryManage, Permission.AgentsManage, Permission.NagiosManage })
+        foreach (var key in new[] { Permission.SprintsManage, Permission.DepartmentsManage, Permission.CalendarManage, Permission.DirectoryManage, Permission.AgentsManage, Permission.NagiosManage, Permission.MessagesManage })
             Assert.True(PermissionCatalog.ByKey[key].AllOnly, key);
         Assert.False(PermissionCatalog.ByKey[Permission.TasksView].AllOnly);
         Assert.False(PermissionCatalog.ByKey[Permission.TasksCreate].Allows(PermissionScope.Own));
@@ -118,6 +118,22 @@ public class PermissionCatalogTests
         var monitor = TestActors.Grants(null, (Permission.NagiosManage, PermissionScope.All));
         Assert.True(AccessPolicy.CanManageNagios(monitor));
         Assert.Equal("/Admin/Nagios/Index", Navigation.AdminVisible(monitor).Single().Page);
+    }
+
+    /// <summary>MSG-013: managing messages is company-wide only, opens its own Admin item, is held by no shipped role, and is not reserved to the built-in role (spec §6.7).</summary>
+    [Fact]
+    public void Managing_messages_is_an_all_only_admin_permission()
+    {
+        var messages = PermissionCatalog.ByKey[Permission.MessagesManage];
+        Assert.True(messages.AllOnly);
+        Assert.False(messages.SystemAdministratorOnly);
+        Assert.Equal(PermissionCatalog.AdministrationGroup, messages.Group);
+        Assert.Contains(Permission.MessagesManage, PermissionCatalog.AdminPermissions);
+        Assert.DoesNotContain(Permission.MessagesManage, DefaultRoles.MemberGrants.Keys);
+        Assert.DoesNotContain(Permission.MessagesManage, DefaultRoles.DepartmentAdminGrants.Keys);
+        var editor = TestActors.Grants(null, (Permission.MessagesManage, PermissionScope.All));
+        Assert.True(AccessPolicy.CanManageMessages(editor));
+        Assert.Equal("/Admin/Messages/Index", Navigation.AdminVisible(editor).Single().Page);
     }
 
     [Fact]

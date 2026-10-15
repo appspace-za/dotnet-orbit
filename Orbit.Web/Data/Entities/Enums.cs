@@ -308,6 +308,74 @@ public enum AssetPropertyType
     Choice
 }
 
+/// <summary>
+/// The event a message is sent on (§6.7). What each offers - its conditions, recipients and tokens - is in
+/// <c>Orbit.Application.Messages.MessageCatalogue</c>.
+/// </summary>
+public enum MessageTrigger
+{
+    TaskCreated,
+    TaskAssigned,
+    RequesteeNamed,
+    TaskClosed,
+    TaskCommented,
+    TaskDueSoon,
+    ProjectCreated,
+    ProjectStatusChanged,
+    ProjectOwnerChanged,
+    ProjectCommented,
+    RequestStepWaiting,
+    ApprovalDecided,
+    ActionRan,
+    RequestFinished
+}
+
+/// <summary>When a message goes (§6.7): always, or only when one fact about the event holds. Each trigger offers its own.</summary>
+public enum MessageCondition
+{
+    Always,
+    Assigned,
+    Unassigned,
+    Done,
+    Cancelled,
+    ByAssignee,
+    ByRequestee,
+    ByOther,
+    Approved,
+    Declined,
+    Succeeded,
+    Failed,
+    Completed,
+    OnHold,
+    Archived,
+    Reopened,
+    ByOwner
+}
+
+/// <summary>
+/// Whom a message goes to (§6.7), relative to the event. The order is the rank: when several messages for one event would reach the
+/// same person, they get the one whose recipient comes first - the most personal.
+/// </summary>
+public enum MessageRecipientKind
+{
+    StepPerson,
+    AddedAssignees,
+    Assignees,
+    Requestee,
+    Requester,
+    Creator,
+    ProjectOwner,
+    DepartmentMembers
+}
+
+/// <summary>An outbox email's state (§6.7): waiting to be sent (or retried), sent, or given up on.</summary>
+public enum OutboundEmailStatus
+{
+    Pending,
+    Sent,
+    Failed
+}
+
 public static class TaskStatusExtensions
 {
     public static bool IsClosed(this TaskItemStatus status) =>
@@ -453,6 +521,60 @@ public static class TaskStatusExtensions
     {
         ApprovalDecision.Pending => "Not yet decided",
         _ => decision.ToString()
+    };
+
+    public static string Label(this MessageTrigger trigger) => trigger switch
+    {
+        MessageTrigger.TaskCreated => "Task created",
+        MessageTrigger.TaskAssigned => "Task assigned",
+        MessageTrigger.RequesteeNamed => "Requestee named",
+        MessageTrigger.TaskClosed => "Task closed",
+        MessageTrigger.TaskCommented => "Task commented on",
+        MessageTrigger.TaskDueSoon => "Task due soon",
+        MessageTrigger.ProjectCreated => "Project created",
+        MessageTrigger.ProjectStatusChanged => "Project status changed",
+        MessageTrigger.ProjectOwnerChanged => "Project owner changed",
+        MessageTrigger.ProjectCommented => "Project commented on",
+        MessageTrigger.RequestStepWaiting => "Request step waiting",
+        MessageTrigger.ApprovalDecided => "Approval decided",
+        MessageTrigger.ActionRan => "Action ran",
+        MessageTrigger.RequestFinished => "Request finished",
+        _ => trigger.ToString()
+    };
+
+    public static string Label(this MessageCondition condition) => condition switch
+    {
+        MessageCondition.Always => "Always",
+        MessageCondition.Assigned => "Only when it has assignees",
+        MessageCondition.Unassigned => "Only when nobody is assigned",
+        MessageCondition.Done => "Only when done",
+        MessageCondition.Cancelled => "Only when cancelled",
+        MessageCondition.ByAssignee => "Only when an assignee wrote it",
+        MessageCondition.ByRequestee => "Only when the requestee wrote it",
+        MessageCondition.ByOther => "Only when someone else wrote it",
+        MessageCondition.Approved => "Only when approved",
+        MessageCondition.Declined => "Only when declined",
+        MessageCondition.Succeeded => "Only when it succeeded",
+        MessageCondition.Failed => "Only when it failed",
+        MessageCondition.Completed => "Only when completed",
+        MessageCondition.OnHold => "Only when put on hold",
+        MessageCondition.Archived => "Only when archived",
+        MessageCondition.Reopened => "Only when made active again",
+        MessageCondition.ByOwner => "Only when the owner wrote it",
+        _ => condition.ToString()
+    };
+
+    public static string Label(this MessageRecipientKind kind) => kind switch
+    {
+        MessageRecipientKind.StepPerson => "Whoever the step waits for",
+        MessageRecipientKind.AddedAssignees => "The people just assigned",
+        MessageRecipientKind.Assignees => "The assignees",
+        MessageRecipientKind.Requestee => "The requestee",
+        MessageRecipientKind.Requester => "The requester",
+        MessageRecipientKind.Creator => "Whoever created the task",
+        MessageRecipientKind.ProjectOwner => "The project's owner",
+        MessageRecipientKind.DepartmentMembers => "The department's members",
+        _ => kind.ToString()
     };
 
     /// <summary>Settled: nothing more will happen to the step. Failed isn't, since it is retried or skipped.</summary>

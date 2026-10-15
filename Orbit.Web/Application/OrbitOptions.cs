@@ -15,6 +15,7 @@ public sealed class JobOptions
     public ClockSweepJobOptions ClockSweep { get; set; } = new();
     public RequestActionJobOptions RequestActions { get; set; } = new();
     public NagiosJobOptions Nagios { get; set; } = new();
+    public EmailDispatchJobOptions EmailDispatch { get; set; } = new();
 }
 
 /// <summary>
@@ -33,6 +34,14 @@ public sealed class NagiosJobOptions
 /// also fires it the moment an action becomes ready; the schedule catches what a restart or a failed hook left behind.
 /// </summary>
 public sealed class RequestActionJobOptions
+{
+    public bool Enabled { get; set; } = true;
+    /// <summary>Quartz cron expression (seconds first). Default: every 15 seconds.</summary>
+    public string Cron { get; set; } = "*/15 * * * * ?";
+}
+
+/// <summary>Schedule for the Quartz.NET job that sends the outbox's emails (§6.7). How it retries is <see cref="EmailOptions"/>.</summary>
+public sealed class EmailDispatchJobOptions
 {
     public bool Enabled { get; set; } = true;
     /// <summary>Quartz cron expression (seconds first). Default: every 15 seconds.</summary>
@@ -115,6 +124,21 @@ public sealed class NagiosOptions
     /// acting on what it last knew would raise and resolve the wrong things. Raise it where status_update_interval is long.
     /// </summary>
     public int StaleAfterSeconds { get; set; } = 300;
+}
+
+/// <summary>
+/// Sending the emails messages write (spec §6.7). Which emails go, to whom and saying what is data, edited under Admin &gt; Messages;
+/// how they are delivered is Identity's <c>IEmailSender</c>, which for now only writes them to the log.
+/// </summary>
+public sealed class EmailOptions
+{
+    public const string Section = "Email";
+    /// <summary>Tries before an email is given up on and marked Failed: after 1, 5, 15 and 60 minutes, then every 4 hours.</summary>
+    public int MaxAttempts { get; set; } = 6;
+    /// <summary>How long a sent or failed email stays in the outbox, for Admin &gt; Messages to show.</summary>
+    public int KeepDays { get; set; } = 30;
+    /// <summary>The most emails one run of the job sends; the rest wait for the next run.</summary>
+    public int BatchSize { get; set; } = 50;
 }
 
 /// <summary>Sign-in hardening (spec §8.3). Orbit is on the internet and, for directory users, is a door onto Active Directory.</summary>

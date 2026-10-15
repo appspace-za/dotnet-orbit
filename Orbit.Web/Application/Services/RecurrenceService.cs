@@ -14,6 +14,7 @@ public sealed class RecurrenceService(
     IActorProvider actors,
     AuditService audit,
     AssetService assets,
+    NotificationService notifications,
     ILogger<RecurrenceService> logger)
 {
     // --- RRULE evaluation ------------------------------------------------------------------
@@ -348,6 +349,8 @@ public sealed class RecurrenceService(
         def.LastGeneratedAt = now;
         audit.Add(actor, AuditEntity.Task, task.Id, AuditAction.Generated, def.DepartmentId, task.Title,
             new { recurringTaskDefinitionId = def.Id, dueDate = due, task.Priority, task.AssigneeIds, task.ProjectId, task.AssetId });
+        // Its emails (§6.7) are saved with it, by the caller's save.
+        await notifications.TaskCreatedAsync(task, actor, ct);
         return task;
     }
 

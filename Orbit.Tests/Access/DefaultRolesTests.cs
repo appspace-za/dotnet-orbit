@@ -158,6 +158,7 @@ public class DefaultRolesTests
             Assert.False(AccessPolicy.CanManageDirectory(actor));
             Assert.False(AccessPolicy.CanManageAgents(actor));
             Assert.False(AccessPolicy.CanManageNagios(actor));
+            Assert.False(AccessPolicy.CanManageMessages(actor));
             Assert.False(AccessPolicy.CanViewReports(actor));
             Assert.False(AccessPolicy.CanViewAuditLog(actor));
         }

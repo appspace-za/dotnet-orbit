@@ -1,0 +1,123 @@
+@page "{id:guid?}"
+@model Orbit.Pages.Admin.Messages.EditModel
+@using Orbit.Application.Messages
+@{
+    var m = Model.Item;
+    var d = Model.Definition;
+    var title = m?.Name ?? $"New message: {d.Label}";
+    ViewData["Title"] = title;
+    var trigger = m is null ? d.Trigger : (MessageTrigger?)null;
+}
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb small">
+        <li class="breadcrumb-item"><a asp-page="/Admin/Messages/Index">Messages</a></li>
+        <li class="breadcrumb-item active" aria-current="page">@(m?.Name ?? "New message")</li>
+    </ol>
+</nav>
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+    <div>
+        <h1 class="h3 mb-1">@title</h1>
+        <div class="text-muted small">Sent on <strong>@d.Label</strong>: @d.Description</div>
+    </div>
+    @if (m is not null)
+    {
+        <form method="post" asp-page-handler="Delete" asp-route-id="@m.Id" data-confirm="@($"Delete the message \"{m.Name}\"? The emails it has written stay in the outbox.")">
+            <button type="submit" class="btn btn-outline-danger btn-sm">Delete</button>
+        </form>
+    }
+</div>
+
+<div class="row g-3">
+    <div class="col-lg-8">
+        <form method="post" asp-route-id="@m?.Id" asp-route-trigger="@trigger" class="card">
+            <div class="card-body">
+                @if (Model.SaveError is not null) { <div class="alert alert-danger py-2">@Model.SaveError</div> }
+                <div class="row g-2 mb-3">
+                    <div class="col-md-7">
+                        <label class="form-label" asp-for="Form.Name">Name</label>
+                        <input class="form-control" asp-for="Form.Name" maxlength="@MessageRules.NameMaxLength" required placeholder="For the list: what it tells whom" />
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label" asp-for="Form.Condition">When</label>
+                        @if (d.Conditions.Count == 1)
+                        {
+                            <input type="hidden" asp-for="Form.Condition" />
+                            <div class="form-control-plaintext">Always</div>
+                        }
+                        else
+                        {
+                            <select class="form-select" asp-for="Form.Condition" asp-items="Ui.EnumItems<MessageCondition>(Model.Form.Condition, label: c => c.Label(), only: d.Conditions)"></select>
+                        }
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <div class="form-label">To</div>
+                    @foreach (var kind in d.Recipients)
+                    {
+                        var id = $"to-{kind}";
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" name="Form.Recipients" value="@kind" id="@id" checked="@Model.Form.Recipients.Contains(kind)" />
+                            <label class="form-check-label" for="@id">@kind.Label()</label>
+                        </div>
+                    }
+                    @if (d.Offers(MessageRecipientKind.DepartmentMembers))
+                    {
+                        <div class="form-text">The department's members are the active people in the task's department whose role shows them its tasks.</div>
+                    }
+                </div>
+                <div class="mb-3">
+                    <label class="form-label" asp-for="Form.Subject">Subject</label>
+                    <input class="form-control" asp-for="Form.Subject" maxlength="@MessageRules.SubjectMaxLength" required />
+                    <partial name="_TokenPicker" model="@((Model.Tokens, "Form_Subject"))" />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label" asp-for="Form.Body">Body</label>
+                    <textarea class="form-control" asp-for="Form.Body" rows="12" maxlength="@MessageRules.BodyMaxLength" required></textarea>
+                    <partial name="_TokenPicker" model="@((Model.Tokens, "Form_Body"))" />
+                    <div class="form-text">Plain text. A blank line starts a paragraph, and web addresses become links. A value that is empty leaves nothing.</div>
+                </div>
+                <div class="form-check mb-3">
+                    <input class="form-check-input" asp-for="Form.Enabled" />
+                    <label class="form-check-label" asp-for="Form.Enabled">On: send it</label>
+                </div>
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-primary">Save</button>
+                    <button type="submit" class="btn btn-outline-secondary" asp-page-handler="Preview" asp-route-id="@m?.Id" asp-route-trigger="@trigger">Preview</button>
+                </div>
+            </div>
+        </form>
+    </div>
+    <div class="col-lg-4">
+        @if (Model.Preview is { } p)
+        {
+            <div class="card mb-3">
+                <div class="card-header fw-semibold">Preview, with sample values</div>
+                <div class="card-body small">
+                    <div class="mb-2"><span class="text-muted">Subject:</span> @p.Subject</div>
+                    <div class="border rounded p-2 bg-body-tertiary">@Html.Raw(p.Html)</div>
+                </div>
+            </div>
+        }
+        <div class="card mb-3">
+            <div class="card-header fw-semibold">Who gets it</div>
+            <div class="card-body small text-muted">
+                <p class="mb-2">Everyone in the roles ticked who is active and has an email address, except whoever caused the event: nobody is told what they did themselves, and something done by a scheduled job or by Claude leaves nobody out.</p>
+                <p class="mb-0">One email per person per change: when several messages would reach the same person, they get the one whose recipient comes first in the list above.</p>
+            </div>
+        </div>
+        <div class="card mb-3">
+            <div class="card-header fw-semibold">Values</div>
+            <ul class="list-group list-group-flush small">
+                @foreach (var t in d.Tokens)
+                {
+                    <li class="list-group-item"><code>@t.Text</code> <span class="text-muted">@t.Label</span></li>
+                }
+            </ul>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/js/requests.js" asp-append-version="true"></script>
+}

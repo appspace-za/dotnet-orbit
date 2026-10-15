@@ -130,6 +130,9 @@ public static class PermissionCatalog
             AdministrationGroup, AllOnlyScopes),
         new(Permission.NagiosManage, "Manage Nagios monitoring",
             "Admin > Nagios: the Nagios Core instances Orbit watches through an Orbit Agent - their address and sign-in, how long a host or service may be down before a task is raised, and where those tasks go - and the problems seen on each.",
+            AdministrationGroup, AllOnlyScopes),
+        new(Permission.MessagesManage, "Manage messages",
+            "Admin > Messages: the emails Orbit sends when something happens - a task created, assigned, closed or commented on, a request step waiting, an approval decided, an action run - who each goes to and what it says, and the emails sent recently.",
             AdministrationGroup, AllOnlyScopes)
     ];
 
@@ -145,7 +148,7 @@ public static class PermissionCatalog
     [
         Permission.UsersManage, Permission.RolesManage, Permission.DepartmentsManage, Permission.ApiKeysManage,
         Permission.DirectoryManage, Permission.AgentsManage, Permission.NagiosManage, Permission.CalendarManage, Permission.RequestsConfigure,
-        Permission.ActionsCreate, Permission.AuditView
+        Permission.ActionsCreate, Permission.MessagesManage, Permission.AuditView
     ];
 
     public static PermissionDefinition? Find(string key) => ByKey.GetValueOrDefault(key);

@@ -1,0 +1,64 @@
+@page
+@model Orbit.Pages.Admin.Messages.EmailsModel
+@using Orbit.Application.Models
+@{
+    ViewData["Title"] = "Emails sent";
+}
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb small">
+        <li class="breadcrumb-item"><a asp-page="/Admin/Messages/Index">Messages</a></li>
+        <li class="breadcrumb-item active" aria-current="page">Emails sent</li>
+    </ol>
+</nav>
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+    <div>
+        <h1 class="h3 mb-1">Emails sent</h1>
+        <div class="text-muted small">
+            The latest @EmailsModel.Shown emails the messages have written, newest first. Each is sent within a few seconds; one that fails is
+            tried again later, and given up on after several tries. They are kept for @Model.KeepDays days.
+        </div>
+    </div>
+    <form method="get" class="d-flex gap-2 align-items-center">
+        <label class="small text-muted" for="status">Showing</label>
+        <select class="form-select form-select-sm w-auto js-autosubmit" id="status" name="status"
+                asp-items='Ui.EnumItems<OutboundEmailStatus>(Model.Status, emptyLabel: "All")'></select>
+    </form>
+</div>
+
+<div class="card">
+    @if (Model.Items.Count == 0)
+    {
+        <div class="card-body text-muted fst-italic">No emails@(Model.Status is null ? "" : $" {Model.Status.Value.ToString().ToLowerInvariant()}") yet.</div>
+    }
+    else
+    {
+        <ul class="list-group list-group-flush">
+            @foreach (var e in Model.Items)
+            {
+                <li class="list-group-item">
+                    <details>
+                        <summary class="d-flex flex-wrap gap-2 align-items-baseline">
+                            <span class="badge @EmailsModel.StatusBadge(e.Status)">@e.Status</span>
+                            <span class="fw-semibold">@e.Subject</span>
+                            <span class="small text-muted">to @e.ToName &lt;@e.ToAddress&gt;</span>
+                            <span class="small text-muted ms-auto text-nowrap" title="@Ui.When(e.CreatedAt)">@Ui.Ago(e.CreatedAt)</span>
+                        </summary>
+                        <div class="small mt-2">
+                            <div class="text-muted mb-2">
+                                @e.Trigger.Label() · message "@e.MessageName"
+                                @if (e.EntityType == AuditEntity.Task) { <text> · <a asp-page="/Tasks/Details" asp-route-id="@e.EntityId">the task</a></text> }
+                                else if (e.EntityType == AuditEntity.Project) { <text> · <a asp-page="/Projects/Details" asp-route-id="@e.EntityId">the project</a></text> }
+                                else if (e.EntityType == AuditEntity.Request) { <text> · <a asp-page="/Requests/Request" asp-route-id="@e.EntityId">the request</a></text> }
+                                · @(e.Status == OutboundEmailStatus.Sent ? $"sent {Ui.When(e.SentAt)}" : e.Status == OutboundEmailStatus.Failed ? "given up on" : $"next try {Ui.When(e.NextAttemptAt)}")
+                                @if (e.Attempts > 0) { <text> · @e.Attempts @(e.Attempts == 1 ? "try" : "tries")</text> }
+                            </div>
+                            @if (e.LastError is not null) { <div class="alert alert-danger py-1 px-2 mb-2">@e.LastError</div> }
+                            <div class="border rounded p-2 bg-body-tertiary" style="white-space: pre-wrap">@e.Body</div>
+                        </div>
+                    </details>
+                </li>
+            }
+        </ul>
+    }
+</div>

@@ -54,18 +54,7 @@ public sealed class NagiosMonitor(
                 // No agent to ask is not an answer from Nagios: leave the instance due, so it is tried again at the next tick.
                 return await FailAsync(instanceId, reading.Error ?? "Nagios could not be read.", attempted: !reading.NoAgent, ct);
 
-            var raised = await ApplyAsync(instanceId, reading.Snapshot, ct);
-            foreach (var (task, people) in raised)
-            {
-                foreach (var person in people)
-                {
-                    try { await notifications.TaskAssignedAsync(task, person, Actor.System, ct); }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
-                    {
-                        logger.LogError(ex, "Couldn't notify {User} about Nagios task {Task}.", person.Id, task.Number);
-                    }
-                }
-            }
+            await ApplyAsync(instanceId, reading.Snapshot, ct);
             return true;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -88,24 +77,25 @@ public sealed class NagiosMonitor(
 
     /// <summary>
     /// Applies one reading in one transaction. The instance's row is locked first, so two checks of the same instance can't both
-    /// act on it, and a reading that is not newer than the last one applied is dropped. Returns the tasks created, with who to tell.
+    /// act on it, and a reading that is not newer than the last one applied is dropped. The emails the tasks and notes raise (§6.7)
+    /// are written in the same transaction. Returns how many tasks were raised.
     /// </summary>
-    private async Task<List<(TaskItem Task, List<ApplicationUser> People)>> ApplyAsync(Guid instanceId, NagiosSnapshot snapshot, CancellationToken ct)
+    private async Task<int> ApplyAsync(Guid instanceId, NagiosSnapshot snapshot, CancellationToken ct)
     {
-        var created = new List<(TaskItem, List<ApplicationUser>)>();
+        var created = 0;
         var now = DateTime.UtcNow;
         await using var tx = await db.Database.BeginTransactionAsync(ct);
 
         // The row lock: another check of this instance waits here until this transaction ends, then sees its writes.
         DateTime? attemptedAt = now;
         if (await db.NagiosInstances.Where(n => n.Id == instanceId).ExecuteUpdateAsync(s => s.SetProperty(n => n.LastAttemptAt, attemptedAt), ct) == 0)
-            return created;
+            return 0;
         var instance = await db.NagiosInstances.Include(n => n.Department).Include(n => n.Assignees).ThenInclude(a => a.User)
             .FirstAsync(n => n.Id == instanceId, ct);
         if (!NagiosIncidentRules.IsNewer(instance.LastQueryTime, snapshot.QueryTime))
         {
             await tx.CommitAsync(ct);
-            return created;
+            return 0;
         }
 
         var open = await db.NagiosIncidents.Include(i => i.Task)
@@ -124,11 +114,11 @@ public sealed class NagiosMonitor(
             incident.ResolvedAt = now;
             incident.Resolution = resolve.Resolution;
             if (incident.Task is not { } task) continue;
-            AddNote(task, resolve.Resolution == NagiosResolution.Vanished
+            await AddNoteAsync(task, resolve.Resolution == NagiosResolution.Vanished
                 ? NagiosText.VanishedNote(instance.Name, incident.HostName, incident.ServiceDescription)
                 : resolve.FailedAgain
                     ? NagiosText.RecoveredAndFailedAgainNote(instance.Name, incident.HostName, incident.ServiceDescription)
-                    : NagiosText.RecoveredNote(instance.Name, incident.HostName, incident.ServiceDescription, snapshot.QueryTime, task.IsOpen), now);
+                    : NagiosText.RecoveredNote(instance.Name, incident.HostName, incident.ServiceDescription, snapshot.QueryTime, task.IsOpen), now, ct);
         }
         if (plan.Resolves.Count > 0) await db.SaveChangesAsync(ct);
 
@@ -162,7 +152,7 @@ public sealed class NagiosMonitor(
                 var taskId = openTasks[(problem.Host, problem.Service)];
                 var task = await db.Tasks.FirstAsync(t => t.Id == taskId, ct);
                 incident.TaskId = task.Id;
-                AddNote(task, NagiosText.DownAgainNote(instance.Name, problem), now);
+                await AddNoteAsync(task, NagiosText.DownAgainNote(instance.Name, problem), now, ct);
             }
             else if (decision.Verdict == NagiosVerdict.Raise && !canRaise)
             {
@@ -199,7 +189,8 @@ public sealed class NagiosMonitor(
                     task.Priority,
                     assigneeIds = people.Select(u => u.Id).ToList()
                 });
-                created.Add((task, people));
+                await notifications.TaskCreatedAsync(task, Actor.System, ct);
+                created++;
             }
         }
 
@@ -210,9 +201,9 @@ public sealed class NagiosMonitor(
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
 
-        if (created.Count > 0 || plan.Resolves.Count > 0)
+        if (created > 0 || plan.Resolves.Count > 0)
             logger.LogInformation("Nagios instance {Instance}: {Raised} task(s) raised, {Resolved} incident(s) ended, {Held} held back.",
-                instance.Name, created.Count, plan.Resolves.Count, held);
+                instance.Name, created, plan.Resolves.Count, held);
         return created;
     }
 
@@ -228,14 +219,15 @@ public sealed class NagiosMonitor(
             .Select(i => new { i.HostName, i.ServiceDescription, TaskId = i.TaskId!.Value }).ToListAsync(ct))
         .GroupBy(i => (i.HostName, i.ServiceDescription)).ToDictionary(g => g.Key, g => g.Last().TaskId);
 
-    /// <summary>A note on the task, written by nobody: a comment with no author, audited like any other.</summary>
-    private void AddNote(TaskItem task, string body, DateTime now)
+    /// <summary>A note on the task, written by nobody: a comment with no author, audited and told of (§6.7) like any other.</summary>
+    private async Task AddNoteAsync(TaskItem task, string body, DateTime now, CancellationToken ct)
     {
         var comment = new Comment { TaskId = task.Id, AuthorId = null, Body = body, CreatedAt = now };
         db.Comments.Add(comment);
         task.UpdatedAt = now;
         audit.Add(Actor.System, AuditEntity.Task, task.Id, AuditAction.CommentAdded, task.DepartmentId, task.Title,
             new { commentId = comment.Id, body = body.Length > 500 ? body[..500] + "..." : body });
+        await notifications.TaskCommentedAsync(task, comment, Actor.System, ct);
     }
 
     /// <summary>Records why a check did nothing. Always false, so a caller can return it.</summary>

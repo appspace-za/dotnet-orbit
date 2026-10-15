@@ -155,12 +155,6 @@ public sealed class TaskService(
         foreach (var assignee in assignees.Added)
             task.Assignments.Add(new TaskAssignment { TaskId = task.Id, UserId = assignee.Id, AssignedById = actor.UserId });
         await InsertAsync(actor, task, status, null, ct);
-
-        var told = await NotifyAssignedAsync(task, assignees.Added, actor, ct);
-        // The requestee hears of it unless they made it, or the assignment email has just told them (§6.2.2).
-        if (requestee is not null && requestee.Id != actor.UserId && !told.Contains(requestee.Id))
-            await notifications.TaskCreatedForAsync(task, requestee, actor, ct: ct);
-
         return await GetAsync(task.Id, ct);
     }
 
@@ -180,6 +174,8 @@ public sealed class TaskService(
             task.Number, task.Title, task.Status, task.Priority, task.Type, task.EstimateMinutes, task.ProjectId, task.DepartmentId, task.AssigneeIds,
             task.ParentTaskId, task.StartDate, task.DueDate, task.Source, task.SprintId, task.AssetId, task.RequesteeId, request
         });
+        // The emails it raises (§6.7) are saved with it - to its assignees, its requestee, its department - one per person (§6.2.2).
+        await notifications.TaskCreatedAsync(task, actor, ct);
         await db.SaveChangesAsync(ct);
     }
 
@@ -246,6 +242,7 @@ public sealed class TaskService(
         if (!changes.HasChanges && assignees.IsEmpty) return task;
 
         var now = DateTime.UtcNow;
+        var closing = newStatus.IsClosed() && !task.Status.IsClosed();
         task.Title = title;
         task.Description = Clean(input.Description);
         task.DepartmentId = departmentId;
@@ -289,13 +286,15 @@ public sealed class TaskService(
         if (changes.Contains("parentTaskId"))
             audit.Add(actor, AuditEntity.Task, task.Id, AuditAction.ParentChanged, departmentId, task.Title,
                 new { parent = new { from = previousParentId, to = parent?.Id }, parentTitle = parent?.Title });
+        // The emails it raises (§6.7) are saved with it, at most one per person for the whole save: someone just assigned isn't
+        // also told they are the requestee, or that the task closed (§6.2.2).
+        var told = new HashSet<Guid>();
+        await notifications.TaskAssignedAsync(task, assignees.Added.Select(u => u.Id).ToList(), actor, told, ct);
+        if (newRequestee is not null) await notifications.RequesteeNamedAsync(task, actor, told, ct);
+        if (closing) await notifications.TaskClosedAsync(task, actor, told, ct);
         await db.SaveChangesAsync(ct);
         // A task a request step created completes (or cancels) the step when it closes (§6.20).
         if (changes.Contains("status") && newStatus.IsClosed()) await requests.OnTaskClosedAsync(task, actor, ct);
-
-        var told = await NotifyAssignedAsync(task, assignees.Added, actor, ct);
-        if (newRequestee is not null && newRequestee.Id != actor.UserId && !told.Contains(newRequestee.Id))
-            await notifications.TaskCreatedForAsync(task, newRequestee, actor, namedLater: true, ct);
 
         return await GetAsync(task.Id, ct);
     }
@@ -318,6 +317,7 @@ public sealed class TaskService(
         audit.Add(actor, AuditEntity.Task, task.Id,
             status == TaskItemStatus.Done ? AuditAction.Completed : AuditAction.StatusChanged,
             task.DepartmentId, task.Title, new { status = new { from = previous, to = status } });
+        if (status.IsClosed() && !previous.IsClosed()) await notifications.TaskClosedAsync(task, actor, ct: ct);
         await db.SaveChangesAsync(ct);
         if (status.IsClosed()) await requests.OnTaskClosedAsync(task, actor, ct);
         return task;
@@ -367,7 +367,7 @@ public sealed class TaskService(
         return (actor, task);
     }
 
-    /// <summary>Set a task's assignees to <paramref name="wanted"/>, save, and tell the people added. The caller has checked the actor's rights.</summary>
+    /// <summary>Set a task's assignees to <paramref name="wanted"/>, tell the people added (§6.7), and save. The caller has checked the actor's rights.</summary>
     private async Task<TaskItem> ChangeAssigneesAsync(Actor actor, TaskItem task, IReadOnlyCollection<Guid> wanted, CancellationToken ct)
     {
         var change = await AssigneeResolver.ResolveAsync(db, task.AssigneeIds, wanted, task.DepartmentId, departmentChanging: false, ct);
@@ -376,8 +376,8 @@ public sealed class TaskService(
         var now = DateTime.UtcNow;
         ApplyAssignees(actor, task, change, now);
         task.UpdatedAt = now;
+        await notifications.TaskAssignedAsync(task, change.Added.Select(u => u.Id).ToList(), actor, ct: ct);
         await db.SaveChangesAsync(ct);
-        await NotifyAssignedAsync(task, change.Added, actor, ct);
         return task;
     }
 
@@ -400,15 +400,6 @@ public sealed class TaskService(
             audit.Add(actor, AuditEntity.Task, task.Id, AuditAction.AssigneeAdded, task.DepartmentId, task.Title,
                 new { userId = assignee.Id, user = assignee.DisplayName });
         }
-    }
-
-    /// <summary>Email each person just assigned, other than whoever assigned them (§6.7). Returns who was told, for the requestee's email to skip.</summary>
-    private async Task<HashSet<Guid>> NotifyAssignedAsync(TaskItem task, IReadOnlyList<ApplicationUser> added, Actor actor, CancellationToken ct)
-    {
-        var told = AssigneeRules.ToNotify(added.Select(u => u.Id), actor.UserId).ToHashSet();
-        foreach (var assignee in added.Where(u => told.Contains(u.Id)))
-            await notifications.TaskAssignedAsync(task, assignee, actor, ct);
-        return told;
     }
 
     /// <summary>
@@ -448,6 +439,7 @@ public sealed class TaskService(
         db.TaskAssignments.Add(new TaskAssignment { TaskId = id, UserId = me, AssignedAt = now, AssignedById = me });
         audit.Add(actor, AuditEntity.Task, task.Id, AuditAction.AssigneeAdded, task.DepartmentId, task.Title,
             new { userId = me, user = taker.DisplayName, taken = true });
+        await notifications.TaskAssignedAsync(task, [me], actor, ct: ct);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return await GetAsync(id, ct);

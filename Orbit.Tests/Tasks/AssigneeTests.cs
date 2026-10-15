@@ -292,17 +292,4 @@ public class AssigneeTests
         Assert.Equal("Adam, Zoe", result.Row(shared).Assignee);
         Assert.Null(result.Row(open).Assignee);
     }
-
-    /// <summary>ASGN-014: each person added is emailed, except whoever made the change; a change by the system leaves nobody out.</summary>
-    [Fact]
-    public void The_people_added_are_told_except_whoever_added_them()
-    {
-        var me = Guid.NewGuid();
-        var first = Guid.NewGuid();
-        var second = Guid.NewGuid();
-
-        Assert.Equal([first, second], AssigneeRules.ToNotify([first, me, second, first], me));
-        Assert.Empty(AssigneeRules.ToNotify([me], me));
-        Assert.Equal([me, first], AssigneeRules.ToNotify([me, first], null));
-    }
 }

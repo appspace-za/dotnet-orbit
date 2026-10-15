@@ -25,6 +25,8 @@ public static class AuditEntity
     public const string Request = "Request";
     /// <summary>A Nagios instance's settings (spec §6.21). What a check saw is not audited; the tasks and notes it wrote are, on the task.</summary>
     public const string NagiosInstance = "NagiosInstance";
+    /// <summary>A message (spec §6.7): an email Orbit sends on an event. The emails themselves are not audited; the outbox keeps them.</summary>
+    public const string Message = "Message";
 }
 
 public static class AuditAction

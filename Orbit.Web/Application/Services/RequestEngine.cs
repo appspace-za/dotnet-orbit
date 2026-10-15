@@ -13,8 +13,9 @@ using Quartz;
 namespace Orbit.Application.Services;
 
 /// <summary>
-/// What is left to do once the engine's transaction has committed - notifications, the job trigger - so nobody hears of a step that
-/// was rolled back. Whoever commits runs it: the engine when the transaction is its own, the caller otherwise.
+/// What is left to do once the engine's transaction has committed - triggering the action job - so the job never looks for a step
+/// that was rolled back. Whoever commits runs it: the engine when the transaction is its own, the caller otherwise. Emails need no
+/// follow-up: they are written to the outbox inside the transaction (§6.7).
 /// </summary>
 public sealed class EngineFollowUp(ILogger logger)
 {
@@ -157,12 +158,14 @@ public sealed class RequestEngine(
                 step.Status = RequestStepStatus.Declined;
                 step.CompletedAt = now;
                 step.CompletedById = actor.UserId;
+                await notifications.ApprovalDecidedAsync(request, step, approval, actor, ct);
             }
-            else if (outcome == RequestOutcome.Accepted && !await OpenStageAsync(request, step, current + 1, actor, now, followUp, ct))
+            else if (outcome == RequestOutcome.Accepted && !await OpenStageAsync(request, step, current + 1, actor, now, ct))
             {
                 step.Status = RequestStepStatus.Completed;
                 step.CompletedAt = now;
                 step.CompletedById = actor.UserId;
+                await notifications.ApprovalDecidedAsync(request, step, approval, actor, ct);
             }
         }, ct);
     }
@@ -172,7 +175,7 @@ public sealed class RequestEngine(
     /// saying why). Steps already completed stay as they are.
     /// </summary>
     public Task<EngineFollowUp> CancelAsync(Guid requestId, Actor actor, CancellationToken ct = default) =>
-        RunAsync(requestId, actor, (request, _, _) =>
+        RunAsync(requestId, actor, async (request, _, ct) =>
         {
             if (request.Status != RequestStatus.InProgress) throw new ValidationException("This request has already finished.");
             var now = DateTime.UtcNow;
@@ -198,10 +201,11 @@ public sealed class RequestEngine(
                         Body = $"Request {request.Number} was cancelled by {actor.DisplayName}, so this task was cancelled with it.",
                         CreatedAt = now
                     });
+                    // Told of as a task closed (§6.7); the comment saying why raises nothing of its own.
+                    await notifications.TaskClosedAsync(task, actor, ct: ct);
                 }
             }
             audit.Add(actor, AuditEntity.Request, request.Id, AuditAction.Updated, request.DepartmentId, request.Title, new { cancelledSteps = cancelled });
-            return Task.CompletedTask;
         }, ct);
 
     /// <summary>Try a failed step again: an approval re-opens the stage that failed; a task or action step starts afresh.</summary>
@@ -221,7 +225,7 @@ public sealed class RequestEngine(
                 var next = step.Approvals.Count == 0 ? 1 : step.Approvals.Max(a => a.StageOrder) + 1;
                 step.Status = RequestStepStatus.Ready;
                 step.StartedAt ??= now;
-                if (!await OpenStageAsync(request, step, next, actor, now, followUp, ct))
+                if (!await OpenStageAsync(request, step, next, actor, now, ct))
                 {
                     step.Status = RequestStepStatus.Completed;
                     step.CompletedAt = now;
@@ -327,10 +331,10 @@ public sealed class RequestEngine(
             }
         }
 
-        var followUp = await RunAsync(request.Id, Actor.System, (r, _, _) =>
+        var followUp = await RunAsync(request.Id, Actor.System, async (r, _, ct) =>
         {
             var s = r.Steps.First(x => x.Id == stepId);
-            if (s.Status != RequestStepStatus.Ready) return Task.CompletedTask; // cancelled while the script ran
+            if (s.Status != RequestStepStatus.Ready) return; // cancelled while the script ran
             var finished = DateTime.UtcNow;
             s.Output = outcome.Output;
             if (outcome.Ok)
@@ -347,7 +351,7 @@ public sealed class RequestEngine(
             }
             audit.Add(Actor.System, AuditEntity.Request, r.Id, AuditAction.Updated, r.DepartmentId, r.Title,
                 new { step = s.FlowStep.Key, action = action?.Name, ok = outcome.Ok, outcome.DurationMs, error = s.Error });
-            return Task.CompletedTask;
+            await notifications.ActionRanAsync(r, s, action?.Name, outcome.Ok, Actor.System, ct);
         }, ct);
         await followUp.RunAsync();
     }
@@ -405,8 +409,8 @@ public sealed class RequestEngine(
             RequestStatus.Cancelled => AuditAction.Cancelled,
             _ => AuditAction.StatusChanged
         }, request.DepartmentId, request.Title, new { status = new { from, to = status } });
-        if (status != RequestStatus.InProgress && actor.UserId != request.RequesterId)
-            followUp.Add(() => notifications.RequestFinishedAsync(request, request.Requester));
+        // The requester hears of it (§6.7) - unless they ended it themselves, as no one is told of what they did.
+        if (status != RequestStatus.InProgress) await notifications.RequestFinishedAsync(request, actor, ct);
     }
 
     private async Task StartStepAsync(Request request, RequestStep step, Actor actor, DateTime now, EngineFollowUp followUp, CancellationToken ct)
@@ -419,15 +423,15 @@ public sealed class RequestEngine(
             case RequestStepKind.Url:
                 step.AssignedToId = flowStep.PerformedById ?? request.RequesterId;
                 step.Status = RequestStepStatus.Ready;
-                if (step.AssignedToId != actor.UserId)
-                    Notify(followUp, step.AssignedToId.Value, request, flowStep.Kind == RequestStepKind.Form ? $"fill in \"{flowStep.Title}\"" : $"open \"{flowStep.Title}\"");
+                await notifications.RequestStepWaitingAsync(request, step, [step.AssignedToId.Value],
+                    flowStep.Kind == RequestStepKind.Form ? $"fill in \"{flowStep.Title}\"" : $"open \"{flowStep.Title}\"", actor, ct);
                 break;
             case RequestStepKind.Task:
-                await CreateTaskAsync(request, step, actor, now, followUp, ct);
+                await CreateTaskAsync(request, step, actor, now, ct);
                 break;
             case RequestStepKind.Approval:
                 step.Status = RequestStepStatus.Ready;
-                await OpenStageAsync(request, step, 1, actor, now, followUp, ct);
+                await OpenStageAsync(request, step, 1, actor, now, ct);
                 break;
             case RequestStepKind.Action:
                 // Claimed and run by the job, outside this transaction; StartedAt marks the claim.
@@ -438,7 +442,7 @@ public sealed class RequestEngine(
         }
     }
 
-    private async Task CreateTaskAsync(Request request, RequestStep step, Actor actor, DateTime now, EngineFollowUp followUp, CancellationToken ct)
+    private async Task CreateTaskAsync(Request request, RequestStep step, Actor actor, DateTime now, CancellationToken ct)
     {
         var flowStep = step.FlowStep;
         var departmentId = flowStep.TaskDepartmentId ?? request.DepartmentId;
@@ -501,22 +505,12 @@ public sealed class RequestEngine(
         step.TaskId = task.Id;
         step.Task = task;
         step.Status = RequestStepStatus.Ready;
+        // Its emails (§6.7) go in the pass's transaction, as for a task created any other way.
+        await notifications.TaskCreatedAsync(task, actor, ct);
 
         // The task row must exist before files are copied to it; the copy never loads the bytes.
         await db.SaveChangesAsync(ct);
         await CopyAttachmentsAsync(request, flowStep, task, ct);
-
-        var tell = assigneeIds.ToList();
-        if (requesteeId is Guid r && r != request.RequesterId || requesteeId is Guid r2 && actor.UserId != r2) tell.Add(requesteeId!.Value);
-        followUp.Add(async () =>
-        {
-            var people = await db.Users.AsNoTracking().Where(u => tell.Contains(u.Id)).ToListAsync(CancellationToken.None);
-            foreach (var person in people)
-            {
-                if (assigneeIds.Contains(person.Id)) await notifications.TaskAssignedAsync(task, person, actor);
-                else if (person.Id != actor.UserId) await notifications.TaskCreatedForAsync(task, person, actor);
-            }
-        });
     }
 
     private async Task CopyAttachmentsAsync(Request request, RequestFlowStep flowStep, TaskItem task, CancellationToken ct)
@@ -541,7 +535,7 @@ public sealed class RequestEngine(
     }
 
     /// <summary>Open a stage: its approvers resolved to people as they stand now, one Pending decision each. False when there is no such stage.</summary>
-    private async Task<bool> OpenStageAsync(Request request, RequestStep step, int order, Actor actor, DateTime now, EngineFollowUp followUp, CancellationToken ct)
+    private async Task<bool> OpenStageAsync(Request request, RequestStep step, int order, Actor actor, DateTime now, CancellationToken ct)
     {
         var stage = step.FlowStep.Stages.FirstOrDefault(s => s.StageOrder == order);
         if (stage is null) return false;
@@ -560,8 +554,8 @@ public sealed class RequestEngine(
             var approval = new RequestApproval { StepId = step.Id, Step = step, StageOrder = order, ApproverId = id };
             step.Approvals.Add(approval);
             db.RequestApprovals.Add(approval);
-            Notify(followUp, id, request, $"approve \"{step.FlowStep.Title}\"");
         }
+        await notifications.RequestStepWaitingAsync(request, step, ids, $"approve \"{step.FlowStep.Title}\"", actor, ct);
         return true;
     }
 
@@ -601,13 +595,6 @@ public sealed class RequestEngine(
         step.CompletedAt = null;
         audit.Add(actor, AuditEntity.Request, request.Id, AuditAction.Updated, request.DepartmentId, request.Title, new { stepFailed = step.FlowStep.Key, error = step.Error });
     }
-
-    private void Notify(EngineFollowUp followUp, Guid userId, Request request, string what) =>
-        followUp.Add(async () =>
-        {
-            var person = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, CancellationToken.None);
-            if (person is not null) await notifications.RequestStepAsync(request, person, what);
-        });
 
     private async Task TriggerJobAsync()
     {

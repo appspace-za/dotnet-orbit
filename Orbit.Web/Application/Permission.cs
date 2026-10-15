@@ -27,6 +27,7 @@ public static class Permission
     public const string DirectoryManage = "directory.manage";
     public const string AgentsManage = "agents.manage";
     public const string NagiosManage = "nagios.manage";
+    public const string MessagesManage = "messages.manage";
     public const string AssetsView = "assets.view";
     public const string AssetsCreate = "assets.create";
     public const string AssetsEdit = "assets.edit";

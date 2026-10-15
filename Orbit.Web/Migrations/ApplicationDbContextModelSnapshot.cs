@@ -1032,6 +1032,67 @@ namespace Orbit.Migrations
                     b.ToTable("LdapSettings");
                 });
 
+            modelBuilder.Entity("Orbit.Data.Entities.MessageTemplate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(8000)
+                        .HasColumnType("character varying(8000)");
+
+                    b.Property<string>("Condition")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Trigger")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Trigger");
+
+                    b.ToTable("MessageTemplates");
+                });
+
+            modelBuilder.Entity("Orbit.Data.Entities.MessageTemplateRecipient", b =>
+                {
+                    b.Property<Guid>("MessageTemplateId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Kind")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.HasKey("MessageTemplateId", "Kind");
+
+                    b.ToTable("MessageTemplateRecipients");
+                });
+
             modelBuilder.Entity("Orbit.Data.Entities.NagiosIncident", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1240,6 +1301,89 @@ namespace Orbit.Migrations
                     b.HasKey("Prefix", "Year");
 
                     b.ToTable("NumberCounters");
+                });
+
+            modelBuilder.Entity("Orbit.Data.Entities.OutboundEmail", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("EntityId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("EntityType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("MessageName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("MessageTemplateId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("SentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("ToAddress")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("ToName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<Guid?>("ToUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Trigger")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("MessageTemplateId");
+
+                    b.HasIndex("ToUserId");
+
+                    b.HasIndex("Status", "NextAttemptAt");
+
+                    b.ToTable("OutboundEmails");
                 });
 
             modelBuilder.Entity("Orbit.Data.Entities.Project", b =>
@@ -2735,6 +2879,17 @@ namespace Orbit.Migrations
                     b.Navigation("Manager");
                 });
 
+            modelBuilder.Entity("Orbit.Data.Entities.MessageTemplateRecipient", b =>
+                {
+                    b.HasOne("Orbit.Data.Entities.MessageTemplate", "MessageTemplate")
+                        .WithMany("Recipients")
+                        .HasForeignKey("MessageTemplateId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("MessageTemplate");
+                });
+
             modelBuilder.Entity("Orbit.Data.Entities.NagiosIncident", b =>
                 {
                     b.HasOne("Orbit.Data.Entities.NagiosInstance", "Instance")
@@ -2788,6 +2943,23 @@ namespace Orbit.Migrations
                     b.Navigation("Instance");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Orbit.Data.Entities.OutboundEmail", b =>
+                {
+                    b.HasOne("Orbit.Data.Entities.MessageTemplate", "MessageTemplate")
+                        .WithMany()
+                        .HasForeignKey("MessageTemplateId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Orbit.Data.Entities.ApplicationUser", "ToUser")
+                        .WithMany()
+                        .HasForeignKey("ToUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("MessageTemplate");
+
+                    b.Navigation("ToUser");
                 });
 
             modelBuilder.Entity("Orbit.Data.Entities.Project", b =>
@@ -3443,6 +3615,11 @@ namespace Orbit.Migrations
                     b.Navigation("Tasks");
 
                     b.Navigation("Users");
+                });
+
+            modelBuilder.Entity("Orbit.Data.Entities.MessageTemplate", b =>
+                {
+                    b.Navigation("Recipients");
                 });
 
             modelBuilder.Entity("Orbit.Data.Entities.NagiosInstance", b =>

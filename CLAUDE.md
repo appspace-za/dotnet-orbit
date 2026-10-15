@@ -71,11 +71,16 @@ Razor Pages and MCP tools are thin. Both call the same scoped services in `Orbit
 - **Entities/migrations:** every enum is stored as its name (a convention at the end of
   `ApplicationDbContext.OnModelCreating`), so raw SQL uses `'Todo'`, not `0`. Recent migrations were tested on an
   empty DB and on a DB at the previous migration, forward, back (`Down`) and forward again (spec §13 item 37).
-- **Pure rules** (`Application/Scheduling/*`, `Application/Assets/*Rules`, `Application/Nagios/*`, `RoleRules`,
+- **Pure rules** (`Application/Scheduling/*`, `Application/Assets/*Rules`, `Application/Nagios/*`, `Application/Messages/*`, `RoleRules`,
   `DependencyRules`, `DirectoryImportRules`) have no DB access so they can be unit-tested. Put new domain logic there when it can be
   separated. Tests cite the spec's acceptance IDs (e.g. `AST-005`) in their doc comments.
 - The critical path analysis is stored and marked stale by a hash of its inputs (`ScheduleFingerprint`), not by
   write hooks. A new field that affects scheduling must be added to the fingerprint.
+- **Emails are messages** (§6.7). A change that should email someone calls the matching `NotificationService` method
+  (`TaskCreatedAsync`, `TaskClosedAsync`, ...) *before* its `SaveChangesAsync`: it writes `OutboundEmail` rows into
+  the same unit of work and `EmailDispatchJob` sends them. A new event is a `MessageTrigger`, a `MessageCatalogue`
+  entry (conditions, recipients, tokens) and a `NotificationService` method. Only Identity's account emails call
+  `IEmailSender` directly.
 - **A job that writes tasks** (`RecurrenceService`, `NagiosMonitor`) builds the `TaskItem` itself as `Actor.System`:
   `TaskService` and `CommentService` read `IActorProvider`, which throws outside an HTTP request. A row with no
   author or creator is shown as *System*; Claude's writes carry the synthetic Claude user, never null.

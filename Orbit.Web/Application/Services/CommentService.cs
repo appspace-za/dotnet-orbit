@@ -5,8 +5,11 @@ using Orbit.Data.Entities;
 
 namespace Orbit.Application.Services;
 
-/// <summary>Comments on tasks, projects and assets (spec §6.1, §6.2, §6.19). Whoever can see the task, project or asset can read and add them.</summary>
-public sealed class CommentService(ApplicationDbContext db, IActorProvider actors, AuditService audit)
+/// <summary>
+/// Comments on tasks, projects and assets (spec §6.1, §6.2, §6.19). Whoever can see the task, project or asset can read and add them.
+/// A task's comment raises the Task commented on messages, a project's the Project commented on ones (§6.7); an asset's raises none.
+/// </summary>
+public sealed class CommentService(ApplicationDbContext db, IActorProvider actors, AuditService audit, NotificationService notifications)
 {
     public async Task<IReadOnlyList<Comment>> ListAsync(Guid taskId, CancellationToken ct = default)
     {
@@ -31,6 +34,8 @@ public sealed class CommentService(ApplicationDbContext db, IActorProvider actor
         db.Comments.Add(comment);
         task.UpdatedAt = comment.CreatedAt;
         audit.Add(actor, AuditEntity.Task, taskId, AuditAction.CommentAdded, task.DepartmentId, task.Title, Details(comment));
+        // Its emails (§6.7) are saved with it.
+        await notifications.TaskCommentedAsync(task, comment, actor, ct);
         await db.SaveChangesAsync(ct);
 
         await db.Entry(comment).Reference(c => c.Author).LoadAsync(ct);
@@ -64,6 +69,7 @@ public sealed class CommentService(ApplicationDbContext db, IActorProvider actor
         db.Comments.Add(comment);
         project.UpdatedAt = comment.CreatedAt;
         audit.Add(actor, AuditEntity.Project, projectId, AuditAction.CommentAdded, project.DepartmentId, project.Name, Details(comment));
+        await notifications.ProjectCommentedAsync(project, comment, actor, ct);
         await db.SaveChangesAsync(ct);
 
         await db.Entry(comment).Reference(c => c.Author).LoadAsync(ct);

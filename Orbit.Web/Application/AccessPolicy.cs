@@ -241,6 +241,9 @@ public static class AccessPolicy
     /// <summary>Nagios monitoring (Admin &gt; Nagios, §6.21): nagios.manage, which is All-only.</summary>
     public static bool CanManageNagios(Actor a) => a.CanAnywhere(Permission.NagiosManage);
 
+    /// <summary>The emails Orbit sends (Admin &gt; Messages, §6.7): messages.manage, which is All-only.</summary>
+    public static bool CanManageMessages(Actor a) => a.CanAnywhere(Permission.MessagesManage);
+
     /// <summary>reports.view at Department (the actor's own department only) or All.</summary>
     public static bool CanViewReports(Actor a) => a.ScopeOf(Permission.ReportsView) >= PermissionScope.Department;
 
