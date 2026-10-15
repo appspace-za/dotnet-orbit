@@ -4,7 +4,7 @@ namespace Orbit.Auth;
 
 /// <summary>
 /// The sender when <c>Email:Provider</c> is Log, the default (spec §6.7): account and message emails are written to the log, and
-/// nothing leaves Orbit. <see cref="BrevoEmailSender"/> sends them for real.
+/// nothing leaves Orbit. <see cref="BrevoEmailSender"/> and <see cref="MailjetEmailSender"/> send them for real.
 /// </summary>
 public sealed class LoggingEmailSender(ILogger<LoggingEmailSender> logger) : IEmailSender
 {

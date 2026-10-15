@@ -450,9 +450,9 @@ Switch any off, change its words, or add more.
 
 Emails are written to an **outbox** in the same save as the change, so nobody hears of a change that was rolled back,
 and a job (`Jobs:EmailDispatch`, every 15 seconds) sends them, retrying one that fails. **Emails sent** lists the
-latest, with the reason one failed. Orbit sends through **Brevo** once it is configured (see [Sending email through
-Brevo](#sending-email-through-brevo)); until then it only writes each email to the log, and the outbox shows them all
-the same. **Send test email** sends a short email to your own address straight away and shows why if it fails.
+latest, with the reason one failed. Orbit sends through **Brevo** or **Mailjet** once one is configured (see [Sending
+email through Brevo](#sending-email-through-brevo) and [through Mailjet](#sending-email-through-mailjet)); until then it
+only writes each email to the log, and the outbox shows them all the same. **Send test email** sends a short email to your own address straight away and shows why if it fails.
 
 ## Reports
 
@@ -505,7 +505,7 @@ old Nagios' own status data may be before a check is discarded.
 name the databases a script on the server may open; an agent's connections go in its own `actions.json` (deploy/README.md).
 `App:BaseUrl` is also the address put into an agent's `configure` command, so it must be the public `https` URL.
 Emails (see [Messages](#messages)) are sent from the outbox by `Jobs:EmailDispatch:*` (every 15 seconds) through
-Identity's `IEmailSender`: `Email:Provider` is `Log` (the default, which only logs them) or `Brevo`.
+Identity's `IEmailSender`: `Email:Provider` is `Log` (the default, which only logs them), `Brevo` or `Mailjet`.
 `Email:MaxAttempts` (6) is how many tries a failing email gets, `Email:KeepDays` (30) how long sent and failed ones
 stay in the outbox, and `Email:BatchSize` (50) how many one run sends. `App:BaseUrl` is the address the emails link to.
 
@@ -534,3 +534,29 @@ A refused email stays in the outbox with Brevo's reason (e.g. *Brevo refused the
 found*) and is tried again after 1, 5, 15 and 60 minutes, then every 4 hours, so emails held up by a setting go once
 it is fixed. Brevo's free plan sends 300 emails a day. `Email:Brevo:TimeoutSeconds` (30) caps one send, and
 `Email:Brevo:BaseUrl` defaults to `https://api.brevo.com/v3/`.
+
+### Sending email through Mailjet
+
+Orbit can send the same emails through Mailjet's Send API (v3.1) instead.
+
+1. In Mailjet, add the address you will send from, or its whole domain, under *Account settings > Senders & domains*,
+   and validate it. For a domain, also add the SPF and DKIM records Mailjet gives you.
+2. Get the API key and its secret key (*Account settings > REST API*).
+3. Set the settings, as environment variables in `/etc/orbit/orbit.env` in production, or with
+   `dotnet user-secrets set` (on `Orbit.Web`) in development. Never put the keys in `appsettings.json`:
+   ```
+   Email__Provider=Mailjet
+   Email__FromAddress=orbit@your-domain
+   Email__FromName=Orbit
+   Email__Mailjet__ApiKey=...
+   Email__Mailjet__SecretKey=...
+   ```
+   An account Mailjet hosts in the US also sets `Email__Mailjet__BaseUrl=https://api.us.mailjet.com/v3.1/`.
+4. Restart Orbit. It refuses to start with Mailjet chosen and either key or a valid From address missing, and says which.
+5. Press **Send test email** on Admin > Messages.
+
+A refused email stays in the outbox with Mailjet's reason (e.g. *Mailjet refused the email (401): API key
+authentication/authorization failure. …* for wrong keys, or a `send-0008` error for a From address Mailjet hasn't
+validated) and is retried as above. Mailjet's free plan sends 200 emails a day and 6,000 a month.
+`Email:Mailjet:TimeoutSeconds` (30) caps one send, and `Email:Mailjet:BaseUrl` defaults to
+`https://api.mailjet.com/v3.1/`.

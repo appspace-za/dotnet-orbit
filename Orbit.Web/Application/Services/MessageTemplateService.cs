@@ -174,7 +174,8 @@ public sealed class MessageTemplateService(
         var address = me?.Email?.Trim();
         if (string.IsNullOrEmpty(address)) throw new ValidationException("Your account has no email address to send a test email to.");
 
-        var how = emailOptions.Value.Provider == EmailProvider.Brevo ? "through Brevo" : "to Orbit's log only";
+        var provider = emailOptions.Value.Provider;
+        var how = provider == EmailProvider.Log ? "to Orbit's log only" : $"through {provider}";
         var body = $"Hello {me!.DisplayName},\n\nThis is a test email from Orbit, sent {how} at {DateTime.UtcNow:yyyy-MM-dd HH:mm} UTC from Admin > Messages. " +
                    "If you can read it, Orbit's emails reach you.";
         try

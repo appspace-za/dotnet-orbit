@@ -81,7 +81,8 @@ Razor Pages and MCP tools are thin. Both call the same scoped services in `Orbit
   the same unit of work and `EmailDispatchJob` sends them. A new event is a `MessageTrigger`, a `MessageCatalogue`
   entry (conditions, recipients, tokens) and a `NotificationService` method. Only Identity's account emails and the
   Admin > Messages test email call `IEmailSender` directly. The sender is `Email:Provider`: `LoggingEmailSender` (the
-  default) or `BrevoEmailSender`, whose pure request/error rules are `BrevoRules`.
+  default), `BrevoEmailSender` or `MailjetEmailSender`. Both providers derive from `ApiEmailSender` (the HTTP round trip)
+  and keep their pure request/error rules in `BrevoRules` / `MailjetRules`, with what they share in `EmailApiRules`.
 - **A job that writes tasks** (`RecurrenceService`, `NagiosMonitor`) builds the `TaskItem` itself as `Actor.System`:
   `TaskService` and `CommentService` read `IActorProvider`, which throws outside an HTTP request. A row with no
   author or creator is shown as *System*; Claude's writes carry the synthetic Claude user, never null.

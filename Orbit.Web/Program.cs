@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Net.Http.Headers;
 using ModelContextProtocol.AspNetCore;
 using Orbit.Agents;
 using Orbit.Agents.Contracts;
@@ -184,22 +185,37 @@ builder.Services.AddScoped<AgentNagiosDispatcher>();
 builder.Services.AddSingleton<NagiosPasswordProtector>();
 // One script host per process (§6.20): compiled scripts are cached in it.
 builder.Services.AddSingleton<ScriptHost>();
-// The email sender (§6.7): Brevo's API when Email:Provider is Brevo, otherwise the log. Settings that won't send stop startup here.
+// The email sender (§6.7): Brevo's or Mailjet's API, as Email:Provider says, otherwise the log. Settings that won't send stop
+// startup here, and the header carrying the provider's credentials is kept out of HttpClient's logging.
 var email = config.GetSection(EmailOptions.Section).Get<EmailOptions>() ?? new EmailOptions();
-if (email.Provider == EmailProvider.Brevo)
+var emailProblems = email.Provider switch
 {
-    var problems = BrevoRules.ConfigProblems(email);
-    if (problems.Count > 0) throw new InvalidOperationException($"Email:Provider is Brevo, but {string.Join("; ", problems)}.");
-    builder.Services.AddHttpClient<IEmailSender, BrevoEmailSender>(c =>
-        {
-            c.BaseAddress = BrevoRules.BaseUri(email.Brevo);
-            c.Timeout = TimeSpan.FromSeconds(Math.Max(5, email.Brevo.TimeoutSeconds));
-        })
-        .RedactLoggedHeaders([BrevoRules.ApiKeyHeader]);
-}
-else
+    EmailProvider.Brevo => BrevoRules.ConfigProblems(email),
+    EmailProvider.Mailjet => MailjetRules.ConfigProblems(email),
+    _ => []
+};
+if (emailProblems.Count > 0) throw new InvalidOperationException($"Email:Provider is {email.Provider}, but {string.Join("; ", emailProblems)}.");
+switch (email.Provider)
 {
-    builder.Services.AddTransient<IEmailSender, LoggingEmailSender>();
+    case EmailProvider.Brevo:
+        builder.Services.AddHttpClient<IEmailSender, BrevoEmailSender>(c =>
+            {
+                c.BaseAddress = BrevoRules.BaseUri(email.Brevo);
+                c.Timeout = TimeSpan.FromSeconds(Math.Max(5, email.Brevo.TimeoutSeconds));
+            })
+            .RedactLoggedHeaders([BrevoRules.ApiKeyHeader]);
+        break;
+    case EmailProvider.Mailjet:
+        builder.Services.AddHttpClient<IEmailSender, MailjetEmailSender>(c =>
+            {
+                c.BaseAddress = MailjetRules.BaseUri(email.Mailjet);
+                c.Timeout = TimeSpan.FromSeconds(Math.Max(5, email.Mailjet.TimeoutSeconds));
+            })
+            .RedactLoggedHeaders([HeaderNames.Authorization]);
+        break;
+    default:
+        builder.Services.AddTransient<IEmailSender, LoggingEmailSender>();
+        break;
 }
 
 // --- MCP server (Streamable HTTP, stateless) ----------------------------------------------

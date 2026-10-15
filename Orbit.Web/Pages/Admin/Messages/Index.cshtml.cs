@@ -36,9 +36,12 @@ public class IndexModel(MessageTemplateService messages, IEmailSender sender, IO
         var address = await messages.SendTestEmailAsync(ct);
         Success(OnlyLogged
             ? $"A test email to {address} was written to the log: no mail server is set up, so nothing was sent."
-            : $"A test email went to {address}. If it doesn't arrive, look in Brevo's transactional logs.");
+            : $"A test email went to {address}. If it doesn't arrive, look for it in {ProviderLog}.");
         return RedirectToPage();
     }
+
+    /// <summary>Where the provider shows what it sent.</summary>
+    private string ProviderLog => Email.Provider == EmailProvider.Mailjet ? "Mailjet's statistics" : "Brevo's transactional logs";
 
     public IReadOnlyList<MessageTemplate> For(MessageTrigger trigger) => Items.Where(m => m.Trigger == trigger).ToList();
 }

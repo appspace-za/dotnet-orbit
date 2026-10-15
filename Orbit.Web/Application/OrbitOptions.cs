@@ -128,7 +128,7 @@ public sealed class NagiosOptions
 
 /// <summary>
 /// Sending the emails messages write (spec §6.7). Which emails go, to whom and saying what is data, edited under Admin &gt; Messages;
-/// how they are delivered is Identity's <c>IEmailSender</c>, chosen by <see cref="Provider"/>: the log (the default) or Brevo.
+/// how they are delivered is Identity's <c>IEmailSender</c>, chosen by <see cref="Provider"/>: the log (the default), Brevo or Mailjet.
 /// </summary>
 public sealed class EmailOptions
 {
@@ -139,13 +139,17 @@ public sealed class EmailOptions
     public int KeepDays { get; set; } = 30;
     /// <summary>The most emails one run of the job sends; the rest wait for the next run.</summary>
     public int BatchSize { get; set; } = 50;
-    /// <summary>Who delivers the emails. Brevo needs <see cref="FromAddress"/> and <c>Email:Brevo:ApiKey</c>, checked at startup.</summary>
+    /// <summary>
+    /// Who delivers the emails. Brevo needs <see cref="FromAddress"/> and <c>Email:Brevo:ApiKey</c>; Mailjet needs it and
+    /// <c>Email:Mailjet:ApiKey</c> and <c>SecretKey</c>. Both are checked at startup.
+    /// </summary>
     public EmailProvider Provider { get; set; } = EmailProvider.Log;
-    /// <summary>The From address: a sender verified in Brevo, or an address on a domain authenticated there.</summary>
+    /// <summary>The From address: a sender the provider has verified, or an address on a domain authenticated there.</summary>
     public string? FromAddress { get; set; }
     /// <summary>The From name. Brevo takes at most 70 characters.</summary>
     public string FromName { get; set; } = "Orbit";
     public BrevoOptions Brevo { get; set; } = new();
+    public MailjetOptions Mailjet { get; set; } = new();
 }
 
 public enum EmailProvider
@@ -153,7 +157,9 @@ public enum EmailProvider
     /// <summary>Write each email to the log and send nothing (<c>LoggingEmailSender</c>).</summary>
     Log,
     /// <summary>Send through Brevo's transactional email API (<c>BrevoEmailSender</c>).</summary>
-    Brevo
+    Brevo,
+    /// <summary>Send through Mailjet's Send API v3.1 (<c>MailjetEmailSender</c>).</summary>
+    Mailjet
 }
 
 /// <summary>Brevo's transactional email API (spec §6.7), used when <c>Email:Provider</c> is Brevo.</summary>
@@ -162,6 +168,19 @@ public sealed class BrevoOptions
     /// <summary>A v3 API key (<c>xkeysib-...</c>). A secret: supply it as <c>Email__Brevo__ApiKey</c>, never in appsettings.json.</summary>
     public string? ApiKey { get; set; }
     public string BaseUrl { get; set; } = "https://api.brevo.com/v3/";
+    /// <summary>How long one send may take before it counts as failed and is tried again later.</summary>
+    public int TimeoutSeconds { get; set; } = 30;
+}
+
+/// <summary>Mailjet's Send API v3.1 (spec §6.7), used when <c>Email:Provider</c> is Mailjet.</summary>
+public sealed class MailjetOptions
+{
+    /// <summary>The API key (Mailjet's public key), sent with <see cref="SecretKey"/> as Basic credentials.</summary>
+    public string? ApiKey { get; set; }
+    /// <summary>The API key's secret key. A secret: supply it as <c>Email__Mailjet__SecretKey</c>, never in appsettings.json.</summary>
+    public string? SecretKey { get; set; }
+    /// <summary>An account Mailjet hosts in the US uses <c>https://api.us.mailjet.com/v3.1/</c>.</summary>
+    public string BaseUrl { get; set; } = "https://api.mailjet.com/v3.1/";
     /// <summary>How long one send may take before it counts as failed and is tried again later.</summary>
     public int TimeoutSeconds { get; set; } = 30;
 }
