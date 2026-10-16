@@ -138,7 +138,8 @@ shows its sprint as a link. A reopened task still in a completed sprint shows th
 status, assignee, due-date and sprint controls are shared partials (`_StatusControl`, `_AssigneeControl`,
 `_DueDateControl`, `_SprintControl` in `Pages/Shared`). A change through any of them, the Today tick or *Take* keeps
 your place: the page reloads, scrolls back to where you were (with the control focused, if it is still in view), and
-shows the message floating in a corner.
+shows the message floating in a corner. The Tasks list also has a **Sprint** filter: a planned or active sprint, or
+*Backlog* for the tasks in none.
 
 A task has a **type**, the kind of work it is: Meeting, Planning, Task (the default), Training, Audit, Change, Request
 or Problem. It is chosen on the task form, shown as a coloured badge beside the title (a plain Task has none in the

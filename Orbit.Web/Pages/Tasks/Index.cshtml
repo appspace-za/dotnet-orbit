@@ -52,6 +52,14 @@
                     @foreach (var i in Model.ProjectItems) { <option value="@i.Value" selected="@i.Selected">@i.Text</option> }
                 </select>
             </div>
+            <div class="col-sm-6 col-lg-2">
+                <label class="form-label small mb-0" title="A planned or active sprint, or Backlog for the tasks in no sprint">Sprint</label>
+                <select class="form-select form-select-sm" name="Sprint">
+                    <option value="">All</option>
+                    <option value="@Orbit.Pages.Tasks.IndexModel.BacklogSprint" selected="@f.BacklogOnly">Backlog (no sprint)</option>
+                    @foreach (var i in Model.SprintItems) { <option value="@i.Value" selected="@i.Selected">@i.Text</option> }
+                </select>
+            </div>
             @if (Model.CanFilterByAsset)
             {
                 var assetFilter = new Orbit.Pages.Assets.AssetPickerVm

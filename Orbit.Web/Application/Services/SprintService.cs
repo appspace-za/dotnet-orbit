@@ -61,6 +61,13 @@ public sealed class SprintService(ApplicationDbContext db, IActorProvider actors
         return await db.Sprints.AsNoTracking().FirstOrDefaultAsync(s => s.Status == SprintStatus.Active, ct);
     }
 
+    /// <summary>One sprint without its tasks, or null - e.g. to name a completed sprint a filter still points at.</summary>
+    public async Task<Sprint?> FindAsync(Guid id, CancellationToken ct = default)
+    {
+        await actors.GetAsync(ct);
+        return await db.Sprints.AsNoTracking().FirstOrDefaultAsync(s => s.Id == id, ct);
+    }
+
     public async Task<SprintBoard> GetBoardAsync(Guid id, CancellationToken ct = default)
     {
         var sprint = await GetAsync(id, ct);

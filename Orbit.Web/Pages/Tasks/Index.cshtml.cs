@@ -27,6 +27,14 @@ public class IndexModel(
     /// "page" query parameter when binding and swallows one when links are built - so every page was page 1.
     /// </summary>
     [BindProperty(SupportsGet = true)] public int PageNumber { get; set; } = 1;
+    /// <summary>
+    /// The Sprint filter (§6.2): empty for all, <see cref="BacklogSprint"/> for the tasks in no sprint, or a sprint's id. One
+    /// select covers both <see cref="TaskFilter.SprintId"/> and <see cref="TaskFilter.BacklogOnly"/>. Not "Sprint", which
+    /// would hide the entity type in this class.
+    /// </summary>
+    [BindProperty(SupportsGet = true, Name = SprintKey)] public string? SprintChoice { get; set; }
+    public const string BacklogSprint = "backlog";
+    private const string SprintKey = "Sprint";
 
     /// <summary>
     /// The filter fields remembered for the session (§6.2). The page number and the one-off "subtasks of one task"
@@ -37,7 +45,8 @@ public class IndexModel(
         nameof(TaskFilter.Search), nameof(TaskFilter.DepartmentId), nameof(TaskFilter.ProjectId), nameof(TaskFilter.Status),
         nameof(TaskFilter.AssigneeId), nameof(TaskFilter.Unassigned), nameof(TaskFilter.Priority), nameof(TaskFilter.Type),
         nameof(TaskFilter.Source), nameof(TaskFilter.DueAfter), nameof(TaskFilter.DueBefore), nameof(TaskFilter.OpenOnly),
-        nameof(TaskFilter.PlannedToday), nameof(TaskFilter.PlannedFor), nameof(TaskFilter.AssetId), nameof(TaskFilter.RequesteeId)
+        nameof(TaskFilter.PlannedToday), nameof(TaskFilter.PlannedFor), nameof(TaskFilter.AssetId), nameof(TaskFilter.RequesteeId),
+        SprintKey
     ];
     private const string MemoryKey = "tasks";
 
@@ -52,6 +61,8 @@ public class IndexModel(
     public IReadOnlyList<UserSummary> QuickEditAssignees { get; private set; } = [];
     /// <summary>The sprints the inline sprint control offers (§6.3): the planned and active ones.</summary>
     public IReadOnlyList<Sprint> OpenSprints { get; private set; } = [];
+    /// <summary>The Sprint filter's sprints (§6.2): the open ones, plus a chosen one that has since been completed.</summary>
+    public IReadOnlyList<SelectListItem> SprintItems { get; private set; } = [];
     /// <summary>Tasks on this page whose next move is gated by a dependency (§6.15).</summary>
     public IReadOnlyDictionary<Guid, WaitingSummary> Waiting { get; private set; } = new Dictionary<Guid, WaitingSummary>();
     /// <summary>The Asset filter's picker (§6.19) is offered to whoever can see assets.</summary>
@@ -72,7 +83,8 @@ public class IndexModel(
         else if (Filter.ParentTaskId is null && FilterMemory.Recall(Request, MemoryKey, Actor.UserId) is string remembered)
             return LocalRedirect(Request.Path + remembered);
 
-        Filter.BacklogOnly = false;
+        Filter.BacklogOnly = SprintChoice == BacklogSprint;
+        Filter.SprintId = Guid.TryParse(SprintChoice, out var sprintFilter) ? sprintFilter : null;
         Filter.Page = PageNumber;
         Filter.PageSize = 50;
         Result = await tasks.ListAsync(Filter, ct);
@@ -101,6 +113,14 @@ public class IndexModel(
         // The filter list may be narrowed to one department; the inline control needs candidates for every listed task.
         QuickEditAssignees = await users.GetQuickEditCandidatesAsync(ct);
         OpenSprints = await sprints.ListOpenAsync(ct);
+        var sprintItems = OpenSprints
+            .Select(s => new SelectListItem($"{s.Name} ({s.Status})", s.Id.ToString(), s.Id == Filter.SprintId)).ToList();
+        // A remembered or linked sprint that has since been completed stays selected rather than silently dropped.
+        if (Filter.SprintId is Guid chosenSprint && sprintItems.All(i => !i.Selected))
+            sprintItems.Add(new SelectListItem(
+                await sprints.FindAsync(chosenSprint, ct) is { } sprint ? $"{sprint.Name} ({sprint.Status})" : "Unknown sprint",
+                chosenSprint.ToString(), true));
+        SprintItems = sprintItems;
         CanFilterByAsset = Actor.Has(Permission.AssetsView);
         if (Filter.AssetId is Guid assetId)
             AssetFilterLabel = await assets.GetRefAsync(assetId, ct) is { } asset ? AssetRules.Label(asset.AssetNumber, asset.Name) : "(an asset you can't see)";
@@ -111,6 +131,6 @@ public class IndexModel(
     {
         Filter.ProjectId, Filter.DepartmentId, Filter.Status, Filter.AssigneeId, Filter.Priority, Filter.Type, Filter.Source,
         Filter.DueBefore, Filter.DueAfter, Filter.OpenOnly, Filter.PlannedToday, Filter.PlannedFor, Filter.ParentTaskId, Filter.Unassigned, Filter.Search,
-        Filter.AssetId, Filter.RequesteeId, PageNumber = page
+        Filter.AssetId, Filter.RequesteeId, Sprint = SprintChoice, PageNumber = page
     })!;
 }
