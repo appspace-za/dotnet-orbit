@@ -239,6 +239,31 @@ public sealed class ReportingService(ApplicationDbContext db, IActorProvider act
     }
 
     /// <summary>
+    /// Who the project status report's Owner and Assignee filters offer: the owners of the projects the viewer can report on
+    /// (their own department's under a Department-scoped reports.view, §6.5), and the assignees of those projects' tasks that
+    /// aren't Cancelled, whatever department they are in. Deactivated people stay, as reports look back.
+    /// </summary>
+    public async Task<ProjectReportPeople> ProjectReportPeopleAsync(CancellationToken ct = default)
+    {
+        var actor = await RequireReportsAsync(ct);
+        var projects = db.Projects.AsNoTracking();
+        if (RestrictedDepartment(actor) is Guid d) projects = projects.Where(p => p.DepartmentId == d);
+        var ownerIds = await projects.Select(p => p.OwnerId).Distinct().ToListAsync(ct);
+        var assigneeIds = await projects.SelectMany(p => p.Tasks)
+            .Where(t => t.Status != TaskItemStatus.Cancelled)
+            .SelectMany(t => t.Assignments)
+            .Select(x => x.UserId).Distinct()
+            .ToListAsync(ct);
+        var ids = ownerIds.Concat(assigneeIds).Distinct().ToList();
+        var people = await db.Users.AsNoTracking().Where(u => ids.Contains(u.Id))
+            .Select(u => new ReportPerson(u.Id, u.IsSystemAccount ? ClaudeName : u.DisplayName, u.IsActive || u.IsSystemAccount))
+            .ToDictionaryAsync(u => u.Id, ct);
+        List<ReportPerson> Listed(IEnumerable<Guid> list) => list.Where(people.ContainsKey).Select(id => people[id])
+            .OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+        return new ProjectReportPeople(Listed(ownerIds), Listed(assigneeIds));
+    }
+
+    /// <summary>
     /// Every asset in the register during the period - not Disposed at some point in it, registered in it, or with a linked task
     /// created, completed or logged against in it - disposed ones included (§12 Asset status). A department selects the assets it
     /// manages, and their linked tasks count whatever department they are filed in. Status changes come from the asset audit
@@ -327,13 +352,16 @@ public sealed class ReportingService(ApplicationDbContext db, IActorProvider act
         return q;
     }
 
-    /// <summary>A project belongs to its own department, whichever departments its tasks are filed in (§12 Project status).</summary>
+    /// <summary>
+    /// A project belongs to its own department, whichever departments its tasks are filed in (§12 Project status). The owner
+    /// and assignee filters pick projects too (<see cref="ProjectReportRules.ForPeople"/>).
+    /// </summary>
     private static IQueryable<Project> Apply(IQueryable<Project> q, ReportFilter f, Actor actor)
     {
         var departmentId = RestrictedDepartment(actor) ?? f.DepartmentId;
         if (f.ProjectId is Guid p) q = q.Where(x => x.Id == p);
         if (departmentId is Guid d) q = q.Where(x => x.DepartmentId == d);
-        return q;
+        return ProjectReportRules.ForPeople(q, f.OwnerId, f.AssigneeId);
     }
 
     /// <summary>An asset belongs to its managing department (§6.19) and to no project, so only the department applies.</summary>

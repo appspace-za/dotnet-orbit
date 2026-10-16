@@ -16,6 +16,8 @@ public class ViewModel(ReportingService reporting, ProjectService projects, Depa
     [BindProperty(SupportsGet = true)] public DateOnly? To { get; set; }
     [BindProperty(SupportsGet = true)] public Guid? ProjectId { get; set; }
     [BindProperty(SupportsGet = true)] public Guid? DepartmentId { get; set; }
+    [BindProperty(SupportsGet = true)] public Guid? OwnerId { get; set; }
+    [BindProperty(SupportsGet = true)] public Guid? AssigneeId { get; set; }
 
     /// <summary>reports.view at Department scope fixes the department to the viewer's own (§6.5): the picker is hidden.</summary>
     public bool CanChooseDepartment { get; private set; }
@@ -28,6 +30,9 @@ public class ViewModel(ReportingService reporting, ProjectService projects, Depa
     public AssetStatusReport? AssetReport { get; private set; }
     public IReadOnlyList<SelectListItem> ProjectItems { get; private set; } = [];
     public IReadOnlyList<SelectListItem> DepartmentItems { get; private set; } = [];
+    /// <summary>The Owner and Assignee filters (<see cref="ReportDefinition.ByOwnerAndAssignee"/>), from <see cref="ReportingService.ProjectReportPeopleAsync"/>.</summary>
+    public IReadOnlyList<SelectListItem> OwnerItems { get; private set; } = [];
+    public IReadOnlyList<SelectListItem> AssigneeItems { get; private set; } = [];
     public string FilterSummary { get; private set; } = string.Empty;
 
     public async Task OnGetAsync(CancellationToken ct)
@@ -283,6 +288,7 @@ public class ViewModel(ReportingService reporting, ProjectService projects, Depa
         if (restricted is Guid r) DepartmentId = r == Guid.Empty ? null : r; // the service enforces it either way
         Definition = ReportCatalog.Get(Kind);
         if (!Definition.ByProject) ProjectId = null; // assets belong to no project
+        if (!Definition.ByOwnerAndAssignee) OwnerId = AssigneeId = null;
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         To ??= today;
         From ??= To.Value.AddDays(-30);
@@ -290,7 +296,7 @@ public class ViewModel(ReportingService reporting, ProjectService projects, Depa
 
         var fromUtc = DateTime.SpecifyKind(From.Value.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
         var toUtc = DateTime.SpecifyKind(To.Value.AddDays(1).ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
-        var filter = new ReportFilter(fromUtc, toUtc, ProjectId, DepartmentId);
+        var filter = new ReportFilter(fromUtc, toUtc, ProjectId, DepartmentId, OwnerId, AssigneeId);
 
         switch (Kind)
         {
@@ -307,6 +313,24 @@ public class ViewModel(ReportingService reporting, ProjectService projects, Depa
         var parts = new List<string> { $"{From:yyyy-MM-dd} to {To:yyyy-MM-dd}" };
         if (DepartmentId is Guid d) parts.Add("Department: " + ((await departments.GetAsync(d, ct)).Name));
         if (ProjectId is Guid p) parts.Add("Project: " + (await projects.GetStatusAsync(p, ct)).Name);
+        if (Definition.ByOwnerAndAssignee)
+        {
+            var people = await reporting.ProjectReportPeopleAsync(ct);
+            OwnerItems = PersonItems(people.Owners, OwnerId);
+            AssigneeItems = PersonItems(people.Assignees, AssigneeId);
+            if (OwnerId is Guid o) parts.Add("Owner: " + PersonName(people.Owners, o));
+            if (AssigneeId is Guid a) parts.Add("Assignee: " + PersonName(people.Assignees, a));
+        }
         FilterSummary = string.Join(" · ", parts);
     }
+
+    /// <summary>A person filter's options. One chosen but not offered (from a pasted link) stays selected, as "Unknown".</summary>
+    private static List<SelectListItem> PersonItems(IReadOnlyList<ReportPerson> people, Guid? selected)
+    {
+        var items = people.Select(x => new SelectListItem(x.IsActive ? x.Name : $"{x.Name} (inactive)", x.Id.ToString(), x.Id == selected)).ToList();
+        if (selected is Guid s && people.All(x => x.Id != s)) items.Add(new SelectListItem(PersonName(people, s), s.ToString(), true));
+        return items;
+    }
+
+    private static string PersonName(IReadOnlyList<ReportPerson> people, Guid id) => people.FirstOrDefault(x => x.Id == id)?.Name ?? "Unknown";
 }

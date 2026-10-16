@@ -18,7 +18,8 @@
     </div>
     <a class="btn btn-outline-primary btn-sm" asp-page="/Reports/View" asp-page-handler="Pdf" asp-route-kind="@Model.Kind"
        asp-route-from="@Model.From?.ToString("yyyy-MM-dd")" asp-route-to="@Model.To?.ToString("yyyy-MM-dd")"
-       asp-route-projectId="@Model.ProjectId" asp-route-departmentId="@Model.DepartmentId">Export PDF</a>
+       asp-route-projectId="@Model.ProjectId" asp-route-departmentId="@Model.DepartmentId"
+       asp-route-ownerId="@Model.OwnerId" asp-route-assigneeId="@Model.AssigneeId">Export PDF</a>
 </div>
 
 <form method="get" class="card mb-3">
@@ -50,6 +51,23 @@
                     <select class="form-select form-select-sm" name="projectId">
                         <option value="">All</option>
                         @foreach (var i in Model.ProjectItems) { <option value="@i.Value" selected="@i.Selected">@i.Text</option> }
+                    </select>
+                </div>
+            }
+            @if (Model.Definition.ByOwnerAndAssignee)
+            {
+                <div class="col-sm-6 col-lg-3">
+                    <label class="form-label small mb-0">Owner</label>
+                    <select class="form-select form-select-sm" name="ownerId" title="The projects this person owns">
+                        <option value="">All</option>
+                        @foreach (var i in Model.OwnerItems) { <option value="@i.Value" selected="@i.Selected">@i.Text</option> }
+                    </select>
+                </div>
+                <div class="col-sm-6 col-lg-3">
+                    <label class="form-label small mb-0">Assignee</label>
+                    <select class="form-select form-select-sm" name="assigneeId" title="The projects with a task assigned to this person (cancelled tasks aside)">
+                        <option value="">All</option>
+                        @foreach (var i in Model.AssigneeItems) { <option value="@i.Value" selected="@i.Selected">@i.Text</option> }
                     </select>
                 </div>
             }

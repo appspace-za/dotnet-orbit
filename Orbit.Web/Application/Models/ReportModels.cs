@@ -14,7 +14,12 @@ public enum ReportKind
     AssetStatus
 }
 
-public sealed record ReportFilter(DateTime FromUtc, DateTime ToUtc, Guid? ProjectId, Guid? DepartmentId);
+/// <summary>
+/// A report's filters. <see cref="OwnerId"/> and <see cref="AssigneeId"/> pick projects for the project status report
+/// (<see cref="ReportDefinition.ByOwnerAndAssignee"/>) and are ignored by the others.
+/// </summary>
+public sealed record ReportFilter(
+    DateTime FromUtc, DateTime ToUtc, Guid? ProjectId, Guid? DepartmentId, Guid? OwnerId = null, Guid? AssigneeId = null);
 
 public sealed record PersonCountRow(Guid? UserId, string Name, int Count);
 
@@ -114,6 +119,15 @@ public sealed record ProjectPersonTime(Guid ProjectId, Guid UserId, int PeriodMi
 /// </summary>
 public sealed record ProjectStatusReport(
     IReadOnlyList<ProjectStatusRow> Rows, ProjectStatusTotals Total, IReadOnlyList<ProjectStatusCount> StatusCounts);
+
+/// <summary>A person the project status report's Owner or Assignee filter offers.</summary>
+public sealed record ReportPerson(Guid Id, string Name, bool IsActive);
+
+/// <summary>
+/// Who the project status report's filters offer (§12 Project status): the owners of the projects the viewer can report on,
+/// and the assignees of those projects' tasks that aren't Cancelled.
+/// </summary>
+public sealed record ProjectReportPeople(IReadOnlyList<ReportPerson> Owners, IReadOnlyList<ReportPerson> Assignees);
 
 /// <summary>How many projects ended the range in a status, and how many of those changed to it during the range.</summary>
 public sealed record ProjectStatusCount(ProjectStatus Status, int Count, int ChangedInPeriod);
@@ -259,8 +273,12 @@ public sealed record AssetStatusReport(
     IReadOnlyList<AssetGroupRow> ByType, IReadOnlyList<AssetGroupRow> ByLocation, AssetGroupCounts Total,
     IReadOnlyList<AssetStatusCount> StatusCounts, IReadOnlyList<AssetWorkRow> Assets, DateOnly AsAt);
 
-/// <summary>A report in the catalogue. <see cref="ByProject"/> false hides the project filter: assets belong to no project.</summary>
-public sealed record ReportDefinition(ReportKind Kind, string Title, string Description, bool ByProject = true);
+/// <summary>
+/// A report in the catalogue. <see cref="ByProject"/> false hides the project filter: assets belong to no project.
+/// <see cref="ByOwnerAndAssignee"/> shows the Owner and Assignee filters, which pick projects.
+/// </summary>
+public sealed record ReportDefinition(
+    ReportKind Kind, string Title, string Description, bool ByProject = true, bool ByOwnerAndAssignee = false);
 
 public static class ReportCatalog
 {
@@ -279,7 +297,8 @@ public static class ReportCatalog
         new(ReportKind.EstimateAccuracy, "Estimate accuracy",
             "Tasks completed in the period, grouped by assignee: the estimate against all time logged on them. A shared task is under each of its assignees and counts once overall."),
         new(ReportKind.ProjectStatus, "Project status",
-            "Every project open or active in the period, closed ones included: its status and status changes, tasks, schedule, and estimated and logged time by person."),
+            "Every project open or active in the period, closed ones included: its status and status changes, tasks, schedule, and estimated and logged time by person.",
+            ByOwnerAndAssignee: true),
         new(ReportKind.AssetStatus, "Asset status",
             "Every asset in the register during the period, disposed ones included: status by type and location, value at cost, checks, and the work done through linked tasks.",
             ByProject: false)

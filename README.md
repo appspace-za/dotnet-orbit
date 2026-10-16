@@ -505,7 +505,9 @@ And one about projects:
   period, time logged in the period and to date, estimated against actual time, and the target date with the project
   buffer from the latest critical path analysis. Expand a project for estimated and logged time by person and the tasks
   that are open or were worked on. A department filter picks the projects the department owns, with the whole
-  project's figures. The PDF is landscape. The report's project filter also lists archived projects.
+  project's figures. Owner and Assignee filters pick the projects a person owns, or has a task on that isn't
+  cancelled. The figures still cover the whole project. The PDF is landscape. The report's project filter also lists
+  archived projects.
 
 And one about assets:
 

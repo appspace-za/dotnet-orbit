@@ -43,6 +43,19 @@ public static class ProjectReportRules
     public static bool Includes(ProjectStatusHistory history, bool hadActivity) => history.WasOpen || hadActivity;
 
     /// <summary>
+    /// The Owner and Assignee filters: the projects <paramref name="ownerId"/> owns, and those with a task assigned to
+    /// <paramref name="assigneeId"/> that isn't Cancelled - so they have a row under the project's people. Both pick projects
+    /// only; a picked project's figures still cover all of it, as the department filter's do.
+    /// </summary>
+    public static IQueryable<Project> ForPeople(IQueryable<Project> q, Guid? ownerId, Guid? assigneeId)
+    {
+        if (ownerId is Guid o) q = q.Where(p => p.OwnerId == o);
+        if (assigneeId is Guid a)
+            q = q.Where(p => p.Tasks.Any(t => t.Status != TaskItemStatus.Cancelled && t.Assignments.Any(x => x.UserId == a)));
+        return q;
+    }
+
+    /// <summary>
     /// The report over the projects already chosen (<see cref="Includes"/>): one row per project ordered by department
     /// then name, with its people and its task list, and the totals.
     /// </summary>

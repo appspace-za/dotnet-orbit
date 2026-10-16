@@ -321,4 +321,39 @@ public class ProjectReportRulesTests
         Assert.Null(report.Rows.Single(r => r.Project.Id == finished.Id).Schedule);
         Assert.Empty(report.Rows.Single(r => r.Project.Id == laterArchived.Id).People);
     }
+
+    /// <summary>
+    /// RPT-021: the Owner filter keeps the projects a person owns; the Assignee filter keeps those with a task assigned to them
+    /// that isn't Cancelled - done or shared ones included, time logged alone not - and the two together keep what both do.
+    /// </summary>
+    [Fact]
+    public void Owner_and_assignee_filters_pick_projects()
+    {
+        static TaskItem Work(TaskItemStatus status, params Guid?[] assignees) => new() { Status = status, Assignments = Assigned.To(assignees) };
+        static Project Owned(string name, Guid owner, params TaskItem[] tasks) => new() { Name = name, OwnerId = owner, Tasks = tasks.ToList() };
+
+        var loggedOnly = Work(TaskItemStatus.InProgress, Bob);
+        loggedOnly.TimeEntries.Add(new TimeEntry { UserId = Dave, DurationMinutes = 30 });
+        Project[] projects =
+        [
+            Owned("Alice open", Alice, Work(TaskItemStatus.InProgress, Bob)),
+            Owned("Alice done", Alice, Work(TaskItemStatus.Done, Carol)),
+            Owned("Bob shared", Bob, Work(TaskItemStatus.Todo, Carol, Dave)),
+            Owned("Bob cancelled", Bob, Work(TaskItemStatus.Cancelled, Dave), Work(TaskItemStatus.Todo)),
+            Owned("Carol logged", Carol, loggedOnly),
+            Owned("Carol empty", Carol)
+        ];
+        string[] Picked(Guid? owner, Guid? assignee) =>
+            ProjectReportRules.ForPeople(projects.AsQueryable(), owner, assignee).Select(p => p.Name).ToArray();
+
+        Assert.Equal(projects.Select(p => p.Name), Picked(null, null));
+        Assert.Equal(["Alice open", "Alice done"], Picked(Alice, null));
+        Assert.Equal(["Carol logged", "Carol empty"], Picked(Carol, null));
+        Assert.Equal(["Alice done", "Bob shared"], Picked(null, Carol));
+        Assert.Equal(["Bob shared"], Picked(null, Dave));
+        Assert.Equal(["Alice open", "Carol logged"], Picked(null, Bob));
+        Assert.Empty(Picked(null, Alice)); // owning a project isn't having a task on it
+        Assert.Equal(["Alice done"], Picked(Alice, Carol));
+        Assert.Empty(Picked(Bob, Bob));
+    }
 }
