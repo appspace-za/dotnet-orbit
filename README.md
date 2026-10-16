@@ -136,7 +136,9 @@ to plan the task into it, or *Backlog* to take it out, without the edit form or 
 `tasks.plan`, like planning from the Backlog, and is offered on open tasks only; a closed task, or one you can't plan,
 shows its sprint as a link. A reopened task still in a completed sprint shows that sprint until it is moved. The
 status, assignee, due-date and sprint controls are shared partials (`_StatusControl`, `_AssigneeControl`,
-`_DueDateControl`, `_SprintControl` in `Pages/Shared`).
+`_DueDateControl`, `_SprintControl` in `Pages/Shared`). A change through any of them, the Today tick or *Take* keeps
+your place: the page reloads, scrolls back to where you were (with the control focused, if it is still in view), and
+shows the message floating in a corner.
 
 A task has a **type**, the kind of work it is: Meeting, Planning, Task (the default), Training, Audit, Change, Request
 or Problem. It is chosen on the task form, shown as a coloured badge beside the title (a plain Task has none in the

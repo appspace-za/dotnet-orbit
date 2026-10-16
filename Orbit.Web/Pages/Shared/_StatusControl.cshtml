@@ -5,7 +5,7 @@
 @{
     var t = Model.Task;
 }
-<form method="post" asp-page="/Tasks/Status" asp-route-id="@t.Id" asp-route-returnUrl="@Model.ReturnUrl" class="@Model.FormClass">
+<form method="post" asp-page="/Tasks/Status" asp-route-id="@t.Id" asp-route-returnUrl="@Model.ReturnUrl" class="@Model.FormClass" data-keep-place>
     @if (Model.ShowLabel)
     {
         <label class="small text-muted" for="@Model.Id">@Model.Label</label>

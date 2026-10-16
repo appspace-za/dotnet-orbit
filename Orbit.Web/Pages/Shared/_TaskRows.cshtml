@@ -55,7 +55,7 @@ else
                             <td class="text-center">
                                 @if (t.IsOpen && AccessPolicy.CanPlanTask(Model.Actor, t))
                                 {
-                                    <form method="post" asp-page="/Tasks/Quick" asp-page-handler="PlanToday" asp-route-id="@t.Id" asp-route-returnUrl="@Model.ReturnUrl" class="d-inline">
+                                    <form method="post" asp-page="/Tasks/Quick" asp-page-handler="PlanToday" asp-route-id="@t.Id" asp-route-returnUrl="@Model.ReturnUrl" class="d-inline" data-keep-place>
                                         <input type="checkbox" name="planned" value="true" class="form-check-input js-autosubmit" checked="@plannedToday" aria-label="Planned for today"
                                                title="@(plannedToday ? "On today's plan - untick to remove" : t.PlannedFor is DateOnly other ? $"Planned for {Ui.Day(other)} - tick to move to today" : "Tick to plan for today")" />
                                     </form>
@@ -139,7 +139,7 @@ else
                                 }
                                 else if (AccessPolicy.CanTakeTask(Model.Actor, t))
                                 {
-                                    <form method="post" asp-page="/Tasks/Quick" asp-page-handler="Take" asp-route-id="@t.Id" asp-route-returnUrl="@Model.ReturnUrl" class="d-inline">
+                                    <form method="post" asp-page="/Tasks/Quick" asp-page-handler="Take" asp-route-id="@t.Id" asp-route-returnUrl="@Model.ReturnUrl" class="d-inline" data-keep-place>
                                         <button type="submit" class="btn btn-sm btn-outline-primary py-0" title="Unassigned - assign this task to yourself">Take</button>
                                     </form>
                                 }

@@ -6,6 +6,6 @@
     var overdue = t.IsOverdue(Model.Today);
     var due = t.DueDate?.ToString("yyyy-MM-dd") ?? string.Empty;
 }
-<form method="post" asp-page="/Tasks/Quick" asp-page-handler="DueDate" asp-route-id="@t.Id" asp-route-returnUrl="@Model.ReturnUrl" class="@Model.FormClass">
+<form method="post" asp-page="/Tasks/Quick" asp-page-handler="DueDate" asp-route-id="@t.Id" asp-route-returnUrl="@Model.ReturnUrl" class="@Model.FormClass" data-keep-place>
     <input type="date" name="dueDate" value="@due" data-original="@due" class="form-control form-control-sm @Model.InputClass js-autosubmit-delayed @(overdue ? "border-danger text-danger" : "")" aria-label="@Model.Label" title="@(overdue ? "Overdue" : Model.Label)" />
 </form>

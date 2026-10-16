@@ -5,7 +5,7 @@
     var t = Model.Task;
     var sole = t.Assignees.FirstOrDefault();
 }
-<form method="post" asp-page="/Tasks/Quick" asp-page-handler="Assignee" asp-route-id="@t.Id" asp-route-returnUrl="@Model.ReturnUrl" class="@Model.FormClass">
+<form method="post" asp-page="/Tasks/Quick" asp-page-handler="Assignee" asp-route-id="@t.Id" asp-route-returnUrl="@Model.ReturnUrl" class="@Model.FormClass" data-keep-place>
     <select name="assigneeId" class="form-select form-select-sm @Model.SelectClass js-autosubmit" aria-label="@Model.Label">
         <option value="" selected="@(sole is null)">Unassigned</option>
         @if (sole is not null && Model.Candidates.All(u => u.Id != sole.Id))

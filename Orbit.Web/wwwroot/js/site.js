@@ -377,6 +377,60 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 })();
 
+// Keep your place (spec §6.2): a quick control (a form with data-keep-place) posts and comes back to the same page, which would
+// open at the top. Its submit remembers how far down the page was - less any flash message showing above, which the next load
+// won't hold in place - and which control it was; the next load of the same page within a minute scrolls back there, floats its
+// own flash message where it can be seen (a success closes itself) and puts focus back on the control if it is in view.
+// Registered after the confirmations and the Done check, so a submit they hold back or cancel is not remembered.
+(function () {
+  var key = 'orbit.keepPlace';
+  function flashes() { return document.querySelectorAll('main > .js-flash'); }
+  function forms(action) {
+    return Array.prototype.filter.call(document.querySelectorAll('form[data-keep-place]'), function (f) { return f.getAttribute('action') === action; });
+  }
+  document.addEventListener('submit', function (e) {
+    var form = e.target;
+    if (e.defaultPrevented || !form || !form.hasAttribute || !form.hasAttribute('data-keep-place')) return;
+    var above = 0;
+    flashes().forEach(function (a) { above += a.offsetHeight + (parseFloat(getComputedStyle(a).marginBottom) || 0); });
+    var action = form.getAttribute('action');
+    var place = { path: location.pathname, y: Math.max(0, window.scrollY - above), action: action, index: forms(action).indexOf(form), at: Date.now() };
+    try { sessionStorage.setItem(key, JSON.stringify(place)); } catch (err) { /* no storage: the page opens at the top */ }
+  });
+
+  var place = null;
+  try {
+    place = JSON.parse(sessionStorage.getItem(key) || 'null');
+    sessionStorage.removeItem(key);
+  } catch (err) { place = null; }
+  if (!place || place.path !== location.pathname || !(Date.now() - place.at < 60000)) return;
+  if (place.y > 0) {
+    var shown = flashes();
+    if (shown.length) {
+      var box = document.createElement('div');
+      box.className = 'flash-floating';
+      shown.forEach(function (a) {
+        box.appendChild(a);
+        if (a.classList.contains('alert-success') && window.bootstrap) {
+          setTimeout(function () { bootstrap.Alert.getOrCreateInstance(a).close(); }, 6000);
+        }
+      });
+      // Bootstrap removes a closed alert before it says so, so the box watches for its last one going.
+      new MutationObserver(function (changes, watch) {
+        if (!box.children.length) { watch.disconnect(); box.remove(); }
+      }).observe(box, { childList: true });
+      document.body.appendChild(box);
+    }
+    // Bootstrap's reboot makes the page scroll smoothly; coming back should be a jump, not a glide down from the top.
+    try { window.scrollTo({ top: place.y, behavior: 'instant' }); } catch (err) { window.scrollTo(0, place.y); }
+  }
+  // Focus only a control still in view: a task just closed may have moved down the list, and focus out of sight is lost.
+  var form = forms(place.action)[place.index];
+  var control = form && form.querySelector('select, input:not([type="hidden"]), button');
+  var rect = control && control.getBoundingClientRect();
+  if (rect && rect.bottom > 0 && rect.top < window.innerHeight) control.focus({ preventScroll: true });
+})();
+
 // Asset form (spec §6.19): the type and location lists follow the managing department, the property fields follow the
 // type (re-rendered by the page's Properties handler, which also says what a change of type carries over), and "Disposed on"
 // shows only for a disposed asset. Holders are chosen with the people picker below.

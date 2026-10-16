@@ -4,7 +4,7 @@
 @{
     var t = Model.Task;
 }
-<form method="post" asp-page="/Tasks/Quick" asp-page-handler="Sprint" asp-route-id="@t.Id" asp-route-returnUrl="@Model.ReturnUrl" class="@Model.FormClass">
+<form method="post" asp-page="/Tasks/Quick" asp-page-handler="Sprint" asp-route-id="@t.Id" asp-route-returnUrl="@Model.ReturnUrl" class="@Model.FormClass" data-keep-place>
     <select name="sprintId" class="form-select form-select-sm @Model.SelectClass js-autosubmit" aria-label="@Model.Label">
         <option value="" selected="@(t.SprintId is null)">Backlog</option>
         @if (t.Sprint is not null && Model.Sprints.All(s => s.Id != t.SprintId))
