@@ -20,6 +20,11 @@ public sealed class TaskRowsVm
     /// the viewer's own). Implied when <see cref="QuickEditAssignees"/> is set.
     /// </summary>
     public bool QuickEditDueDate { get; init; }
+    /// <summary>
+    /// When set (with <see cref="ShowSprint"/>), open rows the actor may plan get an inline sprint control (§6.3) offering
+    /// the backlog and these sprints: the planned and active ones. Null = read-only cells.
+    /// </summary>
+    public IReadOnlyList<Sprint>? QuickEditSprints { get; init; }
     /// <summary>Show the "Today" day-plan checkbox column (§6.12) on open rows the actor may plan.</summary>
     public bool ShowPlanToday { get; init; }
     public bool ShowProject { get; init; } = true;
@@ -57,6 +62,60 @@ public sealed class StatusControlVm
     public string Label { get; init; } = "Status";
     public bool ShowLabel { get; init; }
     public string? Id { get; init; }
+}
+
+/// <summary>
+/// Model for the inline assignee control partial (spec §6.2, §6.2.3): a select that posts to /Tasks/Quick as soon as someone is
+/// picked, setting the task's one assignee or nobody. It is for a task with at most one assignee; the caller shows several by name.
+/// </summary>
+public sealed class AssigneeControlVm
+{
+    public required TaskItem Task { get; init; }
+    /// <summary>The people this task may be given to: its department's members plus those who see every department.</summary>
+    public required IReadOnlyList<UserSummary> Candidates { get; init; }
+    public string? ReturnUrl { get; init; }
+    /// <summary>How the form sits in its cell.</summary>
+    public string FormClass { get; init; } = "d-inline";
+    /// <summary>Classes for the select beyond the small form-select: <c>assignee-select</c> sizes it for a table.</summary>
+    public string SelectClass { get; init; } = "assignee-select";
+    /// <summary>The select's aria-label.</summary>
+    public string Label { get; init; } = "Assignee";
+}
+
+/// <summary>
+/// Model for the inline due-date control partial (spec §6.2): a date picker that posts to /Tasks/Quick once typing pauses
+/// (site.js), and clears the due date when emptied.
+/// </summary>
+public sealed class DueDateControlVm
+{
+    public required TaskItem Task { get; init; }
+    /// <summary>The day an overdue date is judged against, shown in red.</summary>
+    public required DateOnly Today { get; init; }
+    public string? ReturnUrl { get; init; }
+    /// <summary>How the form sits in its cell.</summary>
+    public string FormClass { get; init; } = "d-inline";
+    /// <summary>Classes for the input beyond the small form-control: <c>due-input</c> sizes it for a table.</summary>
+    public string InputClass { get; init; } = "due-input";
+    /// <summary>The input's aria-label.</summary>
+    public string Label { get; init; } = "Due date";
+}
+
+/// <summary>
+/// Model for the inline sprint control partial (spec §6.2, §6.3): a select that posts to /Tasks/Quick as soon as a sprint is
+/// picked, planning the task into it or back to the backlog.
+/// </summary>
+public sealed class SprintControlVm
+{
+    public required TaskItem Task { get; init; }
+    /// <summary>The sprints a task can be planned into: the planned and active ones (<see cref="Orbit.Application.Services.SprintService.ListOpenAsync"/>).</summary>
+    public required IReadOnlyList<Sprint> Sprints { get; init; }
+    public string? ReturnUrl { get; init; }
+    /// <summary>How the form sits in its cell.</summary>
+    public string FormClass { get; init; } = "d-inline";
+    /// <summary>Classes for the select beyond the small form-select: <c>sprint-select</c> sizes it for a table.</summary>
+    public string SelectClass { get; init; } = "sprint-select";
+    /// <summary>The select's aria-label.</summary>
+    public string Label { get; init; } = "Sprint";
 }
 
 /// <summary>

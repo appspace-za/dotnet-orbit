@@ -5,7 +5,7 @@ using Orbit.Helpers;
 
 namespace Orbit.Pages.Tasks;
 
-/// <summary>POST-only endpoints behind the inline assignee, due-date and Take controls in task lists (see Status for status).</summary>
+/// <summary>POST-only endpoints behind the inline assignee, due-date, sprint and Take controls in task lists (see Status for status).</summary>
 public class QuickModel(TaskService tasks) : OrbitPageModel
 {
     public IActionResult OnGet() => RedirectToPage("/Tasks/Index");
@@ -67,6 +67,23 @@ public class QuickModel(TaskService tasks) : OrbitPageModel
             Success(task.DueDate is null
                 ? $"\"{Ui.Truncate(task.Title, 40)}\" no longer has a due date."
                 : $"\"{Ui.Truncate(task.Title, 40)}\" is now due {Ui.Day(task.DueDate)}.");
+        }
+        catch (ValidationException ex)
+        {
+            Error(ex.Message);
+        }
+        return LocalRedirect(SafeReturnUrl(returnUrl, "/Tasks"));
+    }
+
+    /// <summary>The inline sprint dropdown (§6.3): plans the task into a sprint, or back to the backlog with no sprint.</summary>
+    public async Task<IActionResult> OnPostSprintAsync(Guid id, Guid? sprintId, string? returnUrl, CancellationToken ct)
+    {
+        try
+        {
+            var task = await tasks.ChangeSprintAsync(id, sprintId, ct);
+            Success(task.Sprint is null
+                ? $"\"{Ui.Truncate(task.Title, 40)}\" is back in the backlog."
+                : $"\"{Ui.Truncate(task.Title, 40)}\" is planned into {task.Sprint.Name}.");
         }
         catch (ValidationException ex)
         {

@@ -601,15 +601,41 @@ public sealed class TaskService(
             if (task.SprintId == sprintId) continue;
             if (sprintId is not null && task.Status.IsClosed()) continue; // closed work doesn't get planned
 
-            var previous = task.SprintId;
-            task.SprintId = sprintId;
-            task.UpdatedAt = now;
-            audit.Add(actor, AuditEntity.Task, task.Id, AuditAction.SprintChanged, task.DepartmentId, task.Title,
-                new { sprintId = new { from = previous, to = sprintId }, sprintName = sprint?.Name });
+            ApplySprint(actor, task, sprint, now);
             moved++;
         }
         await db.SaveChangesAsync(ct);
         return moved;
+    }
+
+    /// <summary>
+    /// Quick inline sprint change (the task list control, §6.3): plan one task into a sprint, or back to the backlog with a null
+    /// sprint. tasks.plan, as planning from the backlog; unlike that bulk move, a closed task is refused rather than skipped.
+    /// </summary>
+    public async Task<TaskItem> ChangeSprintAsync(Guid id, Guid? sprintId, CancellationToken ct = default)
+    {
+        var actor = await actors.GetAsync(ct);
+        var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == id, ct)
+            ?? throw new NotFoundException("Task not found.");
+        AccessPolicy.Require(AccessPolicy.CanViewTask(actor, task), "This task belongs to another department.");
+        AccessPolicy.Require(AccessPolicy.CanPlanTask(actor, task), "You can't plan tasks from another department.");
+        if (task.SprintId == sprintId) return await GetAsync(id, ct);
+        if (sprintId is not null && task.Status.IsClosed()) throw new ValidationException("A closed task can't be planned into a sprint.");
+        var sprint = await ValidateSprintAsync(sprintId, ct);
+
+        ApplySprint(actor, task, sprint, DateTime.UtcNow);
+        await db.SaveChangesAsync(ct);
+        return await GetAsync(id, ct);
+    }
+
+    /// <summary>Move a task to <paramref name="sprint"/> (null = the backlog) with its audit entry. The caller has checked the move and saves.</summary>
+    private void ApplySprint(Actor actor, TaskItem task, Sprint? sprint, DateTime now)
+    {
+        var previous = task.SprintId;
+        task.SprintId = sprint?.Id;
+        task.UpdatedAt = now;
+        audit.Add(actor, AuditEntity.Task, task.Id, AuditAction.SprintChanged, task.DepartmentId, task.Title,
+            new { sprintId = new { from = previous, to = sprint?.Id }, sprintName = sprint?.Name });
     }
 
     // --- helpers -------------------------------------------------------------------------

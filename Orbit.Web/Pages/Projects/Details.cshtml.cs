@@ -17,6 +17,7 @@ public class DetailsModel(
     CriticalPathService criticalPaths,
     AttachmentService attachments,
     CommentService comments,
+    SprintService sprints,
     IOptions<AttachmentOptions> attachmentOptions,
     IActorProvider actors) : OrbitPageModel
 {
@@ -93,6 +94,8 @@ public class DetailsModel(
     public IReadOnlyList<ApplicationUser> Assignees { get; private set; } = [];
     /// <summary>Candidates for the inline assignee control (a cross-department project's tasks span departments).</summary>
     public IReadOnlyList<UserSummary> QuickEditAssignees { get; private set; } = [];
+    /// <summary>The sprints the inline sprint control offers (§6.3): the planned and active ones.</summary>
+    public IReadOnlyList<Sprint> OpenSprints { get; private set; } = [];
     /// <summary>Departments with tasks on this project, for the filter (more than one on a cross-department project).</summary>
     public IReadOnlyList<Department> Departments { get; private set; } = [];
     public bool CanEdit { get; private set; }
@@ -127,6 +130,7 @@ public class DetailsModel(
         Departments = Project.Tasks.Select(t => t.Department)
             .DistinctBy(x => x.Id).OrderBy(x => x.Name).ToList();
         QuickEditAssignees = await users.GetQuickEditCandidatesAsync(ct);
+        OpenSprints = await sprints.ListOpenAsync(ct);
         Waiting = await structure.GetWaitingAsync(Tasks, ct);
         CriticalPath = await criticalPaths.GetSummaryAsync(Project, ct);
         CanRunAnalysis = AccessPolicy.CanRunCriticalPath(Actor, Project);

@@ -16,7 +16,8 @@ public class IndexModel(
     ProjectService projects,
     UserDirectoryService users,
     TaskStructureService structure,
-    AssetService assets) : OrbitPageModel
+    AssetService assets,
+    SprintService sprints) : OrbitPageModel
 {
     [BindProperty(SupportsGet = true)] public TaskFilter Filter { get; set; } = new();
     /// <summary>"Reset": forget the remembered filter and show the plain list.</summary>
@@ -49,6 +50,8 @@ public class IndexModel(
     public IReadOnlyList<SelectListItem> RequesteeItems { get; private set; } = [];
     /// <summary>Candidates for the inline assignee control: everyone the actor may assign to, across all listed departments.</summary>
     public IReadOnlyList<UserSummary> QuickEditAssignees { get; private set; } = [];
+    /// <summary>The sprints the inline sprint control offers (§6.3): the planned and active ones.</summary>
+    public IReadOnlyList<Sprint> OpenSprints { get; private set; } = [];
     /// <summary>Tasks on this page whose next move is gated by a dependency (§6.15).</summary>
     public IReadOnlyDictionary<Guid, WaitingSummary> Waiting { get; private set; } = new Dictionary<Guid, WaitingSummary>();
     /// <summary>The Asset filter's picker (§6.19) is offered to whoever can see assets.</summary>
@@ -97,6 +100,7 @@ public class IndexModel(
         RequesteeItems = requesteeItems;
         // The filter list may be narrowed to one department; the inline control needs candidates for every listed task.
         QuickEditAssignees = await users.GetQuickEditCandidatesAsync(ct);
+        OpenSprints = await sprints.ListOpenAsync(ct);
         CanFilterByAsset = Actor.Has(Permission.AssetsView);
         if (Filter.AssetId is Guid assetId)
             AssetFilterLabel = await assets.GetRefAsync(assetId, ct) is { } asset ? AssetRules.Label(asset.AssetNumber, asset.Name) : "(an asset you can't see)";

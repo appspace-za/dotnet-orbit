@@ -134,22 +134,8 @@ else
                                 }
                                 else if (quickEdit)
                                 {
-                                    var sole = assignees.FirstOrDefault();
                                     var candidates = Model.QuickEditAssignees!.Where(u => u.DepartmentId == t.DepartmentId || u.CanViewAllTasks).ToList();
-                                    <form method="post" asp-page="/Tasks/Quick" asp-page-handler="Assignee" asp-route-id="@t.Id" asp-route-returnUrl="@Model.ReturnUrl" class="d-inline">
-                                        <select name="assigneeId" class="form-select form-select-sm assignee-select js-autosubmit" aria-label="Assignee">
-                                            <option value="" selected="@(sole is null)">Unassigned</option>
-                                            @if (sole is not null && candidates.All(u => u.Id != sole.Id))
-                                            {
-                                                @* Someone who could no longer be picked - deactivated, or moved to another department - stays on show. *@
-                                                <option value="@sole.Id" selected>@sole.DisplayName@(sole.IsActive ? "" : " (deactivated)")</option>
-                                            }
-                                            @foreach (var u in candidates)
-                                            {
-                                                <option value="@u.Id" selected="@(u.Id == sole?.Id)">@u.DisplayName</option>
-                                            }
-                                        </select>
-                                    </form>
+                                    <partial name="_AssigneeControl" model="@(new AssigneeControlVm { Task = t, Candidates = candidates, ReturnUrl = Model.ReturnUrl })" />
                                 }
                                 else if (AccessPolicy.CanTakeTask(Model.Actor, t))
                                 {
@@ -166,10 +152,7 @@ else
                         <td class="@(overdue ? "text-danger fw-semibold" : "")">
                             @if (quickDue)
                             {
-                                var due = t.DueDate?.ToString("yyyy-MM-dd") ?? string.Empty;
-                                <form method="post" asp-page="/Tasks/Quick" asp-page-handler="DueDate" asp-route-id="@t.Id" asp-route-returnUrl="@Model.ReturnUrl" class="d-inline">
-                                    <input type="date" name="dueDate" value="@due" data-original="@due" class="form-control form-control-sm due-input js-autosubmit-delayed @(overdue ? "border-danger text-danger" : "")" aria-label="Due date" title="@(overdue ? "Overdue" : "Due date")" />
-                                </form>
+                                <partial name="_DueDateControl" model="@(new DueDateControlVm { Task = t, Today = Model.Today, ReturnUrl = Model.ReturnUrl })" />
                             }
                             else
                             {
@@ -185,7 +168,11 @@ else
                         @if (Model.ShowSprint)
                         {
                             <td>
-                                @if (t.Sprint is not null)
+                                @if (Model.QuickEditSprints is not null && canView && t.IsOpen && AccessPolicy.CanPlanTask(Model.Actor, t))
+                                {
+                                    <partial name="_SprintControl" model="@(new SprintControlVm { Task = t, Sprints = Model.QuickEditSprints, ReturnUrl = Model.ReturnUrl })" />
+                                }
+                                else if (t.Sprint is not null)
                                 {
                                     <a asp-page="/Sprints/Details" asp-route-id="@t.SprintId" class="text-decoration-none">@t.Sprint.Name</a>
                                 }

@@ -1,0 +1,21 @@
+@model AssigneeControlVm
+@* The inline assignee control (spec §6.2, §6.2.3), for a task with one assignee or none: picking someone makes them its one
+   assignee and Unassigned leaves it with nobody. A task with several is shown by name instead, by the caller. *@
+@{
+    var t = Model.Task;
+    var sole = t.Assignees.FirstOrDefault();
+}
+<form method="post" asp-page="/Tasks/Quick" asp-page-handler="Assignee" asp-route-id="@t.Id" asp-route-returnUrl="@Model.ReturnUrl" class="@Model.FormClass">
+    <select name="assigneeId" class="form-select form-select-sm @Model.SelectClass js-autosubmit" aria-label="@Model.Label">
+        <option value="" selected="@(sole is null)">Unassigned</option>
+        @if (sole is not null && Model.Candidates.All(u => u.Id != sole.Id))
+        {
+            @* Someone who could no longer be picked - deactivated, or moved to another department - stays on show. *@
+            <option value="@sole.Id" selected>@sole.DisplayName@(sole.IsActive ? "" : " (deactivated)")</option>
+        }
+        @foreach (var u in Model.Candidates)
+        {
+            <option value="@u.Id" selected="@(u.Id == sole?.Id)">@u.DisplayName</option>
+        }
+    </select>
+</form>

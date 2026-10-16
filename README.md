@@ -80,7 +80,7 @@ scopes below it, and a role with no grants sees nothing.
 | `tasks.create_for` | Own / Dept / All | Name a task's requestee - the person it is created for (Own: only yourself, so the field isn't offered; Dept: anyone in your department; All: anyone) | Own | Own |
 | `tasks.edit` | Own / Dept / All | Edit any field, incl. every status change (close/reopen), parent, dependencies, assignees | Own | Dept |
 | `tasks.take` | Dept / All | Take an open task nobody is assigned to for yourself (joining one that has an assignee is an edit) | Dept | Dept |
-| `tasks.plan` | Own / Dept / All | Backlog/sprint moves and the Today tick | Dept | Dept |
+| `tasks.plan` | Own / Dept / All | Backlog/sprint moves (incl. the task lists' Sprint column) and the Today tick | Dept | Dept |
 | `projects.view` | Own / Dept / All | See projects, comment on them, their files and critical path results | Dept | Dept |
 | `projects.create` | Dept / All | Create projects | Dept | Dept |
 | `projects.edit` | Own / Dept / All | Edit/archive projects, run the critical path analysis; moving to another department needs All | Own | Dept |
@@ -130,6 +130,13 @@ on it. **Take** is for a task with nobody assigned. Wherever tasks are counted b
 dashboard, the Today page - a shared task is under each of its assignees, whole, and once in the total: an estimate
 is never split. As shipped, each person added is emailed, and the due-soon reminder goes to every assignee (see
 [Messages](#messages)).
+
+In the Tasks list, a project page and My Tasks the **Sprint** column is a dropdown too: pick a planned or active sprint
+to plan the task into it, or *Backlog* to take it out, without the edit form or the Backlog page. It follows
+`tasks.plan`, like planning from the Backlog, and is offered on open tasks only; a closed task, or one you can't plan,
+shows its sprint as a link. A reopened task still in a completed sprint shows that sprint until it is moved. The
+status, assignee, due-date and sprint controls are shared partials (`_StatusControl`, `_AssigneeControl`,
+`_DueDateControl`, `_SprintControl` in `Pages/Shared`).
 
 A task has a **type**, the kind of work it is: Meeting, Planning, Task (the default), Training, Audit, Change, Request
 or Problem. It is chosen on the task form, shown as a coloured badge beside the title (a plain Task has none in the

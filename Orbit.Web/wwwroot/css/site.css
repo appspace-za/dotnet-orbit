@@ -396,6 +396,10 @@ html {
   min-width: 9rem;
 }
 
+.table-tasks .sprint-select {
+  min-width: 9rem;
+}
+
 .table-tasks .due-input {
   min-width: 9.5rem;
   max-width: 11rem;
