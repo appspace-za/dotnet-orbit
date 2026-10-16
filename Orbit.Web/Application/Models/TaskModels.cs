@@ -5,6 +5,8 @@ namespace Orbit.Application.Models;
 public sealed class TaskFilter
 {
     public Guid? ProjectId { get; set; }
+    /// <summary>Only tasks on no project - standalone tasks. Takes precedence over <see cref="ProjectId"/>.</summary>
+    public bool NoProject { get; set; }
     public Guid? DepartmentId { get; set; }
     public TaskItemStatus? Status { get; set; }
     /// <summary>Only tasks this person is one of the assignees of (§6.2.3).</summary>
@@ -16,6 +18,11 @@ public sealed class TaskFilter
     /// caller may open (<see cref="Scoping.TasksIncludingOwn"/>), so "Requestee: me" finds one another department holds.
     /// </summary>
     public Guid? RequesteeId { get; set; }
+    /// <summary>
+    /// Only tasks with no requestee - created for nobody else (§6.2.2). Takes precedence over <see cref="RequesteeId"/>, and
+    /// doesn't widen the view scope as a requestee does.
+    /// </summary>
+    public bool NoRequestee { get; set; }
     public TaskPriority? Priority { get; set; }
     public TaskType? Type { get; set; }
     public TaskSource? Source { get; set; }

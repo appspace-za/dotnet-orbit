@@ -23,6 +23,13 @@ public class IndexModel(
     [BindProperty(SupportsGet = true)] public bool Reset { get; set; }
     /// <summary>The page of the backlog, 100 tasks a page. Not "page", which Razor Pages keeps for its own route value (decision 46).</summary>
     [BindProperty(SupportsGet = true)] public int PageNumber { get; set; } = 1;
+    /// <summary>
+    /// The Project and Assignee filters (§6.3): empty for all, <see cref="FilterChoice.None"/> for the tasks with none, or an id.
+    /// Bound under the filter's own key; <see cref="Filter"/>'s Guid binds the same key and fails quietly on "none", so
+    /// <see cref="OnGetAsync"/> sets the typed fields from these.
+    /// </summary>
+    [BindProperty(SupportsGet = true, Name = nameof(TaskFilter.ProjectId))] public string? ProjectChoice { get; set; }
+    [BindProperty(SupportsGet = true, Name = nameof(TaskFilter.AssigneeId))] public string? AssigneeChoice { get; set; }
     /// <summary>The filter fields remembered for the session (§6.2, §6.3).</summary>
     public static readonly string[] RememberedFilters =
     [
@@ -55,6 +62,10 @@ public class IndexModel(
         Filter.BacklogOnly = true;
         Filter.OpenOnly = true;
         Filter.SprintId = null;
+        Filter.NoProject = FilterChoice.IsNone(ProjectChoice);
+        Filter.ProjectId = FilterChoice.Id(ProjectChoice);
+        Filter.Unassigned = FilterChoice.IsNone(AssigneeChoice);
+        Filter.AssigneeId = FilterChoice.Id(AssigneeChoice);
         Filter.Page = PageNumber;
         Filter.PageSize = 100;
         Result = await tasks.ListAsync(Filter, ct);
@@ -102,12 +113,12 @@ public class IndexModel(
         }
         return RedirectToPage(new
         {
-            Filter.ProjectId, Filter.DepartmentId, Filter.Priority, Filter.AssigneeId, Filter.Type, Filter.Source, Filter.Search, PageNumber
+            ProjectId = ProjectChoice, Filter.DepartmentId, Filter.Priority, AssigneeId = AssigneeChoice, Filter.Type, Filter.Source, Filter.Search, PageNumber
         });
     }
 
     public string PageUrl(int page) => Url.Page("/Backlog/Index", new
     {
-        Filter.Search, Filter.DepartmentId, Filter.ProjectId, Filter.Priority, Filter.AssigneeId, Filter.Type, Filter.Source, PageNumber = page
+        Filter.Search, Filter.DepartmentId, ProjectId = ProjectChoice, Filter.Priority, AssigneeId = AssigneeChoice, Filter.Type, Filter.Source, PageNumber = page
     })!;
 }

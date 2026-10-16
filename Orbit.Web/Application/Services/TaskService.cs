@@ -35,11 +35,13 @@ public sealed class TaskService(
         var q = WithIncludes(db.Tasks.AsNoTracking());
         q = Scope(q, actor, f);
 
-        if (f.ProjectId is Guid projectId) q = q.Where(t => t.ProjectId == projectId);
+        if (f.NoProject) q = q.Where(t => t.ProjectId == null);
+        else if (f.ProjectId is Guid projectId) q = q.Where(t => t.ProjectId == projectId);
         if (f.Status is TaskItemStatus status) q = q.Where(t => t.Status == status);
         if (f.Unassigned) q = q.Where(t => !t.Assignments.Any());
         else if (f.AssigneeId is Guid assigneeId) q = q.Where(t => t.Assignments.Any(x => x.UserId == assigneeId));
-        if (f.RequesteeId is Guid requesteeId) q = q.Where(t => t.RequesteeId == requesteeId);
+        if (f.NoRequestee) q = q.Where(t => t.RequesteeId == null);
+        else if (f.RequesteeId is Guid requesteeId) q = q.Where(t => t.RequesteeId == requesteeId);
         if (f.Priority is TaskPriority priority) q = q.Where(t => t.Priority == priority);
         if (f.Type is TaskType type) q = q.Where(t => t.Type == type);
         if (f.Source is TaskSource source) q = q.Where(t => t.Source == source);
@@ -77,11 +79,11 @@ public sealed class TaskService(
 
     /// <summary>
     /// The actor's tasks.view scope (§6.5), then the optional department filter within it. A requestee filter (§6.2.2) lists every
-    /// task the actor may open, their own ones in other departments included.
+    /// task the actor may open, their own ones in other departments included; "no requestee" doesn't.
     /// </summary>
     private static IQueryable<TaskItem> Scope(IQueryable<TaskItem> q, Actor actor, TaskFilter f)
     {
-        q = f.RequesteeId is null ? Scoping.Tasks(q, actor) : Scoping.TasksIncludingOwn(q, actor);
+        q = f.RequesteeId is null || f.NoRequestee ? Scoping.Tasks(q, actor) : Scoping.TasksIncludingOwn(q, actor);
         return f.DepartmentId is Guid d ? q.Where(t => t.DepartmentId == d) : q;
     }
 

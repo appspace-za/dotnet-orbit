@@ -16,14 +16,18 @@ public static class FilterMemory
     public static bool IsExplicit(HttpRequest request, IEnumerable<string> filterKeys) =>
         filterKeys.Any(request.Query.ContainsKey);
 
-    /// <summary>The remembered query string for this page and user ("?a=1&amp;b=2"), or null when there is none or it belongs to someone else.</summary>
+    /// <summary>
+    /// The remembered query string for this page and user ("?a=1&amp;b=2"), or null when there is none, it belongs to someone
+    /// else, or the request already carries it. The last case is a remembered key the page no longer reads (such as
+    /// <c>Unassigned</c>, decision 91): the request doesn't count as explicit, so redirecting to it again would loop.
+    /// </summary>
     public static string? Recall(HttpRequest request, string page, Guid? userId)
     {
         if (!request.Cookies.TryGetValue(CookiePrefix + page, out var raw) || string.IsNullOrEmpty(raw)) return null;
         var split = raw.IndexOf('|');
         if (split < 0 || raw[..split] != Owner(userId)) return null;
         var query = raw[(split + 1)..];
-        return query.Length == 0 ? null : "?" + query;
+        return query.Length == 0 || request.QueryString.Value == "?" + query ? null : "?" + query;
     }
 
     /// <summary>Remember the filter fields present in this request (non-empty values only). An all-empty filter forgets the cookie instead.</summary>

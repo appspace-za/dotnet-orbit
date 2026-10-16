@@ -139,7 +139,9 @@ status, assignee, due-date and sprint controls are shared partials (`_StatusCont
 `_DueDateControl`, `_SprintControl` in `Pages/Shared`). A change through any of them, the Today tick or *Take* keeps
 your place: the page reloads, scrolls back to where you were (with the control focused, if it is still in view), and
 shows the message floating in a corner. The Tasks list also has a **Sprint** filter: a planned or active sprint, or
-*Backlog* for the tasks in none.
+*Backlog* for the tasks in none. Its **Project**, **Assignee** and **Requestee** filters each offer *None*: the
+standalone tasks on no project, the tasks nobody is assigned to, and the tasks created for nobody else. Assignee
+*None* replaced the old *Unassigned* tick box. The Backlog's Project and Assignee filters offer *None* too.
 
 A task has a **type**, the kind of work it is: Meeting, Planning, Task (the default), Training, Audit, Change, Request
 or Problem. It is chosen on the task form, shown as a coloured badge beside the title (a plain Task has none in the
@@ -288,7 +290,8 @@ Nothing happens by itself: Orbit follows AD only when you load the directory and
   `assigneeId` to those two tools gets no error: the argument is ignored and the task is saved without the assignment,
   so update any saved prompt, routine or script that names it.
 - A task can be created on someone's behalf (spec §6.2.2): `create_task` / `update_task` take `requesteeId` (a user
-  id from `list_users`; `"none"` clears it on `update_task`), `list_tasks` filters on it, and task results carry
+  id from `list_users`; `"none"` clears it on `update_task`), `list_tasks` filters on it (`"none"` for the tasks
+  created for nobody else, as `projectId` `"none"` lists the tasks on no project), and task results carry
   `requesteeId` and `requestee` beside the assignees. The key's **Create tasks for others** scope decides whom it may
   name; a key on the shipped grants (Own) can name nobody.
 - Setting a task Done needs its solution notes (spec §6.2.4): `update_task` takes `solutionNotes`, how the task was

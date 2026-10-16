@@ -245,7 +245,8 @@ builder.Services.AddMcpServer(o =>
             "or on unassigned. " +
             "A task may also have a requestee, whom it is for: to log a task on someone's behalf " +
             "(\"Bob asked for ...\") pass their userId from list_users as requesteeId to create_task; update_task changes it (\"none\" clears it) " +
-            "and list_tasks filters on it. The requestee sees and updates the task as their own. " +
+            "and list_tasks filters on it (\"none\" for the tasks created for nobody else). The requestee sees and updates the task as their own. " +
+            "list_tasks also takes projectId \"none\" for the standalone tasks, on no project. " +
             "Setting a task Done needs solutionNotes on update_task - how it was resolved, kept apart from the comment thread - unless " +
             "it already has them; they are optional for Cancelled, and every task result carries them as solutionNotes. " +
             "A task with source Nagios was raised by Orbit's monitoring for a host or service Nagios reported down (list_tasks filters on " +

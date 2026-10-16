@@ -46,9 +46,10 @@
                 </div>
             }
             <div class="col-sm-6 col-lg-2">
-                <label class="form-label small mb-0">Project</label>
+                <label class="form-label small mb-0" title="An open project, or None for the tasks on no project">Project</label>
                 <select class="form-select form-select-sm" name="ProjectId">
                     <option value="">All</option>
+                    <option value="@FilterChoice.None" selected="@f.NoProject">None</option>
                     @foreach (var i in Model.ProjectItems) { <option value="@i.Value" selected="@i.Selected">@i.Text</option> }
                 </select>
             </div>
@@ -85,16 +86,18 @@
                 <select class="form-select form-select-sm" name="Status" asp-items="statusItems"></select>
             </div>
             <div class="col-sm-6 col-lg-2">
-                <label class="form-label small mb-0">Assignee</label>
+                <label class="form-label small mb-0" title="One of the people the task is assigned to, or None for the tasks nobody is assigned to">Assignee</label>
                 <select class="form-select form-select-sm" name="AssigneeId">
                     <option value="">All</option>
+                    <option value="@FilterChoice.None" selected="@f.Unassigned">None</option>
                     @foreach (var i in Model.AssigneeItems) { <option value="@i.Value" selected="@i.Selected">@i.Text</option> }
                 </select>
             </div>
             <div class="col-sm-6 col-lg-2">
-                <label class="form-label small mb-0" title="Whom the task was created for - with Me, also your own tasks other departments hold">Requestee</label>
+                <label class="form-label small mb-0" title="Whom the task was created for - with Me, also your own tasks other departments hold; None for the tasks created for nobody else">Requestee</label>
                 <select class="form-select form-select-sm" name="RequesteeId">
                     <option value="">All</option>
+                    <option value="@FilterChoice.None" selected="@f.NoRequestee">None</option>
                     @foreach (var i in Model.RequesteeItems) { <option value="@i.Value" selected="@i.Selected">@i.Text</option> }
                 </select>
             </div>
@@ -128,12 +131,6 @@
                 <div class="form-check mt-3">
                     <input class="form-check-input" type="checkbox" name="PlannedToday" value="true" id="plannedToday" checked="@f.PlannedToday" />
                     <label class="form-check-label small" for="plannedToday">Planned today</label>
-                </div>
-            </div>
-            <div class="col-sm-6 col-lg-2">
-                <div class="form-check mt-3">
-                    <input class="form-check-input" type="checkbox" name="Unassigned" value="true" id="unassigned" checked="@f.Unassigned" />
-                    <label class="form-check-label small" for="unassigned" title="Only tasks nobody is assigned to">Unassigned</label>
                 </div>
             </div>
             <div class="col-auto">

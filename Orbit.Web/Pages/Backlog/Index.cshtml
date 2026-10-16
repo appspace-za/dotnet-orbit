@@ -39,9 +39,10 @@
                 </div>
             }
             <div class="col-sm-6 col-lg-2">
-                <label class="form-label small mb-0">Project</label>
+                <label class="form-label small mb-0" title="An open project, or None for the tasks on no project">Project</label>
                 <select class="form-select form-select-sm" name="ProjectId">
                     <option value="">All</option>
+                    <option value="@FilterChoice.None" selected="@f.NoProject">None</option>
                     @foreach (var i in Model.ProjectItems) { <option value="@i.Value" selected="@i.Selected">@i.Text</option> }
                 </select>
             </div>
@@ -58,9 +59,10 @@
                 <select class="form-select form-select-sm" name="Source" asp-items="sourceItems"></select>
             </div>
             <div class="col-sm-6 col-lg-2">
-                <label class="form-label small mb-0">Assignee</label>
+                <label class="form-label small mb-0" title="One of the people the task is assigned to, or None for the tasks nobody is assigned to">Assignee</label>
                 <select class="form-select form-select-sm" name="AssigneeId">
                     <option value="">All</option>
+                    <option value="@FilterChoice.None" selected="@f.Unassigned">None</option>
                     @foreach (var i in Model.AssigneeItems) { <option value="@i.Value" selected="@i.Selected">@i.Text</option> }
                 </select>
             </div>
@@ -75,8 +77,8 @@
 <div class="card">
     <div class="card-header">
         <form method="post" asp-page-handler="Plan" id="planForm" class="d-flex flex-wrap align-items-center gap-2"
-              asp-route-ProjectId="@f.ProjectId" asp-route-DepartmentId="@f.DepartmentId" asp-route-Priority="@f.Priority"
-              asp-route-AssigneeId="@f.AssigneeId" asp-route-Type="@f.Type" asp-route-Source="@f.Source"
+              asp-route-ProjectId="@Model.ProjectChoice" asp-route-DepartmentId="@f.DepartmentId" asp-route-Priority="@f.Priority"
+              asp-route-AssigneeId="@Model.AssigneeChoice" asp-route-Type="@f.Type" asp-route-Source="@f.Source"
               asp-route-Search="@f.Search" asp-route-PageNumber="@Model.Result.Page">
             <span class="fw-semibold">Plan selected into</span>
             <select class="form-select form-select-sm w-auto" name="sprintId">

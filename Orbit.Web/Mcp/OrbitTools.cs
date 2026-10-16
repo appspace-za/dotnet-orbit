@@ -130,7 +130,7 @@ public sealed class OrbitTools(
         "Pass plannedFor = \"today\" to see the team's day plan - the tasks picked in the morning scrum to work on today. " +
         "requesteeId lists the tasks created for one person - including, for a department-scoped key, the key's own tasks filed in other departments.")]
     public Task<string> ListTasks(
-        [Description("Filter by project id (GUID).")] string? projectId = null,
+        [Description("Filter by project id (GUID), or \"none\" for the tasks on no project - standalone tasks.")] string? projectId = null,
         [Description("Filter by department id (GUID). Only useful for a key that sees every department.")] string? departmentId = null,
         [Description("Todo, InProgress, Waiting, Blocked, Done or Cancelled.")] string? status = null,
         [Description("Filter by assignee user id (GUID): the tasks that person is one of the assignees of.")] string? assigneeId = null,
@@ -149,14 +149,16 @@ public sealed class OrbitTools(
         [Description("Only tasks about this asset: its id (GUID) or ERP asset number - the asset's task history.")] string? assetId = null,
         [Description("Page number, starting at 1.")] int page = 1,
         [Description("Page size (1-200). Default 50.")] int pageSize = 50,
-        [Description("Only tasks created for this person - their requestee user id (GUID).")] string? requesteeId = null,
+        [Description("Only tasks created for this person - their requestee user id (GUID) - or \"none\" for the tasks created for nobody else.")] string? requesteeId = null,
         CancellationToken ct = default) => Run(async () =>
     {
         var filter = new TaskFilter
         {
-            RequesteeId = ParseGuid(requesteeId, "requesteeId"),
+            RequesteeId = IsClear(requesteeId) ? null : ParseGuid(requesteeId, "requesteeId"),
+            NoRequestee = IsClear(requesteeId),
             AssetId = string.IsNullOrWhiteSpace(assetId) ? null : await assets.ResolveIdAsync(assetId, ct),
-            ProjectId = ParseGuid(projectId, "projectId"),
+            ProjectId = IsClear(projectId) ? null : ParseGuid(projectId, "projectId"),
+            NoProject = IsClear(projectId),
             DepartmentId = ParseGuid(departmentId, "departmentId"),
             Status = ParseEnum<TaskItemStatus>(status, "status"),
             AssigneeId = ParseGuid(assigneeId, "assigneeId"),

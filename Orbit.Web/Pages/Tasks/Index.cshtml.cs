@@ -35,6 +35,14 @@ public class IndexModel(
     [BindProperty(SupportsGet = true, Name = SprintKey)] public string? SprintChoice { get; set; }
     public const string BacklogSprint = "backlog";
     private const string SprintKey = "Sprint";
+    /// <summary>
+    /// The Project, Assignee and Requestee filters (§6.2): empty for all, <see cref="FilterChoice.None"/> for the tasks with none,
+    /// or an id. Bound under the filter's own key; <see cref="Filter"/>'s Guid binds the same key and fails quietly on "none",
+    /// so <see cref="OnGetAsync"/> sets the typed fields from these.
+    /// </summary>
+    [BindProperty(SupportsGet = true, Name = nameof(TaskFilter.ProjectId))] public string? ProjectChoice { get; set; }
+    [BindProperty(SupportsGet = true, Name = nameof(TaskFilter.AssigneeId))] public string? AssigneeChoice { get; set; }
+    [BindProperty(SupportsGet = true, Name = nameof(TaskFilter.RequesteeId))] public string? RequesteeChoice { get; set; }
 
     /// <summary>
     /// The filter fields remembered for the session (§6.2). The page number and the one-off "subtasks of one task"
@@ -43,7 +51,7 @@ public class IndexModel(
     public static readonly string[] RememberedFilters =
     [
         nameof(TaskFilter.Search), nameof(TaskFilter.DepartmentId), nameof(TaskFilter.ProjectId), nameof(TaskFilter.Status),
-        nameof(TaskFilter.AssigneeId), nameof(TaskFilter.Unassigned), nameof(TaskFilter.Priority), nameof(TaskFilter.Type),
+        nameof(TaskFilter.AssigneeId), nameof(TaskFilter.Priority), nameof(TaskFilter.Type),
         nameof(TaskFilter.Source), nameof(TaskFilter.DueAfter), nameof(TaskFilter.DueBefore), nameof(TaskFilter.OpenOnly),
         nameof(TaskFilter.PlannedToday), nameof(TaskFilter.PlannedFor), nameof(TaskFilter.AssetId), nameof(TaskFilter.RequesteeId),
         SprintKey
@@ -85,6 +93,12 @@ public class IndexModel(
 
         Filter.BacklogOnly = SprintChoice == BacklogSprint;
         Filter.SprintId = Guid.TryParse(SprintChoice, out var sprintFilter) ? sprintFilter : null;
+        Filter.NoProject = FilterChoice.IsNone(ProjectChoice);
+        Filter.ProjectId = FilterChoice.Id(ProjectChoice);
+        Filter.Unassigned = FilterChoice.IsNone(AssigneeChoice);
+        Filter.AssigneeId = FilterChoice.Id(AssigneeChoice);
+        Filter.NoRequestee = FilterChoice.IsNone(RequesteeChoice);
+        Filter.RequesteeId = FilterChoice.Id(RequesteeChoice);
         Filter.Page = PageNumber;
         Filter.PageSize = 50;
         Result = await tasks.ListAsync(Filter, ct);
@@ -129,8 +143,8 @@ public class IndexModel(
 
     public string PageUrl(int page) => Url.Page("/Tasks/Index", new
     {
-        Filter.ProjectId, Filter.DepartmentId, Filter.Status, Filter.AssigneeId, Filter.Priority, Filter.Type, Filter.Source,
-        Filter.DueBefore, Filter.DueAfter, Filter.OpenOnly, Filter.PlannedToday, Filter.PlannedFor, Filter.ParentTaskId, Filter.Unassigned, Filter.Search,
-        Filter.AssetId, Filter.RequesteeId, Sprint = SprintChoice, PageNumber = page
+        ProjectId = ProjectChoice, Filter.DepartmentId, Filter.Status, AssigneeId = AssigneeChoice, Filter.Priority, Filter.Type, Filter.Source,
+        Filter.DueBefore, Filter.DueAfter, Filter.OpenOnly, Filter.PlannedToday, Filter.PlannedFor, Filter.ParentTaskId, Filter.Search,
+        Filter.AssetId, RequesteeId = RequesteeChoice, Sprint = SprintChoice, PageNumber = page
     })!;
 }
