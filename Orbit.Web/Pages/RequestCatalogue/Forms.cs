@@ -1,4 +1,5 @@
 using Orbit.Application.Models;
+using Orbit.Application.Requests;
 using Orbit.Data.Entities;
 
 namespace Orbit.Pages.RequestCatalogue;
@@ -32,6 +33,20 @@ public sealed class FlowForm
     public RequestFlowInput ToInput() => new() { Title = Title ?? string.Empty, Description = Description };
 
     public static FlowForm From(RequestFlow f) => new() { Title = f.Title, Description = f.Description };
+}
+
+/// <summary>A flow's state badges (§6.20): <i>Archived</i> alone, else <i>Off</i> and/or <i>Not set up</i>. Large beside a page title.</summary>
+public sealed record FlowBadgesVm(RequestFlow Flow, bool Large = false);
+
+/// <summary>The flash message after switching a flow on or off (§6.20), saying whether it is offered now.</summary>
+public static class FlowSwitch
+{
+    public static string Message(RequestFlow flow) =>
+        !flow.IsEnabled ? "Flow switched off: no longer offered. Requests in progress carry on."
+        : RequestFlowRules.IsLive(flow) ? "Flow switched on: people can log it now."
+        : flow.IsArchived ? "Flow switched on: it is offered once it is restored."
+        : !RequestFlowRules.IsReady(flow) ? "Flow switched on: it is offered once every step is set up."
+        : "Flow switched on: it is offered once its category and department are no longer archived.";
 }
 
 /// <summary>Adding a step (§6.20): its kind, title and key.</summary>

@@ -72,7 +72,7 @@
             <div class="card-header fw-semibold">Flows <span class="text-muted fw-normal">(@flows.Count, @liveCount offered)</span></div>
             @if (flows.Count == 0)
             {
-                <div class="card-body text-muted fst-italic">No flows yet. The category is offered once it has one that is ready.</div>
+                <div class="card-body text-muted fst-italic">No flows yet. The category is offered once it has one that is switched on and set up.</div>
             }
             else
             {
@@ -80,12 +80,10 @@
                     @for (var i = 0; i < flows.Count; i++)
                     {
                         var f = flows[i];
-                        var live = RequestFlowRules.IsLive(f);
-                        <li class="list-group-item d-flex flex-wrap align-items-center gap-2 @(f.IsArchived ? "text-muted" : "")">
+                        <li class="list-group-item d-flex flex-wrap align-items-center gap-2 @(f.IsArchived || !f.IsEnabled ? "text-muted" : "")">
                             <div class="flex-grow-1" style="min-width: 12rem">
                                 <a asp-page="/RequestCatalogue/Flow" asp-route-id="@f.Id" class="fw-semibold text-decoration-none">@f.Title</a>
-                                @if (f.IsArchived) { <span class="badge text-bg-secondary">Archived</span> }
-                                else if (!live) { <span class="badge text-bg-warning" title="A flow is offered once it has at least one step and every step is set up">Not offered yet</span> }
+                                <partial name="_FlowBadges" model="@(new FlowBadgesVm(f))" />
                                 <div class="small text-muted">
                                     @(f.Steps.Count == 1 ? "1 step" : $"{f.Steps.Count} steps")
                                     @if (f.Steps.Count > 0) { <text>: @string.Join(" · ", f.Steps.OrderBy(s => s.DisplayOrder).Select(s => s.Kind.Label()))</text> }
@@ -98,6 +96,19 @@
                                 <form method="post" asp-page-handler="MoveFlow" asp-route-id="@c.Id" asp-route-flowId="@f.Id" asp-route-direction="1">
                                     <button class="btn btn-sm btn-outline-secondary py-0" type="submit" disabled="@(i == flows.Count - 1)" title="Move down" aria-label="Move @f.Title down">&darr;</button>
                                 </form>
+                                @if (!f.IsArchived)
+                                {
+                                    <form method="post" asp-page-handler="EnabledFlow" asp-route-id="@c.Id" asp-route-flowId="@f.Id" asp-route-enabled="@(!f.IsEnabled)">
+                                        @if (f.IsEnabled)
+                                        {
+                                            <button class="btn btn-sm btn-success py-0" type="submit" title="Switch it off" aria-label="@f.Title is on: switch it off">On</button>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn-sm btn-outline-secondary py-0" type="submit" title="Switch it on" aria-label="@f.Title is off: switch it on">Off</button>
+                                        }
+                                    </form>
+                                }
                                 <form method="post" asp-page-handler="ArchiveFlow" asp-route-id="@c.Id" asp-route-flowId="@f.Id" asp-route-archived="@(!f.IsArchived)">
                                     <button class="btn btn-sm btn-outline-secondary py-0" type="submit">@(f.IsArchived ? "Restore" : "Archive")</button>
                                 </form>

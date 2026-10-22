@@ -212,7 +212,7 @@ public sealed class RequestCatalogueService(ApplicationDbContext db, IActorProvi
         };
         db.RequestFlows.Add(flow);
         audit.Add(actor, AuditEntity.RequestFlow, flow.Id, AuditAction.Created, category.DepartmentId, flow.Title,
-            new { flow.Title, flow.Description, category = category.Title });
+            new { flow.Title, flow.Description, category = category.Title, enabled = flow.IsEnabled });
         await db.SaveChangesAsync(ct);
         return flow;
     }
@@ -247,6 +247,27 @@ public sealed class RequestCatalogueService(ApplicationDbContext db, IActorProvi
         flow.UpdatedAt = DateTime.UtcNow;
         audit.Add(actor, AuditEntity.RequestFlow, flow.Id, archived ? AuditAction.Archived : AuditAction.Unarchived, flow.Category.DepartmentId, flow.Title);
         await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Switch a flow on or off (§6.20). Off hides it from the Requests page like archiving; requests in progress carry on. Returns the
+    /// flow with its steps loaded, so the caller can say whether it is offered now.
+    /// </summary>
+    public async Task<RequestFlow> SetFlowEnabledAsync(Guid id, bool enabled, CancellationToken ct = default)
+    {
+        var actor = await actors.GetAsync(ct);
+        var flow = await db.RequestFlows.Include(f => f.Category).FirstOrDefaultAsync(f => f.Id == id, ct)
+            ?? throw new NotFoundException("Request flow not found.");
+        RequireConfigure(actor, flow.Category.DepartmentId);
+        if (flow.IsEnabled != enabled)
+        {
+            var changes = new ChangeSet().Track("enabled", flow.IsEnabled, enabled);
+            flow.IsEnabled = enabled;
+            flow.UpdatedAt = DateTime.UtcNow;
+            audit.Add(actor, AuditEntity.RequestFlow, flow.Id, AuditAction.Updated, flow.Category.DepartmentId, flow.Title, changes.Changes);
+            await db.SaveChangesAsync(ct);
+        }
+        return await GetFlowAsync(id, ct);
     }
 
     /// <summary>Delete a flow with its steps - only while no request was ever logged through it. Returns its category's id.</summary>

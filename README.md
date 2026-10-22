@@ -379,8 +379,10 @@ back to their request; the Tasks list, the Backlog and `list_tasks` filter on th
 
 Each department builds its own flows (**Admin > Request flows**, needs **Configure request flows**): categories with an
 icon and colour, flows, and each flow's steps with their fields, stages, dependencies and settings, with a *Not set
-up* badge until a flow can be offered. A flow with requests in progress keeps its structure until they finish, and
-nothing a request ever used can be deleted - archive it instead.
+up* badge until a flow can be offered. Each flow has an **On / Off** switch: a new flow starts off, so it isn't offered
+until someone switches it on, and switching a flow off hides it from the Requests page for a while (archiving is for
+good). Either way, requests already in progress carry on. A flow with requests in progress keeps its structure until
+they finish, and nothing a request ever used can be deleted - archive it instead.
 
 **Actions** (**Admin > Actions**, needs **Create actions**, which no shipped role has) are C# scripts (Roslyn) with
 parameters that a flow's Action step binds to values. A script sees the request (`Request.Number`, the requester),

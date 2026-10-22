@@ -4,6 +4,7 @@ namespace Orbit.Data.Entities;
 /// One thing people can ask for under a category (spec §6.20): an ordered set of steps - forms, approvals, tasks, actions and web
 /// pages - with dependencies between them. Logging it creates a <see cref="Request"/> that walks the steps. Requests reference the
 /// flow and its steps, so a flow with requests in progress is archived rather than deleted, and its structure is frozen while they run.
+/// <see cref="IsEnabled"/> is the on/off switch: a new flow starts off and is offered only once someone switches it on.
 /// </summary>
 public class RequestFlow
 {
@@ -14,6 +15,8 @@ public class RequestFlow
     public string? Description { get; set; }
     public int DisplayOrder { get; set; }
     public bool IsArchived { get; set; }
+    /// <summary>Switched on: offered once it is set up. Off hides it like archiving, for a while rather than for good (§6.20).</summary>
+    public bool IsEnabled { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

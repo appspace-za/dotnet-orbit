@@ -18,7 +18,7 @@ public class RequestFlowRulesTests
     {
         var department = new Department { Name = "IT" };
         var category = new RequestCategory { Title = "Products", Department = department, DepartmentId = department.Id };
-        var flow = new RequestFlow { Title = "Product code", Category = category, CategoryId = category.Id };
+        var flow = new RequestFlow { Title = "Product code", Category = category, CategoryId = category.Id, IsEnabled = true };
         foreach (var s in steps) { s.Flow = flow; s.FlowId = flow.Id; flow.Steps.Add(s); }
         return flow;
     }
@@ -164,7 +164,10 @@ public class RequestFlowRulesTests
         Assert.Null(date.Scope);
     }
 
-    /// <summary>REQ-019: the start form is the first form with nothing to wait for, performed by the requester; a flow is live when offered and every step is ready.</summary>
+    /// <summary>
+    /// REQ-019: the start form is the first form with nothing to wait for, performed by the requester; a flow is live when it is
+    /// switched on, nothing above it is archived and every step is ready. A new flow starts switched off.
+    /// </summary>
     [Fact]
     public void The_start_form_and_the_live_rule()
     {
@@ -185,13 +188,29 @@ public class RequestFlowRulesTests
         Assert.Null(RequestFlowRules.StartForm(flow));
 
         task.TitleTemplate = null;
+        Assert.False(RequestFlowRules.IsReady(flow));
         Assert.False(RequestFlowRules.IsLive(flow));
         task.TitleTemplate = "T";
+        Assert.True(RequestFlowRules.IsReady(flow));
+
+        // Switched off: still set up, but neither live nor offered; on again, live again.
+        var offered = RequestFlowRules.Offered.Compile();
+        Assert.True(offered(flow));
+        flow.IsEnabled = false;
+        Assert.True(RequestFlowRules.IsReady(flow));
+        Assert.False(RequestFlowRules.IsLive(flow));
+        Assert.False(offered(flow));
+        flow.IsEnabled = true;
+        Assert.True(RequestFlowRules.IsLive(flow));
+
         flow.IsArchived = true;
         Assert.False(RequestFlowRules.IsLive(flow));
+        Assert.False(offered(flow));
         flow.IsArchived = false;
         flow.Category.Department.IsArchived = true;
         Assert.False(RequestFlowRules.IsLive(flow));
+        Assert.False(RequestFlowRules.IsReady(Flow()));
         Assert.False(RequestFlowRules.IsLive(Flow()));
+        Assert.False(new RequestFlow().IsEnabled);
     }
 }

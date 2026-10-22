@@ -51,6 +51,13 @@ public class FlowModel(RequestCatalogueService catalogue, IActorProvider actors)
         return RedirectToPage(new { id });
     }
 
+    public async Task<IActionResult> OnPostEnabledAsync(Guid id, bool enabled, CancellationToken ct)
+    {
+        var flow = await catalogue.SetFlowEnabledAsync(id, enabled, ct);
+        Success(FlowSwitch.Message(flow));
+        return RedirectToPage(new { id });
+    }
+
     public async Task<IActionResult> OnPostDeleteAsync(Guid id, CancellationToken ct)
     {
         var flow = await catalogue.GetFlowAsync(id, ct);

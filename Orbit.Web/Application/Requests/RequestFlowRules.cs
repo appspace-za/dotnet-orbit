@@ -322,16 +322,19 @@ public static class RequestFlowRules
             .FirstOrDefault(s => s.Kind == RequestStepKind.Form && s.PerformedById is null && s.Dependencies.Count == 0);
 
     /// <summary>
-    /// REQ-019, the part a query can apply: a flow is offered while neither it, its category nor the category's department is archived
-    /// and it has at least one step. <see cref="IsLive"/> adds that every step is configured.
+    /// REQ-019, the part a query can apply: a flow is offered while it is switched on, neither it, its category nor the category's
+    /// department is archived, and it has at least one step. <see cref="IsLive"/> adds that every step is configured.
     /// </summary>
     public static Expression<Func<RequestFlow, bool>> Offered =>
-        f => !f.IsArchived && !f.Category.IsArchived && !f.Category.Department.IsArchived && f.Steps.Any();
+        f => f.IsEnabled && !f.IsArchived && !f.Category.IsArchived && !f.Category.Department.IsArchived && f.Steps.Any();
 
-    /// <summary>REQ-019: offered, and every step ready (<see cref="Problems"/> empty). Needs the category, its department and the steps' children loaded.</summary>
+    /// <summary>REQ-019: the flow has at least one step and every step is set up (<see cref="Problems"/> empty), whether or not it is switched on.</summary>
+    public static bool IsReady(RequestFlow flow) =>
+        flow.Steps.Count > 0 && flow.Steps.All(s => Problems(s).Count == 0);
+
+    /// <summary>REQ-019: offered, and <see cref="IsReady"/>. Needs the category, its department and the steps' children loaded.</summary>
     public static bool IsLive(RequestFlow flow) =>
-        !flow.IsArchived && !flow.Category.IsArchived && !flow.Category.Department.IsArchived
-        && flow.Steps.Count > 0 && flow.Steps.All(s => Problems(s).Count == 0);
+        flow.IsEnabled && !flow.IsArchived && !flow.Category.IsArchived && !flow.Category.Department.IsArchived && IsReady(flow);
 
     /// <summary>The first non-blank line of <paramref name="text"/>, its spaces collapsed, cut to <paramref name="max"/> characters.</summary>
     public static string FirstLine(string text, int max)

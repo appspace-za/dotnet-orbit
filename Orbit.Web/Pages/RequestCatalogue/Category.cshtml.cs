@@ -72,7 +72,7 @@ public class CategoryModel(RequestCatalogueService catalogue, IActorProvider act
         try
         {
             var added = await catalogue.AddFlowAsync(id, flow.ToInput(), ct);
-            Success($"Flow \"{added.Title}\" added. Now add its steps: it is offered once every step is set up.");
+            Success($"Flow \"{added.Title}\" added. Add its steps, then switch it on: it is offered once it is on and every step is set up.");
             return RedirectToPage("/RequestCatalogue/Flow", new { id = added.Id });
         }
         catch (ValidationException ex) { AddError = ex.Message; }
@@ -92,6 +92,13 @@ public class CategoryModel(RequestCatalogueService catalogue, IActorProvider act
     {
         await catalogue.SetFlowArchivedAsync(flowId, archived, ct);
         Success(archived ? "Flow archived: no longer offered. Requests in progress carry on." : "Flow restored.");
+        return RedirectToPage(new { id });
+    }
+
+    public async Task<IActionResult> OnPostEnabledFlowAsync(Guid id, Guid flowId, bool enabled, CancellationToken ct)
+    {
+        var flow = await catalogue.SetFlowEnabledAsync(flowId, enabled, ct);
+        Success(FlowSwitch.Message(flow));
         return RedirectToPage(new { id });
     }
 }

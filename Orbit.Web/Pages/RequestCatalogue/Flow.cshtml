@@ -23,16 +23,35 @@
     <div>
         <h1 class="h3 mb-0">
             @f.Title
-            @if (f.IsArchived) { <span class="badge text-bg-secondary fs-6 align-middle">Archived</span> }
-            else if (!live) { <span class="badge text-bg-warning fs-6 align-middle" title="Offered once it has a step and every step is set up">Not offered yet</span> }
+            <partial name="_FlowBadges" model="@(new FlowBadgesVm(f, Large: true))" />
         </h1>
         <div class="text-muted small">A flow of <strong>@c.Title</strong> (@c.Department.Name).</div>
     </div>
-    @if (live && Model.CanSubmit)
-    {
-        <a class="btn btn-outline-secondary btn-sm" asp-page="/Requests/Start" asp-route-id="@f.Id">Try it (logs a real request)</a>
-    }
+    <div class="d-flex flex-wrap gap-2">
+        @if (live && Model.CanSubmit)
+        {
+            <a class="btn btn-outline-secondary btn-sm" asp-page="/Requests/Start" asp-route-id="@f.Id">Try it (logs a real request)</a>
+        }
+        @if (!f.IsArchived)
+        {
+            <form method="post" asp-page-handler="Enabled" asp-route-id="@f.Id" asp-route-enabled="@(!f.IsEnabled)">
+                @if (f.IsEnabled)
+                {
+                    <button class="btn btn-outline-secondary btn-sm" type="submit">Switch off</button>
+                }
+                else
+                {
+                    <button class="btn btn-success btn-sm" type="submit">Switch on</button>
+                }
+            </form>
+        }
+    </div>
 </div>
+
+@if (!f.IsArchived && !f.IsEnabled && RequestFlowRules.IsReady(f))
+{
+    <div class="alert alert-secondary py-2 small">Set up but switched off: nobody can log it until you switch it on.</div>
+}
 
 @if (Model.InProgress > 0)
 {
