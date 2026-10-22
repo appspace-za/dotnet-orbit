@@ -353,7 +353,8 @@ tile (*Report a problem*, *Products*...), then a flow. A **flow** is a sequence 
   what it means, which the builder can word for the question), files, an asset type, or an asset, project or person picked from a list the builder scoped (the
   department's, your own department's, the whole company's, or the assets you hold). An asset question that offers
   ten or fewer shows them all as buttons, each with its type and location, so you don't need to know what yours is
-  called; with more, you search by name, number or serial.
+  called; with more, you search by name, number or serial. A panel beside the questions lists your answers so far,
+  each with *Change*, and what happens next once the request is logged.
 - **Approval** - ordered stages of approvers (a person, everyone with a role in a department or in the requester's
   own, the requester's manager, or the manager of the requester's department), any one or all of them; a decline
   ends it, and each decision may carry a comment. The two managers are whoever is set on the requester's user and

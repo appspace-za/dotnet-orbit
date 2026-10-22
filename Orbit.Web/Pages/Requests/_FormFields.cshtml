@@ -45,7 +45,7 @@
                        required="@f.IsRequired" aria-describedby="@describedBy" aria-label="@f.Prompt" />
                 break;
             case RequestFieldType.Choice when f.Choices.Count <= RequestFlowRules.ChoiceButtonsUpTo:
-                <div class="request-choices @(f.Choices.Count > 2 ? "request-choices-2" : "")">
+                <div class="request-choices">
                     @for (var i = 0; i < f.Choices.Count; i++)
                     {
                         var rid = $"q-{key}-{i}";
@@ -65,7 +65,7 @@
                 </select>
                 break;
             case RequestFieldType.Urgency:
-                <div class="request-choices">
+                <div class="request-choices request-choices-urgency">
                     @foreach (var p in Enum.GetValues<TaskPriority>())
                     {
                         var rid = $"q-{key}-{p.ToString().ToLowerInvariant()}";
@@ -119,7 +119,7 @@
                 }
                 else
                 {
-                    <div class="request-choices @(listed.Count > 4 ? "request-choices-2" : "")">
+                    <div class="request-choices">
                         @foreach (var asset in listed)
                         {
                             var rid = $"q-{key}-{asset.Id:N}";

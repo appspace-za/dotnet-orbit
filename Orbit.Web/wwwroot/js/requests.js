@@ -1,8 +1,9 @@
 // Requests (spec §6.20). On the pages that fill in a form the fields are shown one at a time: Next checks the step before moving on,
-// Back returns, and a last step reviews every answer (each with a Change link back to its step) before the form is posted. Without
-// this script the page shows every field at once with one button, and the server checks the answers either way. The builder pages
-// use the same file for their small conveniences: showing the settings a chosen type or kind needs, inserting a token into a template,
-// and marking a web-page step done when its link is opened.
+// Back returns, and a last step reviews every answer (each with a Change link back to its step) before the form is posted. A panel
+// beside the form lists the questions with the answers so far. Without this script the page shows every field at once with one
+// button and no panel, and the server checks the answers either way. The builder pages use the same file for their small
+// conveniences: showing the settings a chosen type or kind needs, inserting a token into a template, and marking a web-page step
+// done when its link is opened.
 (function () {
   function textOf(el) { return el ? el.textContent.replace(/\s+/g, ' ').trim() : ''; }
 
@@ -30,7 +31,6 @@
   function setupFlow(form) {
     var steps = Array.prototype.slice.call(form.querySelectorAll('.js-step'));
     var review = form.querySelector('.js-review-step');
-    var note = form.querySelector('.js-review-step-note');
     var pages = steps.concat([review]);
     var back = form.querySelector('.js-back');
     var next = form.querySelector('.js-next');
@@ -39,7 +39,9 @@
     var bar = form.querySelector('.js-step-bar');
     var progress = bar.parentElement;
     var stepper = document.querySelector('.js-request-steps');
+    var panel = document.querySelector('.js-answers-panel'); // beside the form; absent when the form asks nothing
     var current = 0;
+    var furthest = 0; // the furthest step reached: the panel offers Change up to it
 
     form.classList.add('is-wizard');
     form.noValidate = true; // each step is checked as it is left, and every step again on submit
@@ -77,35 +79,59 @@
       });
     }
 
-    function buildReview() {
-      var list = review.querySelector('.js-review');
-      list.innerHTML = '';
-      steps.forEach(function (step, index) {
-        var legend = step.querySelector('legend').cloneNode(true);
-        legend.querySelectorAll('.text-muted').forEach(function (n) { n.remove(); });
-        var dt = document.createElement('dt');
-        dt.textContent = textOf(legend) + ' ';
+    // A step's question, without its "(optional)".
+    function promptOf(step) {
+      var legend = step.querySelector('legend').cloneNode(true);
+      legend.querySelectorAll('.text-muted').forEach(function (n) { n.remove(); });
+      return textOf(legend);
+    }
+
+    // Adds a step's question to a list of answers. A step reached ('reached') shows its answer with Change; in the panel, the
+    // step on show ('current') and the steps not reached yet ('ahead') say so instead.
+    function addAnswer(list, step, index, state) {
+      var prompt = promptOf(step);
+      var dt = document.createElement('dt');
+      var dd = document.createElement('dd');
+      dt.textContent = prompt + ' ';
+      if (state === 'reached') {
         var change = document.createElement('button');
         change.type = 'button';
         change.className = 'btn btn-link';
         change.textContent = 'Change';
-        change.setAttribute('aria-label', 'Change: ' + textOf(legend));
-        change.addEventListener('click', function () { show(index, true); });
+        change.setAttribute('aria-label', 'Change: ' + prompt);
+        change.addEventListener('click', function () { go(index); });
         dt.appendChild(change);
-        var dd = document.createElement('dd');
         var answer = answerOf(step);
         if (answer) dd.textContent = answer;
         else { dd.textContent = step.dataset.files ? 'No files' : 'No answer'; dd.className = 'text-muted fst-italic'; }
-        list.appendChild(dt);
-        list.appendChild(dd);
+      } else {
+        dd.textContent = state === 'current' ? 'Answering now' : 'Still to come';
+        dd.className = 'text-muted fst-italic';
+      }
+      if (state === 'current') { dt.classList.add('is-current'); dd.classList.add('is-current'); }
+      list.appendChild(dt);
+      list.appendChild(dd);
+    }
+
+    function buildReview() {
+      var list = review.querySelector('.js-review');
+      list.innerHTML = '';
+      steps.forEach(function (step, index) { addAnswer(list, step, index, 'reached'); });
+    }
+
+    function buildPanel() {
+      var list = panel.querySelector('.js-answers');
+      list.innerHTML = '';
+      steps.forEach(function (step, index) {
+        addAnswer(list, step, index, index === current ? 'current' : index <= furthest ? 'reached' : 'ahead');
       });
     }
 
     function show(index, focus) {
       current = index;
+      furthest = Math.max(furthest, index);
       var onReview = index === pages.length - 1;
       pages.forEach(function (p, i) { p.hidden = i !== index; });
-      if (note) note.hidden = !onReview;
       back.hidden = index === 0;
       next.hidden = onReview;
       submit.hidden = !onReview;
@@ -115,21 +141,28 @@
       progress.setAttribute('aria-valuenow', String(percent));
       markStepper(onReview);
       if (onReview) buildReview();
+      if (panel) {
+        panel.hidden = onReview; // the review lists every answer itself
+        if (!onReview) buildPanel();
+      }
       if (focus) {
         var heading = onReview ? review.querySelector('h2') : pages[index].querySelector('legend');
         if (heading) heading.focus();
       }
     }
 
-    next.addEventListener('click', function () {
-      if (current >= pages.length - 1) return; // already on the review
-      if (check(pages[current])) show(current + 1, true);
-      else {
+    // Moves to a page: forward only once the step on show is fine (saying why not beside it), back freely.
+    function go(index) {
+      if (index > current && !check(pages[current])) {
         var bad = pages[current].querySelector('[aria-invalid="true"]');
         if (bad && bad.focus) bad.focus();
+        return;
       }
-    });
-    back.addEventListener('click', function () { if (current > 0) show(current - 1, true); });
+      show(index, true);
+    }
+
+    next.addEventListener('click', function () { if (current < pages.length - 1) go(current + 1); });
+    back.addEventListener('click', function () { if (current > 0) go(current - 1); });
 
     // Once a step shows why it can't be left, answering it clears the message (and a still-wrong answer says so again).
     function recheck(e) {
@@ -162,6 +195,7 @@
 
     // After a refused post, open the first field the server marked; otherwise start at the beginning (or the review, with no fields).
     var marked = steps.findIndex(function (s) { return s.dataset.hasError; });
+    if (marked >= 0) furthest = steps.length - 1; // every answer was posted
     show(marked >= 0 ? marked : steps.length === 0 ? pages.length - 1 : 0, marked >= 0);
   }
 

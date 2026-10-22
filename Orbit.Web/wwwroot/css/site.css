@@ -578,15 +578,14 @@ html {
 .request-steps .is-done .request-step-number { background: var(--bs-success-bg-subtle); border-color: var(--bs-success-border-subtle); color: var(--bs-success-text-emphasis); }
 
 /* The flow: one question at a time once requests.js takes over; without it every question shows and one button logs the request. */
-.request-flow { max-width: 46rem; }
 .request-flow:not(.is-wizard) .js-wizard-only { display: none !important; }
 .request-flow.is-wizard .js-no-wizard { display: none !important; }
 .request-flow:not(.is-wizard) .request-question + .request-question { border-top: 1px solid var(--orbit-surface-border); padding-top: 1.5rem; margin-top: 1.5rem; }
 .request-question { min-width: 0; }
 .request-question legend { float: none; font-size: 1.3rem; font-weight: 600; margin-bottom: .35rem; }
 .request-question legend:focus { outline: none; }
-.request-choices { display: grid; gap: .5rem; }
-@media (min-width: 576px) { .request-choices-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* Answer buttons take as many columns as fit: one on a phone, more as the form widens, none stretched across a wide screen. */
+.request-choices { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fill, minmax(min(15rem, 100%), 1fr)); }
 /* Answer buttons read as body text (the outline-secondary grey is too faint on a dark page); the chosen one is tinted. */
 .request-choices .btn {
   --bs-btn-color: var(--bs-body-color);
@@ -603,7 +602,10 @@ html {
 }
 .request-choices .btn-check:checked + .btn { box-shadow: inset 0 0 0 1px var(--bs-primary); }
 .request-choices .btn .small { display: block; font-weight: normal; color: var(--bs-secondary-color); }
-/* An Urgency question's four answers, each edged in its priority's colour. */
+/* An Urgency question's four answers, each edged in its priority's colour: one column, two, then all four in a row, never three
+   and one, so the scale reads in order. */
+@media (min-width: 576px) { .request-choices-urgency { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1200px) { .request-choices-urgency { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .request-urgency-low { border-left: 4px solid var(--bs-secondary-border-subtle) !important; }
 .request-urgency-medium { border-left: 4px solid var(--bs-info) !important; }
 .request-urgency-high { border-left: 4px solid var(--bs-warning) !important; }
@@ -615,8 +617,25 @@ html {
 .request-review .btn-link { padding: 0; font-size: .85rem; vertical-align: baseline; }
 .request-done-icon { color: var(--bs-success); }
 
+/* The panel beside a request form: the answers so far (each cut to three lines, the one on show marked) and what follows. */
+.request-aside-section { padding: 1rem 1.25rem; }
+.request-aside-section + .request-aside-section { border-top: 1px solid var(--orbit-surface-border); }
+.request-answers dt { font-size: .9rem; }
+.request-answers dd {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  margin-bottom: .6rem;
+}
+.request-answers dd:last-child { margin-bottom: 0; }
+.request-answers .is-current { border-left: 3px solid var(--bs-primary); padding-left: .5rem; }
+.request-next { padding-left: 1.25rem; }
+/* Stacked under the form on a narrow screen, the answers would only repeat what the review shows. */
+@media (max-width: 991.98px) { .request-answers-panel { display: none; } }
+
 /* A request's page: its steps down a line, each marked with its number (a tick once done) in the colour of its state. */
-.request-timeline { max-width: 56rem; }
 .request-timeline-item { display: flex; gap: 1rem; position: relative; padding-bottom: 1rem; }
 .request-timeline-item::before {
   content: '';

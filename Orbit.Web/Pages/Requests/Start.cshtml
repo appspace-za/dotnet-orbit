@@ -30,72 +30,95 @@
 
 <partial name="_Steps" model="2" />
 
-@if (Model.GeneralError is not null)
-{
-    <div class="alert alert-danger request-flow" role="alert">@Model.GeneralError</div>
-}
-else if (Model.Errors.Count > 0)
-{
-    <div class="alert alert-danger request-flow" role="alert">
-        @(Model.Errors.Count == 1 ? "One answer needs attention." : $"{Model.Errors.Count} answers need attention.") It's marked below.
-    </div>
-}
-
-<form method="post" enctype="multipart/form-data" asp-route-id="@f.Id" class="request-flow js-request-flow">
-    <input type="hidden" name="IdempotencyKey" value="@Model.IdempotencyKey" />
-    <div class="card">
-        <div class="card-header bg-transparent js-wizard-only">
-            <div class="d-flex justify-content-between gap-2 small text-muted mb-1">
-                <span class="js-step-counter" aria-live="polite"></span>
+<div class="row g-4 align-items-start">
+    <div class="col-lg-8 col-xxl-9">
+        @if (Model.GeneralError is not null)
+        {
+            <div class="alert alert-danger" role="alert">@Model.GeneralError</div>
+        }
+        else if (Model.Errors.Count > 0)
+        {
+            <div class="alert alert-danger" role="alert">
+                @(Model.Errors.Count == 1 ? "One answer needs attention." : $"{Model.Errors.Count} answers need attention.") It's marked below.
             </div>
-            <div class="progress" role="progressbar" aria-label="Progress through the request" aria-valuemin="0" aria-valuemax="100">
-                <div class="progress-bar js-step-bar"></div>
-            </div>
-        </div>
-        <div class="card-body p-3 p-md-4">
-            @if (form is not null)
-            {
-                <partial name="_FormFields" model="@(new RequestFormFieldsVm
-                {
-                    Fields = form.Fields.ToList(),
-                    Answers = Model.Answers,
-                    Errors = Model.Errors,
-                    Labels = Model.Labels,
-                    AssetTypes = Model.AssetTypes,
-                    AssetChoices = Model.AssetChoices,
-                    LookupUrl = Url.Page("/Requests/Lookup")!,
-                    NoDepartmentNote = Model.HasDepartment ? null : "You aren't in a department, so nothing is offered here.",
-                    Limits = Model.AttachmentLimits,
-                    FilesDropped = Model.FilesDropped
-                })" />
-            }
-            else
-            {
-                <p class="mb-0">This request asks you nothing up front: log it, and @c.Department.Name takes it from there.</p>
-            }
+        }
 
-            <section class="js-review-step js-wizard-only" aria-labelledby="review-heading" hidden>
-                <h2 class="h5" id="review-heading" tabindex="-1">Check your request</h2>
-                <p class="text-muted small">
-                    It goes to <strong>@c.Department.Name</strong>. You can follow it under <em>Your requests</em> on the Requests page.
-                </p>
-                <dl class="request-review js-review mb-0"></dl>
-            </section>
-
-            @if (later.Count > 0)
-            {
-                <div class="small text-muted mt-3 js-review-step-note" hidden>
-                    What happens next: @string.Join(" · ", later.Select(s => s.Title))
+        <form method="post" enctype="multipart/form-data" asp-route-id="@f.Id" class="request-flow js-request-flow">
+            <input type="hidden" name="IdempotencyKey" value="@Model.IdempotencyKey" />
+            <div class="card">
+                <div class="card-header bg-transparent js-wizard-only">
+                    <div class="d-flex justify-content-between gap-2 small text-muted mb-1">
+                        <span class="js-step-counter" aria-live="polite"></span>
+                    </div>
+                    <div class="progress" role="progressbar" aria-label="Progress through the request" aria-valuemin="0" aria-valuemax="100">
+                        <div class="progress-bar js-step-bar"></div>
+                    </div>
                 </div>
-            }
-        </div>
-        <div class="card-footer bg-transparent d-flex flex-wrap gap-2">
-            <button type="button" class="btn btn-outline-secondary js-back js-wizard-only">Back</button>
-            <button type="button" class="btn btn-primary ms-auto js-next js-wizard-only">Next</button>
-            <button type="submit" class="btn btn-success ms-auto js-submit">Log request</button>
-        </div>
+                <div class="card-body p-3 p-md-4">
+                    @if (form is not null)
+                    {
+                        <partial name="_FormFields" model="@(new RequestFormFieldsVm
+                        {
+                            Fields = form.Fields.ToList(),
+                            Answers = Model.Answers,
+                            Errors = Model.Errors,
+                            Labels = Model.Labels,
+                            AssetTypes = Model.AssetTypes,
+                            AssetChoices = Model.AssetChoices,
+                            LookupUrl = Url.Page("/Requests/Lookup")!,
+                            NoDepartmentNote = Model.HasDepartment ? null : "You aren't in a department, so nothing is offered here.",
+                            Limits = Model.AttachmentLimits,
+                            FilesDropped = Model.FilesDropped
+                        })" />
+                    }
+                    else
+                    {
+                        <p class="mb-0">This request asks you nothing up front: log it, and @c.Department.Name takes it from there.</p>
+                    }
+
+                    <section class="js-review-step js-wizard-only" aria-labelledby="review-heading" hidden>
+                        <h2 class="h5" id="review-heading" tabindex="-1">Check your request</h2>
+                        <p class="text-muted small">
+                            It goes to <strong>@c.Department.Name</strong>. You can follow it under <em>Your requests</em> on the Requests page.
+                        </p>
+                        <dl class="request-review js-review mb-0"></dl>
+                    </section>
+                </div>
+                <div class="card-footer bg-transparent d-flex flex-wrap gap-2">
+                    <button type="button" class="btn btn-outline-secondary js-back js-wizard-only">Back</button>
+                    <button type="button" class="btn btn-primary ms-auto js-next js-wizard-only">Next</button>
+                    <button type="submit" class="btn btn-success ms-auto js-submit">Log request</button>
+                </div>
+            </div>
+        </form>
     </div>
-</form>
+
+    @* Beside the form (under it on a narrow screen): the answers so far, which requests.js fills, and the steps that follow. *@
+    <div class="col-lg-4 col-xxl-3">
+        <aside class="card request-aside" aria-label="About this request">
+            @if (form is not null && form.Fields.Count > 0)
+            {
+                <section class="request-aside-section request-answers-panel js-answers-panel" aria-labelledby="answers-heading" hidden>
+                    <h2 class="h6" id="answers-heading">Your answers</h2>
+                    <dl class="request-review request-answers js-answers mb-0"></dl>
+                </section>
+            }
+            <section class="request-aside-section" aria-labelledby="next-heading">
+                <h2 class="h6" id="next-heading">What happens next</h2>
+                @if (later.Count > 0)
+                {
+                    <ol class="request-next mb-0">
+                        @foreach (var s in later) { <li>@s.Title</li> }
+                    </ol>
+                }
+                else
+                {
+                    <p class="mb-0">@c.Department.Name takes it from there.</p>
+                }
+            </section>
+        </aside>
+    </div>
+</div>
 
 @section Scripts {
     <script src="~/js/requests.js" asp-append-version="true"></script>
