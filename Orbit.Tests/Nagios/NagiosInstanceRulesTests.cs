@@ -7,7 +7,7 @@ using Orbit.Data.Entities;
 namespace Orbit.Tests.Nagios;
 
 /// <summary>
-/// A Nagios instance's address and settings, and the words Orbit writes about a problem (spec §6.21, NAG-015 to NAG-017). The
+/// A Nagios instance's address and settings, and the words Orbit writes about a problem (spec §6.21, NAG-015 to NAG-017, NAG-019). The
 /// address rules are shared with the agent, which enforces them: it only ever calls statusjson.cgi.
 /// </summary>
 public class NagiosInstanceRulesTests
@@ -132,6 +132,8 @@ public class NagiosInstanceRulesTests
         Assert.Throws<ValidationException>(() => NagiosInstanceRules.RequireRules(Input(i => i.MaxNewTasksPerCheck = 0)));
         Assert.Throws<ValidationException>(() => NagiosInstanceRules.RequireRules(Input(i => i.MaxNewTasksPerCheck = 101)));
         Assert.Throws<ValidationException>(() => NagiosInstanceRules.RequireRules(Input(i => i.TaskPriority = (TaskPriority)99)));
+        Assert.Throws<ValidationException>(() => NagiosInstanceRules.RequireRules(Input(i => i.TaskDue = (NagiosTaskDue)99)));
+        NagiosInstanceRules.RequireRules(Input(i => i.TaskDue = NagiosTaskDue.Tomorrow));
         Assert.Throws<ValidationException>(() => NagiosInstanceRules.RequireRules(Input(i => { i.RaiseHostDown = false; i.RaiseServiceCritical = false; })));
         NagiosInstanceRules.RequireRules(Input(i => { i.RaiseHostDown = false; i.RaiseServiceCritical = false; i.RaiseServiceWarning = true; }));
     }
@@ -151,6 +153,19 @@ public class NagiosInstanceRulesTests
         Assert.Equal(10, settings.MaxNewTasksPerCheck);
         Assert.False(new NagiosInstance().Enabled);
         Assert.Equal(TaskPriority.High, new NagiosInstance().TaskPriority);
+        Assert.Equal(NagiosTaskDue.None, new NagiosInstance().TaskDue);
+    }
+
+    /// <summary>NAG-019: a raised task is due on no day, the day it is raised, or the day after - across a month and a year end too.</summary>
+    [Fact]
+    public void A_raised_task_is_due_as_the_instance_says()
+    {
+        var day = new DateOnly(2026, 10, 22);
+        Assert.Null(NagiosInstanceRules.DueDate(NagiosTaskDue.None, day));
+        Assert.Equal(day, NagiosInstanceRules.DueDate(NagiosTaskDue.Today, day));
+        Assert.Equal(new DateOnly(2026, 10, 23), NagiosInstanceRules.DueDate(NagiosTaskDue.Tomorrow, day));
+        Assert.Equal(new DateOnly(2026, 11, 1), NagiosInstanceRules.DueDate(NagiosTaskDue.Tomorrow, new DateOnly(2026, 10, 31)));
+        Assert.Equal(new DateOnly(2027, 1, 1), NagiosInstanceRules.DueDate(NagiosTaskDue.Tomorrow, new DateOnly(2026, 12, 31)));
     }
 
     private static readonly DateTime Since = new(2026, 10, 7, 21, 25, 0, DateTimeKind.Utc);

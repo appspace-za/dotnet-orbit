@@ -42,6 +42,8 @@ public class NagiosInstance
     public Guid DepartmentId { get; set; }
     public Department Department { get; set; } = null!;
     public TaskPriority TaskPriority { get; set; } = TaskPriority.High;
+    /// <summary>The raised task's due date: none, the day (UTC) it is raised, or the day after.</summary>
+    public NagiosTaskDue TaskDue { get; set; } = NagiosTaskDue.None;
     /// <summary>Who each raised task is assigned to; nobody means it waits unassigned in the department.</summary>
     public ICollection<NagiosInstanceAssignee> Assignees { get; set; } = new List<NagiosInstanceAssignee>();
 

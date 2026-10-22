@@ -209,9 +209,14 @@
                                 }
                             </select>
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-md-3">
                             <label class="form-label" for="Form_TaskPriority">Priority</label>
                             <select class="form-select" id="Form_TaskPriority" name="Form.TaskPriority" asp-items="Ui.EnumItems<TaskPriority>(f.TaskPriority)"></select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="Form_TaskDue">Due</label>
+                            <select class="form-select" id="Form_TaskDue" name="Form.TaskDue" asp-items="Ui.EnumItems<NagiosTaskDue>(f.TaskDue, label: d => d.Label())"></select>
+                            <div class="form-text">Counted from the day the task is raised (UTC).</div>
                         </div>
                         <div class="col-12">
                             <label class="form-label" for="assignee-picker-input">Assignees</label>

@@ -87,6 +87,17 @@ public enum NagiosResolution
     Vanished
 }
 
+/// <summary>When a task a Nagios instance raises is due (§6.21), counted from the day (UTC) it is raised.</summary>
+public enum NagiosTaskDue
+{
+    /// <summary>No due date.</summary>
+    None,
+    /// <summary>The day it is raised.</summary>
+    Today,
+    /// <summary>The day after it is raised.</summary>
+    Tomorrow
+}
+
 /// <summary>What a step of a request flow is (§6.20). A flow may hold any number of each.</summary>
 public enum RequestStepKind
 {
@@ -508,6 +519,12 @@ public static class TaskStatusExtensions
     {
         NagiosResolution.Vanished => "No longer in Nagios",
         _ => resolution.ToString()
+    };
+
+    public static string Label(this NagiosTaskDue due) => due switch
+    {
+        NagiosTaskDue.None => "No due date",
+        _ => due.ToString()
     };
 
     public static string Label(this RequestStepStatus status) => status switch

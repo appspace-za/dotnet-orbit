@@ -1247,6 +1247,11 @@ namespace Orbit.Migrations
                     b.Property<bool>("SkipScheduledDowntime")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("TaskDue")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
                     b.Property<string>("TaskPriority")
                         .IsRequired()
                         .HasMaxLength(32)

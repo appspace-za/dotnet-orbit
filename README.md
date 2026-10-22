@@ -410,7 +410,8 @@ Under **Admin > Nagios** (needs **Manage Nagios monitoring**, which no shipped r
   Critical are ticked on a new instance), how many minutes a host and a service must have been in one, whether
   scheduled downtime and acknowledged problems are skipped (both on by default), how often to check, and the most
   new tasks one check may raise.
-- **Where the tasks go**: a department, a priority and the people each task is assigned to.
+- **Where the tasks go**: a department, a priority, a due date (none, the day the task is raised or the day after, in
+  UTC days) and the people each task is assigned to.
 
 **Test connection** reads Nagios through the agent with what is on the form, saved or not, and lists every problem
 Nagios reports with what a check would do about it. Use it before switching an instance on: problems already past

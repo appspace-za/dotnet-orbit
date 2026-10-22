@@ -164,6 +164,7 @@ public sealed class NagiosService(
             .Track("maxNewTasksPerCheck", instance.MaxNewTasksPerCheck, input.MaxNewTasksPerCheck)
             .Track("departmentId", instance.DepartmentId, departmentId)
             .Track("taskPriority", instance.TaskPriority, input.TaskPriority)
+            .Track("taskDue", instance.TaskDue, input.TaskDue)
             .Track("assigneeIds", Ids(current), Ids(wanted));
         // The audit trail records that the password changed, never what it changed to.
         var details = new Dictionary<string, object?>(changes.Changes);
@@ -282,6 +283,7 @@ public sealed class NagiosService(
         instance.SkipAcknowledged = input.SkipAcknowledged;
         instance.MaxNewTasksPerCheck = input.MaxNewTasksPerCheck;
         instance.TaskPriority = input.TaskPriority;
+        instance.TaskDue = input.TaskDue;
     }
 
     /// <summary>Everything but the password, for the audit entry of a new instance.</summary>
@@ -290,7 +292,7 @@ public sealed class NagiosService(
         n.Name, n.BaseUrl, n.Username, password = "set", n.ValidateCertificate, n.AgentId, n.Enabled, n.CheckIntervalMinutes,
         n.HostThresholdMinutes, n.ServiceThresholdMinutes,
         n.RaiseHostDown, n.RaiseHostUnreachable, n.RaiseServiceCritical, n.RaiseServiceWarning, n.RaiseServiceUnknown,
-        n.SkipScheduledDowntime, n.SkipAcknowledged, n.MaxNewTasksPerCheck, n.DepartmentId, n.TaskPriority,
+        n.SkipScheduledDowntime, n.SkipAcknowledged, n.MaxNewTasksPerCheck, n.DepartmentId, n.TaskPriority, n.TaskDue,
         assigneeIds = n.Assignees.Select(a => a.UserId).ToList()
     };
 

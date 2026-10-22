@@ -27,6 +27,7 @@ public sealed class NagiosInstanceInput
     public int MaxNewTasksPerCheck { get; set; } = 10;
     public Guid? DepartmentId { get; set; }
     public TaskPriority TaskPriority { get; set; } = TaskPriority.High;
+    public NagiosTaskDue TaskDue { get; set; } = NagiosTaskDue.None;
     public List<Guid> AssigneeIds { get; set; } = [];
 }
 

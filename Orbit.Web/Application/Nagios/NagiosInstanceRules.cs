@@ -1,5 +1,6 @@
 using Orbit.Agents.Contracts;
 using Orbit.Application.Models;
+using Orbit.Data.Entities;
 
 namespace Orbit.Application.Nagios;
 
@@ -60,7 +61,16 @@ public static class NagiosInstanceRules
         if (input.MaxNewTasksPerCheck is < 1 or > MaxNewTasksPerCheckLimit)
             throw new ValidationException($"The most new tasks in one check is between 1 and {MaxNewTasksPerCheckLimit}.");
         if (!Enum.IsDefined(input.TaskPriority)) throw new ValidationException("Choose a priority for the tasks.");
+        if (!Enum.IsDefined(input.TaskDue)) throw new ValidationException("Choose when the tasks are due.");
         if (!(input.RaiseHostDown || input.RaiseHostUnreachable || input.RaiseServiceCritical || input.RaiseServiceWarning || input.RaiseServiceUnknown))
             throw new ValidationException("Tick at least one host or service state that raises a task.");
     }
+
+    /// <summary>The due date of a task raised on <paramref name="today"/> (the UTC date, as Orbit counts days everywhere).</summary>
+    public static DateOnly? DueDate(NagiosTaskDue due, DateOnly today) => due switch
+    {
+        NagiosTaskDue.Today => today,
+        NagiosTaskDue.Tomorrow => today.AddDays(1),
+        _ => null
+    };
 }

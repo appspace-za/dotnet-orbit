@@ -117,6 +117,7 @@ public sealed class NagiosForm
     public int MaxNewTasksPerCheck { get; set; } = 10;
     public Guid? DepartmentId { get; set; }
     public TaskPriority TaskPriority { get; set; } = TaskPriority.High;
+    public NagiosTaskDue TaskDue { get; set; } = NagiosTaskDue.None;
     public List<Guid> AssigneeIds { get; set; } = [];
 
     public NagiosInstanceInput ToInput() => new()
@@ -127,7 +128,7 @@ public sealed class NagiosForm
         RaiseHostDown = RaiseHostDown, RaiseHostUnreachable = RaiseHostUnreachable,
         RaiseServiceCritical = RaiseServiceCritical, RaiseServiceWarning = RaiseServiceWarning, RaiseServiceUnknown = RaiseServiceUnknown,
         SkipScheduledDowntime = SkipScheduledDowntime, SkipAcknowledged = SkipAcknowledged, MaxNewTasksPerCheck = MaxNewTasksPerCheck,
-        DepartmentId = DepartmentId, TaskPriority = TaskPriority, AssigneeIds = AssigneeIds
+        DepartmentId = DepartmentId, TaskPriority = TaskPriority, TaskDue = TaskDue, AssigneeIds = AssigneeIds
     };
 
     /// <summary>A new instance: down hosts and critical services raise tasks; downtime and acknowledged problems don't; switched off until tested.</summary>
@@ -144,6 +145,6 @@ public sealed class NagiosForm
         RaiseHostDown = n.RaiseHostDown, RaiseHostUnreachable = n.RaiseHostUnreachable,
         RaiseServiceCritical = n.RaiseServiceCritical, RaiseServiceWarning = n.RaiseServiceWarning, RaiseServiceUnknown = n.RaiseServiceUnknown,
         SkipScheduledDowntime = n.SkipScheduledDowntime, SkipAcknowledged = n.SkipAcknowledged, MaxNewTasksPerCheck = n.MaxNewTasksPerCheck,
-        DepartmentId = n.DepartmentId, TaskPriority = n.TaskPriority, AssigneeIds = n.Assignees.Select(a => a.UserId).ToList()
+        DepartmentId = n.DepartmentId, TaskPriority = n.TaskPriority, TaskDue = n.TaskDue, AssigneeIds = n.Assignees.Select(a => a.UserId).ToList()
     };
 }

@@ -168,6 +168,7 @@ public sealed class NagiosMonitor(
                     Description = NagiosText.TaskDescription(instance.Name, problem, link),
                     DepartmentId = instance.DepartmentId,
                     Priority = instance.TaskPriority,
+                    DueDate = NagiosInstanceRules.DueDate(instance.TaskDue, DateOnly.FromDateTime(now)),
                     Assignments = [],
                     Status = TaskItemStatus.Todo,
                     Source = TaskSource.Nagios,
@@ -187,6 +188,7 @@ public sealed class NagiosMonitor(
                 {
                     nagios = new { instanceId, instance = instance.Name, host = problem.Host, service = problem.IsService ? problem.Service : null, state = problem.State, since = problem.Since },
                     task.Priority,
+                    task.DueDate,
                     assigneeIds = people.Select(u => u.Id).ToList()
                 });
                 await notifications.TaskCreatedAsync(task, Actor.System, ct);

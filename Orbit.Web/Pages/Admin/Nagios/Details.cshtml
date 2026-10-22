@@ -152,6 +152,7 @@ else if (n.Enabled && !d.AgentQueriesNagios)
                     <dt class="col-5">Acknowledged</dt><dd class="col-7">@(n.SkipAcknowledged ? "not raised" : "raised")</dd>
                     <dt class="col-5">Checked every</dt><dd class="col-7">@n.CheckIntervalMinutes min</dd>
                     <dt class="col-5">Tasks go to</dt><dd class="col-7">@n.Department.Name · @n.TaskPriority</dd>
+                    <dt class="col-5">Tasks due</dt><dd class="col-7">@n.TaskDue.Label()</dd>
                     <dt class="col-5">Signs in as</dt><dd class="col-7">@n.Username@(d.HasPassword ? "" : " (no password stored)")</dd>
                 </dl>
             </div>
