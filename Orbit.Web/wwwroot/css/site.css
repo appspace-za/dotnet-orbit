@@ -608,6 +608,8 @@ html {
 .request-urgency-medium { border-left: 4px solid var(--bs-info) !important; }
 .request-urgency-high { border-left: 4px solid var(--bs-warning) !important; }
 .request-urgency-critical { border-left: 4px solid var(--bs-danger) !important; }
+/* The builder's box per urgency level: the level names line up. */
+.request-urgency-level { min-width: 5.5rem; }
 .request-review dt { font-weight: 600; }
 .request-review dd { white-space: pre-wrap; margin-bottom: .9rem; }
 .request-review .btn-link { padding: 0; font-size: .85rem; vertical-align: baseline; }

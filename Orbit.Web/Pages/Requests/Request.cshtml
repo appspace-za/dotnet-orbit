@@ -99,7 +99,7 @@
                                             }
                                             else if (field.FieldType == RequestFieldType.Urgency && RequestEngineRules.ParseUrgency(answers[0].Value) is TaskPriority urgency)
                                             {
-                                                <text>@urgency - @RequestEngineRules.UrgencyMeaning(urgency)</text>
+                                                <text>@urgency - @RequestEngineRules.UrgencyMeaning(field, urgency)</text>
                                             }
                                             else
                                             {

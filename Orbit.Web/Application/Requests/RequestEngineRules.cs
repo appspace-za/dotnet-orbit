@@ -309,8 +309,8 @@ public static class RequestEngineRules
         return null;
     }
 
-    /// <summary>What each urgency means to the person asking (§6.20): shown beside the choice, in the review and on the request page.</summary>
-    public static string UrgencyMeaning(TaskPriority priority) => priority switch
+    /// <summary>The standard wording of each urgency (§6.20): what a level means where the question doesn't word it itself.</summary>
+    public static string StandardUrgencyMeaning(TaskPriority priority) => priority switch
     {
         TaskPriority.Low => "No rush",
         TaskPriority.Medium => "It's slowing me down, but I can work around it",
@@ -318,6 +318,18 @@ public static class RequestEngineRules
         TaskPriority.Critical => "Work has stopped for me or for several people",
         _ => priority.ToString()
     };
+
+    /// <summary>
+    /// REQ-013: what an urgency means to the person asking (§6.20), shown beside the choice, in the review and on the request page -
+    /// the question's own wording for that level (<see cref="RequestFormField.UrgencyMeanings"/>), else the standard one.
+    /// </summary>
+    public static string UrgencyMeaning(RequestFormField field, TaskPriority priority)
+    {
+        var i = Array.IndexOf(Enum.GetValues<TaskPriority>(), priority);
+        return i >= 0 && i < field.UrgencyMeanings.Count && !string.IsNullOrWhiteSpace(field.UrgencyMeanings[i])
+            ? field.UrgencyMeanings[i]
+            : StandardUrgencyMeaning(priority);
+    }
 
     /// <summary>
     /// REQ-021: the task's priority - the Urgency answer the step's <see cref="RequestFlowStep.PriorityFieldId"/> names, when the

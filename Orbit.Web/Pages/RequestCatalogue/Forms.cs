@@ -147,7 +147,10 @@ public sealed class StepForm
     };
 }
 
-/// <summary>One field of a form step (§6.20). A Choice field's answers are typed one per line.</summary>
+/// <summary>
+/// One field of a form step (§6.20). A Choice field's answers are typed one per line; an Urgency's own wording one box per level,
+/// in priority order, blank for the standard wording.
+/// </summary>
 public sealed class FieldForm
 {
     public string? Prompt { get; set; }
@@ -156,6 +159,7 @@ public sealed class FieldForm
     public RequestFieldType FieldType { get; set; } = RequestFieldType.Text;
     public bool IsRequired { get; set; }
     public string? Choices { get; set; }
+    public string?[] UrgencyMeanings { get; set; } = new string?[Enum.GetValues<TaskPriority>().Length];
     public RequestPickerScope? PickerScope { get; set; }
 
     public RequestFieldInput ToInput() => new()
@@ -166,13 +170,17 @@ public sealed class FieldForm
         FieldType = FieldType,
         IsRequired = IsRequired,
         Choices = (Choices ?? string.Empty).Split('\n').Select(c => c.Trim()).Where(c => c.Length > 0).ToList(),
+        UrgencyMeanings = UrgencyMeanings,
         PickerScope = PickerScope
     };
 
     public static FieldForm From(RequestFormField f) => new()
     {
         Prompt = f.Prompt, Key = f.Key, HelpText = f.HelpText, FieldType = f.FieldType, IsRequired = f.IsRequired,
-        Choices = string.Join("\n", f.Choices), PickerScope = f.PickerScope
+        Choices = string.Join("\n", f.Choices), PickerScope = f.PickerScope,
+        UrgencyMeanings = Enum.GetValues<TaskPriority>()
+            .Select((_, i) => i < f.UrgencyMeanings.Count && f.UrgencyMeanings[i].Length > 0 ? f.UrgencyMeanings[i] : null)
+            .ToArray()
     };
 }
 

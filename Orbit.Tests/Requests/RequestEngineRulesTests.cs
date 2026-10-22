@@ -312,8 +312,25 @@ public class RequestEngineRulesTests
         Assert.Equal(TaskPriority.Low, RequestEngineRules.TaskPriorityFor(fromField, null));
         Assert.Equal(TaskPriority.Low, RequestEngineRules.TaskPriorityFor(fromField, "later"));
         Assert.Null(RequestEngineRules.ParseUrgency("2"));
-        Assert.Equal("No rush", RequestEngineRules.UrgencyMeaning(TaskPriority.Low));
-        Assert.Equal("Work has stopped for me or for several people", RequestEngineRules.UrgencyMeaning(TaskPriority.Critical));
+    }
+
+    /// <summary>REQ-013: what an urgency means - the question's own wording for a level, else the standard one.</summary>
+    [Fact]
+    public void An_urgency_is_worded_by_its_question_or_as_standard()
+    {
+        Assert.Equal("No rush", RequestEngineRules.StandardUrgencyMeaning(TaskPriority.Low));
+        Assert.Equal("Work has stopped for me or for several people", RequestEngineRules.StandardUrgencyMeaning(TaskPriority.Critical));
+
+        var standard = Field(RequestFieldType.Urgency);
+        foreach (var level in Enum.GetValues<TaskPriority>())
+            Assert.Equal(RequestEngineRules.StandardUrgencyMeaning(level), RequestEngineRules.UrgencyMeaning(standard, level));
+
+        var own = Field(RequestFieldType.Urgency);
+        own.UrgencyMeanings = ["", "", "Needed this week", "Customers are affected"];
+        Assert.Equal("No rush", RequestEngineRules.UrgencyMeaning(own, TaskPriority.Low));
+        Assert.Equal("It's slowing me down, but I can work around it", RequestEngineRules.UrgencyMeaning(own, TaskPriority.Medium));
+        Assert.Equal("Needed this week", RequestEngineRules.UrgencyMeaning(own, TaskPriority.High));
+        Assert.Equal("Customers are affected", RequestEngineRules.UrgencyMeaning(own, TaskPriority.Critical));
     }
 
     /// <summary>REQ-021: a task step's due date - none, the day the task is created, or the answer to the Date field the step names.</summary>

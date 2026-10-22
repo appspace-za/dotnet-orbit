@@ -2105,6 +2105,10 @@ namespace Orbit.Migrations
                     b.Property<Guid>("StepId")
                         .HasColumnType("uuid");
 
+                    b.PrimitiveCollection<List<string>>("UrgencyMeanings")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
                     b.HasKey("Id");
 
                     b.HasIndex("StepId", "Key")

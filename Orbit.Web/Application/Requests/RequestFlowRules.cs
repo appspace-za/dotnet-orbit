@@ -8,7 +8,8 @@ namespace Orbit.Application.Requests;
 
 /// <summary>A field definition after its checks (§6.20).</summary>
 public sealed record RequestFieldDefinition(
-    string Key, string Prompt, string? HelpText, RequestFieldType Type, bool IsRequired, IReadOnlyList<string> Choices, RequestPickerScope? Scope);
+    string Key, string Prompt, string? HelpText, RequestFieldType Type, bool IsRequired, IReadOnlyList<string> Choices, RequestPickerScope? Scope,
+    IReadOnlyList<string> UrgencyMeanings);
 
 /// <summary>
 /// Request flows (spec §6.20) as pure functions, so the rules are unit-tested: what a category, flow, step, field, stage and action may
@@ -29,6 +30,8 @@ public static class RequestFlowRules
     public const int MaxFields = 30;
     public const int MaxChoices = 50;
     public const int MaxChoiceLength = 200;
+    /// <summary>How long an Urgency field's own wording for one level may be.</summary>
+    public const int MaxUrgencyMeaningLength = 200;
     public const int MaxTitleTemplateLength = 500;
     public const int MaxTemplateLength = 4000;
     public const int MaxTextAnswerLength = 4000;
@@ -183,7 +186,7 @@ public static class RequestFlowRules
     /// REQ-013: a field's definition - prompt and help text within their lengths; a Choice with two to 50 distinct answers (one per
     /// line) and no other type with any; a scope only for an Asset, Asset type, Project or User field - any of them may offer the
     /// flow's department's, the requester's department's or the whole company's, Held only an Asset. An Urgency has neither: its
-    /// answers are the four priorities.
+    /// answers are the four priorities. It alone may word what each of them means (<see cref="CleanUrgencyMeanings"/>).
     /// </summary>
     public static RequestFieldDefinition ValidateField(RequestFieldInput input, string? key = null)
     {
@@ -214,7 +217,27 @@ public static class RequestFlowRules
             if (scope == RequestPickerScope.Held && input.FieldType != RequestFieldType.Asset)
                 throw new ValidationException("Only an Asset field can offer the ones the person asking holds.");
         }
-        return new RequestFieldDefinition(key ?? CleanKey(input.Key, prompt), prompt, help, input.FieldType, input.IsRequired, choices, scope);
+        IReadOnlyList<string> meanings = input.FieldType == RequestFieldType.Urgency ? CleanUrgencyMeanings(input.UrgencyMeanings) : [];
+        return new RequestFieldDefinition(key ?? CleanKey(input.Key, prompt), prompt, help, input.FieldType, input.IsRequired, choices, scope, meanings);
+    }
+
+    /// <summary>
+    /// REQ-013: an Urgency field's own wording for its levels, given in priority order (Low, Medium, High, Critical) - each trimmed
+    /// and at most 200 characters. A level left blank, or worded exactly as the standard, is stored as "" and keeps the standard
+    /// wording, so it follows any later change to it; with no level worded the list is empty.
+    /// </summary>
+    public static IReadOnlyList<string> CleanUrgencyMeanings(IReadOnlyList<string?> given)
+    {
+        var levels = Enum.GetValues<TaskPriority>();
+        var meanings = new string[levels.Length];
+        for (var i = 0; i < levels.Length; i++)
+        {
+            var text = (i < given.Count ? given[i] : null)?.Trim() ?? string.Empty;
+            if (text.Length > MaxUrgencyMeaningLength)
+                throw new ValidationException($"What {levels[i]} means must be {MaxUrgencyMeaningLength} characters or fewer.");
+            meanings[i] = text == RequestEngineRules.StandardUrgencyMeaning(levels[i]) ? string.Empty : text;
+        }
+        return meanings.All(m => m.Length == 0) ? [] : meanings;
     }
 
     // ---------------------------------------------------------------- dependencies

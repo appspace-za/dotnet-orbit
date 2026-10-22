@@ -72,7 +72,10 @@ public sealed class RequestStepInput
     public IReadOnlyDictionary<string, string?> ActionInputs { get; set; } = new Dictionary<string, string?>();
 }
 
-/// <summary>One field of a Form step (§6.20). <see cref="Choices"/> only for a Choice; <see cref="PickerScope"/> only for Asset, Asset type, Project and User.</summary>
+/// <summary>
+/// One field of a Form step (§6.20). <see cref="Choices"/> only for a Choice; <see cref="UrgencyMeanings"/> only for an Urgency;
+/// <see cref="PickerScope"/> only for Asset, Asset type, Project and User.
+/// </summary>
 public sealed class RequestFieldInput
 {
     public string Prompt { get; set; } = string.Empty;
@@ -81,6 +84,8 @@ public sealed class RequestFieldInput
     public RequestFieldType FieldType { get; set; } = RequestFieldType.Text;
     public bool IsRequired { get; set; }
     public IReadOnlyList<string> Choices { get; set; } = [];
+    /// <summary>An Urgency's own wording per level, in priority order (Low, Medium, High, Critical); blank keeps the standard one.</summary>
+    public IReadOnlyList<string?> UrgencyMeanings { get; set; } = [];
     public RequestPickerScope? PickerScope { get; set; }
 }
 

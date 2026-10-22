@@ -117,6 +117,11 @@ public class RequestFormField
     public bool IsRequired { get; set; }
     /// <summary>The answers a Choice field offers, in order; empty for every other type.</summary>
     public List<string> Choices { get; set; } = [];
+    /// <summary>
+    /// What an Urgency field's levels mean for this question: empty for the standard wording, or four entries in priority order
+    /// (Low, Medium, High, Critical), "" for a level that keeps the standard one. Empty for every other type.
+    /// </summary>
+    public List<string> UrgencyMeanings { get; set; } = [];
     /// <summary>What an Asset, Asset type, Project or User field offers; null for the other types.</summary>
     public RequestPickerScope? PickerScope { get; set; }
     public int DisplayOrder { get; set; }

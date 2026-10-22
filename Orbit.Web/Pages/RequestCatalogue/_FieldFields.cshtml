@@ -26,6 +26,21 @@
     <label class="form-label small mb-1" for="@p-choices">Answers <span class="text-muted">(one per line)</span></label>
     <textarea class="form-control form-control-sm" id="@p-choices" name="field.Choices" rows="3">@f.Choices</textarea>
 </div>
+<div class="mb-2" data-for-type="Urgency">
+    <div class="form-label small mb-1">What each level means <span class="text-muted">(optional)</span></div>
+    @{ var levels = Enum.GetValues<TaskPriority>(); }
+    @for (var i = 0; i < levels.Length; i++)
+    {
+        var level = levels[i];
+        var id = $"{p}-urgency-{i}";
+        <div class="input-group input-group-sm mb-1">
+            <label class="input-group-text request-urgency-level request-urgency-@level.ToString().ToLowerInvariant()" for="@id">@level</label>
+            <input class="form-control" id="@id" name="field.UrgencyMeanings[@i]" value="@f.UrgencyMeanings.ElementAtOrDefault(i)"
+                   maxlength="@RequestFlowRules.MaxUrgencyMeaningLength" placeholder="@RequestEngineRules.StandardUrgencyMeaning(level)" />
+        </div>
+    }
+    <div class="form-text">Word them for this question. Leave one blank to keep the wording shown.</div>
+</div>
 <div class="mb-2" data-for-type="Asset AssetType Project User">
     <label class="form-label small mb-1" for="@p-scope">Offers</label>
     <select class="form-select form-select-sm" id="@p-scope" name="field.PickerScope">

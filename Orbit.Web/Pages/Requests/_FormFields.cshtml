@@ -73,7 +73,7 @@
                                checked="@(string.Equals(answer.Value, p.ToString(), StringComparison.OrdinalIgnoreCase))" required="@f.IsRequired" aria-describedby="@describedBy" />
                         <label class="btn btn-outline-secondary request-urgency-@p.ToString().ToLowerInvariant()" for="@rid">
                             <span class="fw-semibold js-choice-label">@p</span>
-                            <span class="small js-choice-detail">@RequestEngineRules.UrgencyMeaning(p)</span>
+                            <span class="small js-choice-detail">@RequestEngineRules.UrgencyMeaning(f, p)</span>
                         </label>
                     }
                 </div>

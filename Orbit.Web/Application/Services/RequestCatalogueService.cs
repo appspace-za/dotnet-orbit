@@ -537,6 +537,7 @@ public sealed class RequestCatalogueService(ApplicationDbContext db, IActorProvi
             FieldType = def.Type,
             IsRequired = def.IsRequired,
             Choices = [.. def.Choices],
+            UrgencyMeanings = [.. def.UrgencyMeanings],
             PickerScope = def.Scope,
             DisplayOrder = (step.Fields.Count == 0 ? 0 : step.Fields.Max(f => f.DisplayOrder)) + 1
         };
@@ -566,6 +567,7 @@ public sealed class RequestCatalogueService(ApplicationDbContext db, IActorProvi
             .Track("type", field.FieldType, def.Type)
             .Track("required", field.IsRequired, def.IsRequired)
             .Track("choices", string.Join("\n", field.Choices), string.Join("\n", def.Choices))
+            .Track("urgencyMeanings", string.Join("\n", field.UrgencyMeanings), string.Join("\n", def.UrgencyMeanings))
             .Track("scope", field.PickerScope, def.Scope);
         if (!changes.HasChanges) return;
         field.Key = def.Key;
@@ -574,6 +576,7 @@ public sealed class RequestCatalogueService(ApplicationDbContext db, IActorProvi
         field.FieldType = def.Type;
         field.IsRequired = def.IsRequired;
         field.Choices = [.. def.Choices];
+        field.UrgencyMeanings = [.. def.UrgencyMeanings];
         field.PickerScope = def.Scope;
         Touch(step.Flow);
         audit.Add(actor, AuditEntity.RequestFlow, step.FlowId, AuditAction.Updated, step.Flow.Category.DepartmentId, step.Flow.Title,
@@ -808,7 +811,11 @@ public sealed class RequestCatalogueService(ApplicationDbContext db, IActorProvi
             .FirstOrDefaultAsync(s => s.Id == stageId, ct) ?? throw new NotFoundException("Approval stage not found.");
 
     private static object Describe(RequestFormField f) =>
-        new { f.Key, f.Prompt, type = f.FieldType, required = f.IsRequired, choices = f.Choices.Count == 0 ? null : f.Choices, scope = f.PickerScope };
+        new
+        {
+            f.Key, f.Prompt, type = f.FieldType, required = f.IsRequired, choices = f.Choices.Count == 0 ? null : f.Choices,
+            urgencyMeanings = f.UrgencyMeanings.Count == 0 ? null : f.UrgencyMeanings, scope = f.PickerScope
+        };
 
     private static string Outcome(RequestOutcome? outcome) => outcome is null ? "" : $" ({outcome.ToString()!.ToLowerInvariant()})";
 

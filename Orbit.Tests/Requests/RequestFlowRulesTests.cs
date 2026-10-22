@@ -150,6 +150,7 @@ public class RequestFlowRulesTests
         var urgency = RequestFlowRules.ValidateField(new RequestFieldInput { Prompt = "How urgent?", FieldType = RequestFieldType.Urgency, Choices = ["x", "y"], PickerScope = RequestPickerScope.Company });
         Assert.Empty(urgency.Choices);
         Assert.Null(urgency.Scope);
+        Assert.Empty(urgency.UrgencyMeanings);
         Assert.Throws<ValidationException>(() => RequestFlowRules.ValidateField(new RequestFieldInput { Prompt = "What kind?", FieldType = RequestFieldType.AssetType }));
         Assert.Throws<ValidationException>(() => RequestFlowRules.ValidateField(new RequestFieldInput { Prompt = "What kind?", FieldType = RequestFieldType.AssetType, PickerScope = RequestPickerScope.Held }));
         var assetType = RequestFlowRules.ValidateField(new RequestFieldInput { Prompt = "What kind?", FieldType = RequestFieldType.AssetType, PickerScope = RequestPickerScope.Department });
@@ -162,6 +163,37 @@ public class RequestFlowRulesTests
         }
         var date = RequestFlowRules.ValidateField(new RequestFieldInput { Prompt = "When?", FieldType = RequestFieldType.Date, PickerScope = RequestPickerScope.RequestersDepartment });
         Assert.Null(date.Scope);
+    }
+
+    /// <summary>
+    /// REQ-013: an Urgency words its own levels - trimmed, in priority order, "" for a level left blank or worded as the standard,
+    /// none at all when no level is worded, at most 200 characters each; no other type keeps any.
+    /// </summary>
+    [Fact]
+    public void An_urgency_words_its_own_levels()
+    {
+        RequestFieldDefinition Urgency(params string?[] meanings) =>
+            RequestFlowRules.ValidateField(new RequestFieldInput { Prompt = "How soon?", FieldType = RequestFieldType.Urgency, UrgencyMeanings = meanings });
+
+        Assert.Equal(["", "", "Needed this week", "Customers are affected"],
+            Urgency(null, "  ", " Needed this week ", "Customers are affected").UrgencyMeanings);
+        Assert.Equal(["", "", "Needed this week", ""], Urgency("No rush", "", "Needed this week").UrgencyMeanings);
+        Assert.Empty(Urgency().UrgencyMeanings);
+        Assert.Empty(Urgency("", " ", null, null).UrgencyMeanings);
+        Assert.Empty(Urgency("No rush", RequestEngineRules.StandardUrgencyMeaning(TaskPriority.Medium)).UrgencyMeanings);
+
+        var tooLong = Assert.Throws<ValidationException>(() => Urgency("", "", new string('x', 201)));
+        Assert.Contains("High", tooLong.Message);
+        Assert.Equal(200, Urgency("", "", new string('x', 200)).UrgencyMeanings[2].Length);
+
+        foreach (var type in new[] { RequestFieldType.Text, RequestFieldType.Choice })
+        {
+            var other = RequestFlowRules.ValidateField(new RequestFieldInput
+            {
+                Prompt = "What?", FieldType = type, Choices = ["a", "b"], UrgencyMeanings = ["Soon", "Sooner", "Now", "Yesterday"]
+            });
+            Assert.Empty(other.UrgencyMeanings);
+        }
     }
 
     /// <summary>
