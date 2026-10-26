@@ -185,13 +185,14 @@ builder.Services.AddScoped<AgentNagiosDispatcher>();
 builder.Services.AddSingleton<NagiosPasswordProtector>();
 // One script host per process (§6.20): compiled scripts are cached in it.
 builder.Services.AddSingleton<ScriptHost>();
-// The email sender (§6.7): Brevo's or Mailjet's API, as Email:Provider says, otherwise the log. Settings that won't send stop
-// startup here, and the header carrying the provider's credentials is kept out of HttpClient's logging.
+// The email sender (§6.7): Brevo's, Mailjet's or Resend's API, as Email:Provider says, otherwise the log. Settings that won't send
+// stop startup here, and the header carrying the provider's credentials is kept out of HttpClient's logging.
 var email = config.GetSection(EmailOptions.Section).Get<EmailOptions>() ?? new EmailOptions();
 var emailProblems = email.Provider switch
 {
     EmailProvider.Brevo => BrevoRules.ConfigProblems(email),
     EmailProvider.Mailjet => MailjetRules.ConfigProblems(email),
+    EmailProvider.Resend => ResendRules.ConfigProblems(email),
     _ => []
 };
 if (emailProblems.Count > 0) throw new InvalidOperationException($"Email:Provider is {email.Provider}, but {string.Join("; ", emailProblems)}.");
@@ -210,6 +211,14 @@ switch (email.Provider)
             {
                 c.BaseAddress = MailjetRules.BaseUri(email.Mailjet);
                 c.Timeout = TimeSpan.FromSeconds(Math.Max(5, email.Mailjet.TimeoutSeconds));
+            })
+            .RedactLoggedHeaders([HeaderNames.Authorization]);
+        break;
+    case EmailProvider.Resend:
+        builder.Services.AddHttpClient<IEmailSender, ResendEmailSender>(c =>
+            {
+                c.BaseAddress = ResendRules.BaseUri(email.Resend);
+                c.Timeout = TimeSpan.FromSeconds(Math.Max(5, email.Resend.TimeoutSeconds));
             })
             .RedactLoggedHeaders([HeaderNames.Authorization]);
         break;

@@ -5,8 +5,9 @@ namespace Orbit.Application.Messages;
 
 /// <summary>
 /// What every email provider's API has in common (spec §6.7): the From address it is sent from, a base address that keeps the
-/// credentials off the network in clear, and a refusal in words for the outbox's error. <see cref="BrevoRules"/> and
-/// <see cref="MailjetRules"/> add what is each provider's own - its keys, its request and the shape of its errors.
+/// credentials off the network in clear, and a refusal in words for the outbox's error. <see cref="BrevoRules"/>,
+/// <see cref="MailjetRules"/> and <see cref="ResendRules"/> add what is each provider's own - its keys, its request and the shape of
+/// its errors.
 /// </summary>
 public static class EmailApiRules
 {

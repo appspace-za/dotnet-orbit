@@ -482,8 +482,9 @@ The requestee's closed-task email ends with the task's solution notes. Switch an
 
 Emails are written to an **outbox** in the same save as the change, so nobody hears of a change that was rolled back,
 and a job (`Jobs:EmailDispatch`, every 15 seconds) sends them, retrying one that fails. **Emails sent** lists the
-latest, with the reason one failed. Orbit sends through **Brevo** or **Mailjet** once one is configured (see [Sending
-email through Brevo](#sending-email-through-brevo) and [through Mailjet](#sending-email-through-mailjet)); until then it
+latest, with the reason one failed. Orbit sends through **Brevo**, **Mailjet** or **Resend** once one is configured (see
+[Sending email through Brevo](#sending-email-through-brevo), [through Mailjet](#sending-email-through-mailjet) and
+[through Resend](#sending-email-through-resend)); until then it
 only writes each email to the log, and the outbox shows them all the same. **Send test email** sends a short email to your own address straight away and shows why if it fails.
 
 ## Reports
@@ -539,7 +540,7 @@ old Nagios' own status data may be before a check is discarded.
 name the databases a script on the server may open; an agent's connections go in its own `actions.json` (deploy/README.md).
 `App:BaseUrl` is also the address put into an agent's `configure` command, so it must be the public `https` URL.
 Emails (see [Messages](#messages)) are sent from the outbox by `Jobs:EmailDispatch:*` (every 15 seconds) through
-Identity's `IEmailSender`: `Email:Provider` is `Log` (the default, which only logs them), `Brevo` or `Mailjet`.
+Identity's `IEmailSender`: `Email:Provider` is `Log` (the default, which only logs them), `Brevo`, `Mailjet` or `Resend`.
 `Email:MaxAttempts` (6) is how many tries a failing email gets, `Email:KeepDays` (30) how long sent and failed ones
 stay in the outbox, and `Email:BatchSize` (50) how many one run sends. `App:BaseUrl` is the address the emails link to.
 
@@ -594,3 +595,31 @@ authentication/authorization failure. …* for wrong keys, or a `send-0008` erro
 validated) and is retried as above. Mailjet's free plan sends 200 emails a day and 6,000 a month.
 `Email:Mailjet:TimeoutSeconds` (30) caps one send, and `Email:Mailjet:BaseUrl` defaults to
 `https://api.mailjet.com/v3.1/`.
+
+### Sending email through Resend
+
+Orbit can send the same emails through Resend's email API instead.
+
+1. In Resend, add the domain you will send from (*Domains*) and add the DNS records it gives you until it shows as
+   verified. Choose the domain's region when you add it (Ireland, `eu-west-1`, is the nearest to South Africa); Orbit
+   uses the same API address whichever you choose.
+2. Create an API key (*API Keys*, starting `re_`) with **Sending access**, limited to that domain. It is shown once.
+3. Set the settings, as environment variables in `/etc/orbit/orbit.env` in production, or with
+   `dotnet user-secrets set` (on `Orbit.Web`) in development. Never put the key in `appsettings.json`:
+   ```
+   Email__Provider=Resend
+   Email__FromAddress=orbit@your-domain
+   Email__FromName=Orbit
+   Email__Resend__ApiKey=re_...
+   ```
+4. Restart Orbit. It refuses to start with Resend chosen and the key or a valid From address missing, and says which.
+5. Press **Send test email** on Admin > Messages.
+
+To try Resend before the domain is verified, set `Email__FromAddress=onboarding@resend.dev`. Resend then sends only
+to the address of the Resend account's owner, so the test email works only for an Orbit admin with that address.
+
+A refused email stays in the outbox with Resend's reason (e.g. *Resend refused the email (401 validation_error): API
+key is invalid* for a wrong key, or a 403 `validation_error` for a domain Resend hasn't verified) and is retried as
+above. Resend writes each email's plain-text part from its HTML. Resend's free plan sends 100 emails a day and 3,000 a
+month, and any plan takes at most 10 requests a second; an email held back by either is retried like any other.
+`Email:Resend:TimeoutSeconds` (30) caps one send, and `Email:Resend:BaseUrl` defaults to `https://api.resend.com/`.

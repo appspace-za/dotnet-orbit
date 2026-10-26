@@ -41,7 +41,12 @@ public class IndexModel(MessageTemplateService messages, IEmailSender sender, IO
     }
 
     /// <summary>Where the provider shows what it sent.</summary>
-    private string ProviderLog => Email.Provider == EmailProvider.Mailjet ? "Mailjet's statistics" : "Brevo's transactional logs";
+    private string ProviderLog => Email.Provider switch
+    {
+        EmailProvider.Mailjet => "Mailjet's statistics",
+        EmailProvider.Resend => "Resend's email log",
+        _ => "Brevo's transactional logs"
+    };
 
     public IReadOnlyList<MessageTemplate> For(MessageTrigger trigger) => Items.Where(m => m.Trigger == trigger).ToList();
 }

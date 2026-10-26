@@ -128,7 +128,8 @@ public sealed class NagiosOptions
 
 /// <summary>
 /// Sending the emails messages write (spec §6.7). Which emails go, to whom and saying what is data, edited under Admin &gt; Messages;
-/// how they are delivered is Identity's <c>IEmailSender</c>, chosen by <see cref="Provider"/>: the log (the default), Brevo or Mailjet.
+/// how they are delivered is Identity's <c>IEmailSender</c>, chosen by <see cref="Provider"/>: the log (the default), Brevo, Mailjet
+/// or Resend.
 /// </summary>
 public sealed class EmailOptions
 {
@@ -141,7 +142,7 @@ public sealed class EmailOptions
     public int BatchSize { get; set; } = 50;
     /// <summary>
     /// Who delivers the emails. Brevo needs <see cref="FromAddress"/> and <c>Email:Brevo:ApiKey</c>; Mailjet needs it and
-    /// <c>Email:Mailjet:ApiKey</c> and <c>SecretKey</c>. Both are checked at startup.
+    /// <c>Email:Mailjet:ApiKey</c> and <c>SecretKey</c>; Resend needs it and <c>Email:Resend:ApiKey</c>. Each is checked at startup.
     /// </summary>
     public EmailProvider Provider { get; set; } = EmailProvider.Log;
     /// <summary>The From address: a sender the provider has verified, or an address on a domain authenticated there.</summary>
@@ -150,6 +151,7 @@ public sealed class EmailOptions
     public string FromName { get; set; } = "Orbit";
     public BrevoOptions Brevo { get; set; } = new();
     public MailjetOptions Mailjet { get; set; } = new();
+    public ResendOptions Resend { get; set; } = new();
 }
 
 public enum EmailProvider
@@ -159,7 +161,9 @@ public enum EmailProvider
     /// <summary>Send through Brevo's transactional email API (<c>BrevoEmailSender</c>).</summary>
     Brevo,
     /// <summary>Send through Mailjet's Send API v3.1 (<c>MailjetEmailSender</c>).</summary>
-    Mailjet
+    Mailjet,
+    /// <summary>Send through Resend's email API (<c>ResendEmailSender</c>).</summary>
+    Resend
 }
 
 /// <summary>Brevo's transactional email API (spec §6.7), used when <c>Email:Provider</c> is Brevo.</summary>
@@ -181,6 +185,17 @@ public sealed class MailjetOptions
     public string? SecretKey { get; set; }
     /// <summary>An account Mailjet hosts in the US uses <c>https://api.us.mailjet.com/v3.1/</c>.</summary>
     public string BaseUrl { get; set; } = "https://api.mailjet.com/v3.1/";
+    /// <summary>How long one send may take before it counts as failed and is tried again later.</summary>
+    public int TimeoutSeconds { get; set; } = 30;
+}
+
+/// <summary>Resend's email API (spec §6.7), used when <c>Email:Provider</c> is Resend.</summary>
+public sealed class ResendOptions
+{
+    /// <summary>An API key (<c>re_...</c>), best one with sending access only. A secret: supply it as <c>Email__Resend__ApiKey</c>, never in appsettings.json.</summary>
+    public string? ApiKey { get; set; }
+    /// <summary>The same for every sending region: a domain's region is chosen in Resend when the domain is added.</summary>
+    public string BaseUrl { get; set; } = "https://api.resend.com/";
     /// <summary>How long one send may take before it counts as failed and is tried again later.</summary>
     public int TimeoutSeconds { get; set; } = 30;
 }
