@@ -1,0 +1,24 @@
+@* One of a list page's filters (spec §6.2): a select of (value, text) options whose first is usually "All" (an empty value).
+   Choosing one raises ValueChanged; the page puts the filter in the address and reloads. *@
+<MudSelect T="string" Value="@(Value ?? "")" ValueChanged="ValueChanged" Label="@Label" ToStringFunc="Text" title="@Title"
+           Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Class="@Class">
+    @foreach (var o in Options)
+    {
+        <MudSelectItem T="string" Value="@o.Value">@o.Text</MudSelectItem>
+    }
+</MudSelect>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter, EditorRequired] public IReadOnlyList<(string Value, string Text)> Options { get; set; } = [];
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public string Class { get; set; } = "orbit-filter";
+
+    private string Text(string? value) => Options.FirstOrDefault(o => o.Value == (value ?? "")).Text ?? value ?? "";
+
+    /// <summary>"All" (empty), then an enum's values by name with their labels.</summary>
+    public static IReadOnlyList<(string Value, string Text)> EnumOptions<T>(Func<T, string>? label = null) where T : struct, Enum =>
+        [("", "All"), .. Enum.GetValues<T>().Select(v => (v.ToString(), label?.Invoke(v) ?? v.ToString()))];
+}

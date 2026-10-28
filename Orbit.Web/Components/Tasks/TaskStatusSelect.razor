@@ -1,0 +1,89 @@
+@inherits OrbitComponentBase
+@* The inline status control (spec §6.2). Picking Done asks first, as the Razor control does: the "no time logged" question
+   (§6.10), then the solution-notes dialog (§6.2.4). Cancel at either step, or a refused change, puts the control back. *@
+<MudSelect @key="_version" T="TaskItemStatus" Value="Task.Status" ValueChanged="PickedAsync" ToStringFunc="s => s.Label()"
+           Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Disabled="_busy" Class="orbit-inline" Label="@Label"
+           aria-label="Status">
+    @foreach (var s in Statuses)
+    {
+        <MudSelectItem T="TaskItemStatus" Value="s">@s.Label()</MudSelectItem>
+    }
+</MudSelect>
+
+@code {
+    [Parameter, EditorRequired] public TaskItem Task { get; set; } = null!;
+    /// <summary>The statuses the viewer may pick: <see cref="Ui.AllowedStatuses"/>.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<TaskItemStatus> Statuses { get; set; } = [];
+    /// <summary>A visible label (the task page); a table cell leaves it out.</summary>
+    [Parameter] public string? Label { get; set; }
+    /// <summary>Raised after the status changed, so the page can reload.</summary>
+    [Parameter] public EventCallback Changed { get; set; }
+
+    private int _version;
+    private bool _busy;
+
+    private async Task PickedAsync(TaskItemStatus status)
+    {
+        if (status == Task.Status) return;
+        _busy = true;
+        try
+        {
+            string? notes = null;
+            if (status == TaskItemStatus.Done)
+            {
+                var asked = await AskBeforeDoneAsync();
+                if (asked is null)
+                {
+                    _version++;
+                    return;
+                }
+                notes = asked;
+            }
+            TaskItem? changed = null;
+            if (await Act(async s => changed = await s.Get<TaskService>().ChangeStatusAsync(Task.Id, status, notes)))
+            {
+                Success(TaskMessages.StatusChanged(changed!, status));
+                await Changed.InvokeAsync();
+            }
+            else
+            {
+                _version++;
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>The questions before Done: the solution notes to send, or null when the user backed out.</summary>
+    private async Task<string?> AskBeforeDoneAsync()
+    {
+        // A failed check goes on without its warning or kept notes; the server still checks.
+        string? warning = null;
+        var kept = Task.SolutionNotes;
+        try
+        {
+            (warning, kept) = await Runner.RunAsync(async s => (
+                await s.Get<TimeEntryService>().AskBeforeDoneWithoutTimeAsync(Task.Id) ? TaskMessages.DoneWithoutTime : null,
+                (await s.Get<TaskService>().GetAsync(Task.Id)).SolutionNotes));
+        }
+        catch (OrbitException)
+        {
+        }
+
+        if (warning is not null
+            && await Dialogs.ShowMessageBoxAsync("Mark Done", warning, yesText: "Mark Done anyway", cancelText: "Cancel") != true)
+            return null;
+
+        var parameters = new DialogParameters
+        {
+            { nameof(SolutionNotesDialog.TaskLabel), $"{Task.Number} {Task.Title}" },
+            { nameof(SolutionNotesDialog.Notes), kept }
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, BackdropClick = false };
+        var dialog = await Dialogs.ShowAsync<SolutionNotesDialog>("Mark Done", parameters, options);
+        var result = await dialog.Result;
+        return result is { Canceled: false, Data: string notes } ? notes : null;
+    }
+}

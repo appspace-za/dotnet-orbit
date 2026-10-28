@@ -1,0 +1,293 @@
+@inherits OrbitComponentBase
+@using Orbit.Application.Assets
+@using Orbit.Components.Pages.Tasks
+@* The recurring task form (spec §6.4), for a new definition (RecurringCreate) or an existing one (RecurringEdit): the template
+   each generated task copies (title, description, project, department, asset, priority, assignees) and the schedule (RRULE,
+   series start, lead time). The department follows the task form's rule (§6.2.1): picking a project fills it with the project's,
+   and only whoever creates tasks everywhere chooses it. The Assignees picker offers the people of the department in force and
+   drops those who don't belong when it changes (§6.2.3). *@
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (!Loaded)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Recurring">Recurring tasks</a>
+        @if (_definition is not null)
+        {
+            <span class="orbit-crumb-sep">/</span><a href="@($"/Recurring/Details/{_definition.Id}")">@_definition.Title</a>
+            <span class="orbit-crumb-sep">/</span><span aria-current="page">Edit</span>
+        }
+        else
+        {
+            <span class="orbit-crumb-sep">/</span><span aria-current="page">New</span>
+        }
+    </nav>
+    <MudText Typo="Typo.h5" HtmlTag="h1" Class="mb-3">@(_definition is null ? "New recurring task" : "Edit recurring task")</MudText>
+
+    <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-form">
+        <MudTextField T="string" @bind-Value="_form.Title" Label="Title" MaxLength="300" Required="true" RequiredError="Title is required."
+                      Variant="Variant.Outlined" Immediate="true" />
+        <MudTextField T="string" @bind-Value="_form.Description" Label="Description" Lines="3" Variant="Variant.Outlined" />
+
+        <div class="orbit-form-row">
+            <MudSelect T="Guid" Value="ProjectChoice" ValueChanged="ProjectChanged" Label="Project" Variant="Variant.Outlined" Class="orbit-field-lg"
+                       ToStringFunc="@(id => _projects.FirstOrDefault(p => p.Id == id).Text ?? "")">
+                @foreach (var p in _projects)
+                {
+                    <MudSelectItem T="Guid" Value="p.Id">@p.Text</MudSelectItem>
+                }
+            </MudSelect>
+            @if (_canChooseDepartment)
+            {
+                <MudSelect T="Guid" Value="DepartmentChoice" ValueChanged="DepartmentChanged" Label="Department" Variant="Variant.Outlined" Class="orbit-field-lg"
+                           ToStringFunc="@(id => _departments.FirstOrDefault(d => d.Id == id).Text ?? "")">
+                    @foreach (var d in _departments)
+                    {
+                        <MudSelectItem T="Guid" Value="d.Id">@d.Text</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+        </div>
+        @if (_canChooseDepartment)
+        {
+            <div class="orbit-help mt-0">Department default: the project's department, or your own when there is no project. Generated tasks belong to this department.</div>
+        }
+
+        @if (_canPickAsset || _form.AssetId is not null)
+        {
+            <div class="orbit-form-row">
+                <div class="orbit-field-lg">
+                    @if (!_canPickAsset)
+                    {
+                        @* Named, and kept on save, for someone who can't search assets (§6.19). *@
+                        <MudTextField T="string" Value="_assetLabel" Label="Asset" ReadOnly="true" Disabled="true" Variant="Variant.Outlined" />
+                    }
+                    else if (_form.AssetId is not null)
+                    {
+                        <span class="orbit-gap-row">
+                            <span class="orbit-muted orbit-small">Asset:</span>
+                            <MudChip T="string" Variant="Variant.Outlined" OnClose="@(_ => ClearAsset())" title="The asset each generated task is about">@_assetLabel</MudChip>
+                        </span>
+                    }
+                    else
+                    {
+                        <AssetPicker Label="Asset (optional)" Picked="AssetPicked" />
+                    }
+                </div>
+            </div>
+            @if (_canPickAsset)
+            {
+                <div class="orbit-help mt-0">Each generated task is about this asset - a monthly vehicle inspection, say. Left off once the asset is disposed.</div>
+            }
+        }
+
+        <div class="orbit-form-row">
+            <MudSelect T="TaskPriority" @bind-Value="_form.Priority" Label="Priority" Variant="Variant.Outlined" Class="orbit-field-sm"
+                       ToStringFunc="@(p => p.ToString())">
+                @foreach (var p in Enum.GetValues<TaskPriority>())
+                {
+                    <MudSelectItem T="TaskPriority" Value="p">@p</MudSelectItem>
+                }
+            </MudSelect>
+            <MudNumericField T="int" @bind-Value="_form.LeadTimeDays" Label="Lead time (days)" Min="0" Max="365"
+                             Variant="Variant.Outlined" Class="orbit-field-sm" />
+        </div>
+        <div class="orbit-help mt-0">Lead time: how many days before the due date the task is created.</div>
+
+        <div class="orbit-people-field-box">
+            <div class="orbit-section-title mt-0 mb-1">Assignees</div>
+            <PeopleField Selected="_assignees" SelectedChanged="AssigneesChanged" DepartmentId="EffectiveDepartmentId"
+                         Placeholder="Type a name, or click to choose..." />
+            <div class="orbit-help">
+                @(_assignees.Count == 0 ? "Nobody - unassigned. " : "")Each generated task is assigned to these people, as far as they are still active.
+            </div>
+        </div>
+
+        <div class="orbit-form-row">
+            <MudTextField T="string" @bind-Value="_form.RecurrenceRule" Label="Recurrence rule (iCal RRULE)" MaxLength="500" Required="true"
+                          RequiredError="The recurrence rule must include FREQ (e.g. FREQ=WEEKLY;BYDAY=MO)."
+                          Variant="Variant.Outlined" Class="orbit-field-grow orbit-code" />
+            <MudDatePicker @bind-Date="StartDate" Label="Series start date" DateFormat="yyyy-MM-dd" Editable="true" AutoClose="true" Required="true"
+                           Variant="Variant.Outlined" Class="orbit-field-sm" />
+        </div>
+        <div class="orbit-help mt-0">
+            Examples:
+            <code>FREQ=DAILY</code> every day ·
+            <code>FREQ=WEEKLY;BYDAY=MO</code> every Monday ·
+            <code>FREQ=WEEKLY;INTERVAL=2;BYDAY=FR</code> every other Friday ·
+            <code>FREQ=MONTHLY;BYMONTHDAY=1</code> 1st of the month ·
+            <code>FREQ=MONTHLY;BYDAY=-1FR</code> last Friday of the month ·
+            <code>FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=31</code> every 31 March.
+            Series start date: occurrences are computed from this date.
+        </div>
+
+        <div class="orbit-gap-row mt-3">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="SaveAsync">@(_definition is null ? "Create" : "Save")</MudButton>
+            <MudButton Variant="Variant.Outlined" Href="@(_definition is null ? "/Recurring" : $"/Recurring/Details/{_definition.Id}")">Cancel</MudButton>
+        </div>
+    </MudPaper>
+}
+
+@code {
+    /// <summary>The definition to edit; null for a new one.</summary>
+    [Parameter] public Guid? DefinitionId { get; set; }
+    /// <summary>A new definition: the project to file it under (the project page's "New recurring task").</summary>
+    [Parameter] public Guid? ProjectId { get; set; }
+
+    private RecurringForm _form = new();
+    private RecurringTaskDefinition? _definition;
+    private bool _canChooseDepartment, _canPickAsset, _busy;
+    /// <summary>The caller's own department: the one in force while the form names neither a department nor a project.</summary>
+    private Guid? _defaultDepartmentId;
+    /// <summary>Guid.Empty is "(default)".</summary>
+    private IReadOnlyList<(Guid Id, string Text)> _departments = [];
+    /// <summary>Guid.Empty is "(standalone task)"; each project carries its department, which the department follows.</summary>
+    private IReadOnlyList<(Guid Id, string Text, Guid? DepartmentId)> _projects = [];
+    /// <summary>The chosen assignees, shown as chips; saved as the form's AssigneeIds.</summary>
+    private List<UserSummary> _assignees = [];
+    private string? _assetLabel;
+
+    private Guid ProjectChoice => _form.ProjectId ?? Guid.Empty;
+    private Guid DepartmentChoice => _form.DepartmentId ?? Guid.Empty;
+
+    /// <summary>A required date: clearing the box keeps the date it had.</summary>
+    private DateTime? StartDate
+    {
+        get => _form.StartDate.ToDateTime(TimeOnly.MinValue);
+        set { if (value is DateTime d) _form.StartDate = DateOnly.FromDateTime(d); }
+    }
+
+    /// <summary>
+    /// The department the generated tasks would belong to, as the Razor form's script worked it out (§6.2.1): the department
+    /// chosen, else the project's, else the caller's own. The Assignees picker searches it.
+    /// </summary>
+    private Guid? EffectiveDepartmentId =>
+        _form.DepartmentId ?? _projects.FirstOrDefault(p => p.Id == ProjectChoice && p.Id != Guid.Empty).DepartmentId ?? _defaultDepartmentId;
+
+    protected override async Task OnParametersSetAsync() => await Load(async s =>
+    {
+        var actor = await s.Get<IActorProvider>().GetAsync();
+        var projects = s.Get<ProjectService>();
+        var form = new RecurringForm();
+        AssetRef? currentAsset = null;
+        if (DefinitionId is Guid id)
+        {
+            _definition = await s.Get<RecurrenceService>().GetAsync(id);
+            AccessPolicy.Require(AccessPolicy.CanEditRecurring(actor, _definition), "You don't have permission to edit this recurring task.");
+            form = RecurringForm.From(_definition);
+            currentAsset = TaskFormLookups.RefOf(_definition.Asset);
+        }
+        else
+        {
+            form.ProjectId = ProjectId;
+            // Defaults to the project's department; someone with tasks.create everywhere can change that on the form (§6.2.1).
+            form.DepartmentId = ProjectId is Guid pid ? await projects.GetDepartmentIdAsync(pid) ?? actor.DepartmentId : actor.DepartmentId;
+        }
+
+        var lookups = await TaskFormLookups.BuildAsync(actor, s.Get<DepartmentService>(), projects, s.Get<UserDirectoryService>(),
+            s.Get<SprintService>(), s.Get<AssetService>(), form.AsTaskForm(), currentAsset, default);
+        _canChooseDepartment = lookups.CanChooseDepartment;
+        _canPickAsset = lookups.CanPickAsset;
+        _defaultDepartmentId = lookups.DefaultDepartmentId;
+        _departments = lookups.Departments.Select(i => (Guid.TryParse(i.Value, out var g) ? g : Guid.Empty, i.Text)).ToList();
+        _projects = lookups.Projects.Select(o => (Guid.TryParse(o.Value, out var g) ? g : Guid.Empty, o.Text, o.DepartmentId)).ToList();
+        _assignees = lookups.SelectedAssignees.ToList();
+        _assetLabel = lookups.SelectedAssetLabel;
+        // A choice the select doesn't offer falls back to its first option, as the Razor select did: a project that doesn't exist
+        // to "(standalone task)", an archived department to "(default)", which the service resolves to the definition's (§6.2.1).
+        if (form.ProjectId is Guid project && _projects.All(p => p.Id != project)) form.ProjectId = null;
+        if (_canChooseDepartment && form.DepartmentId is Guid chosen && _departments.All(d => d.Id != chosen)) form.DepartmentId = null;
+        _form = form;
+    });
+
+    /// <summary>Picking a project fills the department with the project's (for whoever may choose it), as the Razor form did.</summary>
+    private void ProjectChanged(Guid id)
+    {
+        _form.ProjectId = id == Guid.Empty ? null : id;
+        if (_canChooseDepartment)
+        {
+            var department = _projects.FirstOrDefault(p => p.Id == id && id != Guid.Empty).DepartmentId;
+            _form.DepartmentId = department is Guid d && _departments.Any(x => x.Id == d) ? d : null;
+        }
+        PruneAssignees();
+    }
+
+    private void DepartmentChanged(Guid id)
+    {
+        _form.DepartmentId = id == Guid.Empty ? null : id;
+        PruneAssignees();
+    }
+
+    /// <summary>
+    /// Drops the chosen people who don't belong to the department now in force (§6.2.3): someone who can be assigned anywhere
+    /// (tasks.view at All), or who has no department, stays. Only a change on the form prunes; opening it never drops anyone.
+    /// </summary>
+    private void PruneAssignees()
+    {
+        if (EffectiveDepartmentId is not Guid department) return;
+        var dropped = _assignees.Where(u => !u.CanViewAllTasks && u.DepartmentId is Guid own && own != department).ToList();
+        if (dropped.Count == 0) return;
+        _assignees.RemoveAll(u => dropped.Any(x => x.Id == u.Id));
+        Snackbar.Add($"{string.Join(", ", dropped.Select(u => u.DisplayName))} removed: not in this department.", Severity.Info);
+    }
+
+    /// <summary>Re-renders the form for the "Nobody - unassigned" note.</summary>
+    private void AssigneesChanged() { }
+
+    private void AssetPicked(AssetPickerItem asset)
+    {
+        _form.AssetId = asset.Id;
+        _assetLabel = AssetRules.Label(asset.AssetNumber, asset.Name);
+    }
+
+    private void ClearAsset()
+    {
+        _form.AssetId = null;
+        _assetLabel = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        // RecurringForm's own rules ([Required], [StringLength], [Range]), in the service's words; the service checks them again.
+        if (string.IsNullOrWhiteSpace(_form.Title)) { Error("Title is required."); return; }
+        if (_form.Title.Length > 300) { Error("Title must be 300 characters or fewer."); return; }
+        if (string.IsNullOrWhiteSpace(_form.RecurrenceRule)) { Error("The recurrence rule must include FREQ (e.g. FREQ=WEEKLY;BYDAY=MO)."); return; }
+        if (_form.RecurrenceRule.Length > 500) { Error("The recurrence rule must be 500 characters or fewer."); return; }
+        if (_form.LeadTimeDays is < 0 or > 365) { Error("Lead time must be between 0 and 365 days."); return; }
+        _form.AssigneeIds = _assignees.Select(u => u.Id).ToList();
+        var input = _form.ToInput();
+        _busy = true;
+        RecurringTaskDefinition? saved = null;
+        if (await Act(async s =>
+            {
+                var actor = await s.Get<IActorProvider>().GetAsync();
+                var recurrence = s.Get<RecurrenceService>();
+                if (DefinitionId is Guid id)
+                {
+                    // Only whoever creates tasks everywhere chooses the department (§6.2.1); anyone else keeps the definition's.
+                    if (!actor.CanAnywhere(Permission.TasksCreate)) input.DepartmentId = (await recurrence.GetAsync(id)).DepartmentId;
+                    saved = await recurrence.UpdateAsync(id, input);
+                }
+                else
+                {
+                    // ... and anyone else files it in their own.
+                    if (!actor.CanAnywhere(Permission.TasksCreate)) input.DepartmentId = actor.DepartmentId;
+                    saved = await recurrence.CreateAsync(input);
+                }
+            }))
+        {
+            Success(_definition is null
+                ? $"Recurring task \"{saved!.Title}\" created. Next due {Ui.Day(saved.NextRunDate)}."
+                : $"\"{saved!.Title}\" saved. Next due {Ui.Day(saved.NextRunDate)}.");
+            Nav.NavigateTo($"/Recurring/Details/{saved.Id}");
+        }
+        _busy = false;
+    }
+}

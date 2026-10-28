@@ -1,0 +1,48 @@
+@inject IJSRuntime JS
+@* "Insert a value" beside a template box (spec §6.20, §6.7): choosing a value puts its token where the cursor is in the box whose
+   input id is TargetId, through ValueChanged, and leaves the cursor after it. Give the box's MudTextField InputId="TargetId". *@
+@if (Tokens.Count > 0)
+{
+    <div class="orbit-gap-row mt-1">
+        <MudSelect @key="_version" T="string" Value="string.Empty" ValueChanged="InsertAsync" Label="Insert a value" Variant="Variant.Outlined"
+                   Margin="Margin.Dense" Dense="true" Class="orbit-field-lg" ToStringFunc="@(v => string.IsNullOrEmpty(v) ? "Choose..." : Tokens.FirstOrDefault(t => t.Text == v)?.Label ?? v)">
+            <MudSelectItem T="string" Value="string.Empty">Choose...</MudSelectItem>
+            @foreach (var t in Tokens)
+            {
+                <MudSelectItem T="string" Value="t.Text">@t.Label</MudSelectItem>
+            }
+        </MudSelect>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<RequestToken> Tokens { get; set; } = [];
+    /// <summary>The template box's input id.</summary>
+    [Parameter, EditorRequired] public string TargetId { get; set; } = "";
+    /// <summary>Raised with the box's new text.</summary>
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+
+    private sealed record Insertion(string Value, int Caret);
+
+    private int _version;
+    private int? _caret;
+
+    private async Task InsertAsync(string token)
+    {
+        _version++;
+        if (string.IsNullOrEmpty(token)) return;
+        var result = await JS.InvokeAsync<Insertion?>("orbit.tokens.insert", TargetId, token);
+        if (result is null) return;
+        _caret = result.Caret;
+        await ValueChanged.InvokeAsync(result.Value);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_caret is int at)
+        {
+            _caret = null;
+            await JS.InvokeVoidAsync("orbit.tokens.caret", TargetId, at);
+        }
+    }
+}

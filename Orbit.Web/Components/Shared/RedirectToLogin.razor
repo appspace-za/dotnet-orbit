@@ -1,0 +1,10 @@
+@inject NavigationManager Nav
+@* Signed out, or signed out by the five-minute re-check (OrbitRevalidatingAuthStateProvider): off to the login page and back. *@
+
+@code {
+    protected override void OnInitialized()
+    {
+        var returnUrl = "/" + Nav.ToBaseRelativePath(Nav.Uri);
+        Nav.NavigateTo($"/Identity/Account/Login?ReturnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
+    }
+}

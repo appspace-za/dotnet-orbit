@@ -1,0 +1,102 @@
+@page "/Admin/ApiKeys"
+@page "/Admin/ApiKeys/Index"
+@inherits OrbitComponentBase
+@* Admin > API keys (spec §8): the keys Claude and other automations use on the MCP server, each acting with the role and department
+   it was issued with, the active ones first; how to connect; and revoking a key, which stops it at once. Only a key's prefix is
+   kept in the clear. *@
+
+<PageTitle>API keys - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (!Loaded)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">API keys</MudText>
+            <div class="orbit-subtitle">Keys authenticate Claude (and other automations) against the MCP server. Each key acts with the role and department it was issued with.</div>
+        </div>
+        <MudButton Href="/Admin/ApiKeys/Create" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">New API key</MudButton>
+    </div>
+
+    <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-small">
+        <div><b>MCP endpoint:</b> <code class="orbit-key">@McpUrl</code> (Streamable HTTP)</div>
+        <div><b>Authentication:</b> <code class="orbit-key">Authorization: Bearer &lt;key&gt;</code></div>
+        <div class="orbit-muted mt-1">In a Claude Project connector, use the endpoint above and supply the key as a bearer token.</div>
+    </MudPaper>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        @if (_keys.Count == 0)
+        {
+            <p class="orbit-empty">No API keys yet.</p>
+        }
+        else
+        {
+            <div class="orbit-table-wrap">
+                <MudSimpleTable Hover="true" Elevation="0" Class="orbit-tasks">
+                    <thead>
+                        <tr><th>Name</th><th>Key</th><th>Role</th><th>Department</th><th>Created</th><th>Last used</th><th>Status</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var k in _keys)
+                        {
+                            // MudSimpleTable sets each row's colour, so a revoked key is muted cell by cell.
+                            var muted = k.IsRevoked ? "orbit-muted" : null;
+                            <tr @key="k.Id">
+                                <td class="@muted"><b>@k.Name</b></td>
+                                <td class="@muted"><code class="orbit-key">@(k.Prefix)...</code></td>
+                                <td><MudChip T="string" Size="Size.Small" Color="RoleLook.Chip(k.Role)">@k.Role.Name</MudChip></td>
+                                <td class="@muted">@(k.Department?.Name ?? "(all)")</td>
+                                <td class="@($"text-nowrap {muted}")">@Ui.When(k.CreatedAt)</td>
+                                <td class="@($"text-nowrap {muted}")">@Ui.When(k.LastUsedAt)</td>
+                                <td>
+                                    @if (k.RevokedAt is DateTime revoked)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Secondary">Revoked @Ui.Day(DateOnly.FromDateTime(revoked))</MudChip>
+                                    }
+                                    else
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Success">Active</MudChip>
+                                    }
+                                </td>
+                                <td class="text-right">
+                                    @if (!k.IsRevoked)
+                                    {
+                                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="() => RevokeAsync(k.Id)">Revoke</MudButton>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        }
+    </MudPaper>
+}
+
+@code {
+    private IReadOnlyList<ApiKey> _keys = [];
+    private bool _busy;
+
+    /// <summary>The MCP server's address as the browser reaches Orbit (§7): the endpoint is mapped at /mcp.</summary>
+    private string McpUrl => $"{Nav.BaseUri}mcp";
+
+    protected override async Task OnInitializedAsync() => await LoadKeysAsync();
+
+    private async Task LoadKeysAsync() => await Load(async s => _keys = await s.Get<ApiKeyService>().ListAsync());
+
+    private async Task RevokeAsync(Guid id)
+    {
+        if (!await Confirm("Revoke API key", "Revoke this key? Any integration using it will stop working immediately.", "Revoke")) return;
+        _busy = true;
+        if (await Act(s => s.Get<ApiKeyService>().RevokeAsync(id))) Success("API key revoked.");
+        await LoadKeysAsync();
+        _busy = false;
+    }
+}

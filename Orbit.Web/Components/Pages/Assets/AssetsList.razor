@@ -1,0 +1,251 @@
+@page "/Assets"
+@page "/Assets/Index"
+@inherits OrbitListPage
+@using Orbit.Application.Assets
+@* The asset register (spec §6.19): the assets the viewer can see, filtered and paged, 50 a page, with each one's next check and
+   warranty. The filters live in the address, in the Razor page's keys, and are remembered for the browser session
+   (OrbitListPage). Quick check
+   records today's OK check for one scanned asset after another. *@
+
+<PageTitle>Assets - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_result is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var actor = _actor!;
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">Assets <span class="orbit-subtitle">@_result.TotalCount</span></MudText>
+            @if (actor.ScopeOf(Permission.AssetsView) == PermissionScope.Own)
+            {
+                <div class="orbit-subtitle">The assets assigned to you.</div>
+            }
+        </div>
+        <div class="orbit-actions">
+            @if (actor.Has(Permission.AssetsConfigure))
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="/AssetTypes">Asset types</MudButton>
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="/AssetLocations">Locations</MudButton>
+            }
+            @if (actor.Has(Permission.AssetsCheck))
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.QrCodeScanner" OnClick="QuickCheckAsync">Quick check</MudButton>
+            }
+            @if (actor.Has(Permission.AssetsCreate))
+            {
+                <MudButton Href="/Assets/Create" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">Register asset</MudButton>
+            }
+        </div>
+    </div>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        <div class="orbit-filters">
+            <MudTextField T="string" Value="Search" ValueChanged="v => GoAsync(nameof(Search), v)" Label="Search" Placeholder="Number, name, serial, make, model"
+                          DebounceInterval="500" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-filter orbit-filter-wide" />
+            @if (actor.CanAnywhere(Permission.AssetsView))
+            {
+                <FilterSelect Label="Department" Value="@DepartmentId" ValueChanged="v => GoAsync(nameof(DepartmentId), v)" Options="_departments" />
+            }
+            <FilterSelect Label="Type" Value="@AssetTypeId" ValueChanged="v => GoAsync(nameof(AssetTypeId), v)" Options="_types" />
+            <FilterSelect Label="Location" Value="@LocationId" ValueChanged="v => GoAsync(nameof(LocationId), v)" Options="_locations" />
+            <FilterSelect Label="Status" Value="@Status" ValueChanged="v => GoAsync(nameof(Status), v)" Options="StatusOptions" />
+            <FilterSelect Label="Assigned to" Value="@Holder" ValueChanged="v => GoAsync(nameof(Holder), v)" Options="_holders" />
+            <FilterSelect Label="Check" Value="@Check" ValueChanged="v => GoAsync(nameof(Check), v)" Options="CheckOptions" />
+            <FilterSelect Label="Warranty" Value="@Warranty" ValueChanged="v => GoAsync(nameof(Warranty), v)" Options="WarrantyOptions" />
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="ResetAsync"
+                       title="Clear the filters - they are remembered for this browser session until you reset them">Reset</MudButton>
+        </div>
+    </MudPaper>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        @if (_result.Items.Count == 0)
+        {
+            <p class="orbit-empty">No assets.</p>
+        }
+        else
+        {
+            <div class="orbit-table-wrap">
+                <MudSimpleTable Hover="true" Elevation="0" Class="orbit-tasks">
+                    <thead>
+                        <tr>
+                            <th>Asset</th><th>Type</th><th>Status</th><th>Location</th><th>Assigned to</th>
+                            @if (_showDepartment) { <th>Department</th> }
+                            <th>Next check</th><th>Warranty</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in _result.Items)
+                        {
+                            var a = item.Asset;
+                            <tr @key="a.Id">
+                                <td>
+                                    @if (a.AssetNumber is not null) { <span class="orbit-number" title="ERP asset number">@a.AssetNumber</span> }
+                                    <a href="@($"/Assets/Details/{a.Id}")" class="orbit-title">@a.Name</a>
+                                </td>
+                                <td>
+                                    @a.AssetType.Name
+                                    @if (!string.IsNullOrEmpty(a.AssetType.Category)) { <div class="orbit-sub">@a.AssetType.Category</div> }
+                                </td>
+                                <td><MudChip T="string" Size="Size.Small" Color="StatusLook.Asset(a.Status)">@a.Status.Label()</MudChip></td>
+                                <td>@(a.AssetLocation?.Name ?? "-")</td>
+                                <td>
+                                    @if (a.Assignments.Count == 0)
+                                    {
+                                        <span class="orbit-muted orbit-small">Unassigned</span>
+                                    }
+                                    @foreach (var x in a.Assignments.OrderBy(x => x.User.DisplayName))
+                                    {
+                                        <div class="orbit-small">
+                                            @x.User.DisplayName
+                                            @if (!x.User.IsActive) { <MudChip T="string" Size="Size.Small" Color="Color.Warning">deactivated</MudChip> }
+                                        </div>
+                                    }
+                                </td>
+                                @if (_showDepartment) { <td><MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@a.Department.Name</MudChip></td> }
+                                <td class="text-nowrap">
+                                    @if (item.NextCheckDue is DateOnly due)
+                                    {
+                                        <span>@Ui.Day(due)</span>
+                                        @if (item.CheckState == CheckDueState.Overdue) { <MudChip T="string" Size="Size.Small" Color="Color.Error">Overdue</MudChip> }
+                                        else if (item.CheckState == CheckDueState.DueSoon) { <MudChip T="string" Size="Size.Small" Color="Color.Warning">Due soon</MudChip> }
+                                    }
+                                    else
+                                    {
+                                        <span class="orbit-muted">-</span>
+                                    }
+                                    @if (AssetCheckSchedule.LastCheckNotOk(a))
+                                    {
+                                        <div><MudChip T="string" Size="Size.Small" Color="Color.Error" title="The last check found an issue or didn't find the asset">Last check: @a.LastCheckOutcome!.Value.Label()</MudChip></div>
+                                    }
+                                </td>
+                                <td class="text-nowrap">
+                                    <span>@Ui.Day(a.WarrantyExpiresOn)</span>
+                                    @if (_warrantyExpired.Contains(a.Id)) { <MudChip T="string" Size="Size.Small" Color="Color.Secondary">Expired</MudChip> }
+                                    else if (_warrantyExpiring.Contains(a.Id)) { <MudChip T="string" Size="Size.Small" Color="Color.Warning">Expiring</MudChip> }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        }
+        @if (_result.TotalPages > 1)
+        {
+            <div class="orbit-card-footer orbit-list-row">
+                <span>Page @_result.Page of @_result.TotalPages</span>
+                <MudStack Row="true" Spacing="1">
+                    @if (_result.HasPrevious) { <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@PageUrl(_result.Page - 1)">Previous</MudButton> }
+                    @if (_result.HasNext) { <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@PageUrl(_result.Page + 1)">Next</MudButton> }
+                </MudStack>
+            </div>
+        }
+    </MudPaper>
+}
+
+@code {
+    /// <summary>The filter fields remembered for the browser session (§6.19, like the Tasks list's), in the Razor page's keys.</summary>
+    private static readonly string[] RememberedFilters =
+        [nameof(Search), nameof(DepartmentId), nameof(AssetTypeId), nameof(LocationId), nameof(Status), nameof(Holder), nameof(Check), nameof(Warranty)];
+
+    protected override string MemoryKey => "assets";
+    protected override IReadOnlyList<string> FilterKeys => RememberedFilters;
+
+    [SupplyParameterFromQuery] public string? Search { get; set; }
+    [SupplyParameterFromQuery] public string? DepartmentId { get; set; }
+    [SupplyParameterFromQuery] public string? AssetTypeId { get; set; }
+    [SupplyParameterFromQuery] public string? LocationId { get; set; }
+    /// <summary>Blank = not disposed, "all", or a status.</summary>
+    [SupplyParameterFromQuery] public string? Status { get; set; }
+    /// <summary>Blank = anyone, "me", "none", "deactivated", or a person's id.</summary>
+    [SupplyParameterFromQuery] public string? Holder { get; set; }
+    [SupplyParameterFromQuery] public string? Check { get; set; }
+    [SupplyParameterFromQuery] public string? Warranty { get; set; }
+    [SupplyParameterFromQuery] public string? PageNumber { get; set; }
+    [SupplyParameterFromQuery] public string? Reset { get; set; }
+
+    private static readonly IReadOnlyList<(string Value, string Text)> StatusOptions =
+        [("", "Not disposed"), .. Enum.GetValues<AssetStatus>().Select(s => (s.ToString(), s.Label())), ("all", "All, including disposed")];
+    private static readonly IReadOnlyList<(string Value, string Text)> CheckOptions =
+    [
+        ("", "Any"), (nameof(AssetCheckFilter.Overdue), "Overdue"), (nameof(AssetCheckFilter.DueSoon), "Due soon"),
+        (nameof(AssetCheckFilter.Due), "Due soon or overdue"), (nameof(AssetCheckFilter.NotOk), "Last check not OK"), (nameof(AssetCheckFilter.Never), "Never checked")
+    ];
+    private static readonly IReadOnlyList<(string Value, string Text)> WarrantyOptions =
+        [("", "Any"), (nameof(AssetWarrantyFilter.Expiring), "Expiring soon"), (nameof(AssetWarrantyFilter.Expired), "Expired")];
+
+    private Actor? _actor;
+    private PagedResult<AssetListItem>? _result;
+    private IReadOnlyList<(string Value, string Text)> _departments = [], _types = [], _locations = [], _holders = [];
+    private HashSet<Guid> _warrantyExpired = [], _warrantyExpiring = [];
+    private bool _showDepartment;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (await GoToRememberedAsync(FilterQuery.Flag(Reset))) return;
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync() => await Load(async s =>
+    {
+        var actor = await s.Get<IActorProvider>().GetAsync();
+        var assets = s.Get<AssetService>();
+        var filter = new AssetFilter
+        {
+            Search = Search,
+            DepartmentId = FilterChoice.Id(DepartmentId),
+            AssetTypeId = FilterChoice.Id(AssetTypeId),
+            LocationId = FilterChoice.Id(LocationId),
+            Status = Status,
+            Check = FilterQuery.Enum<AssetCheckFilter>(Check),
+            Warranty = FilterQuery.Enum<AssetWarrantyFilter>(Warranty),
+            Page = int.TryParse(PageNumber, out var page) && page > 0 ? page : 1,
+            PageSize = 50
+        };
+        switch (Holder?.Trim().ToLowerInvariant())
+        {
+            case null or "": break;
+            case "me": filter.AssignedToMe = true; break;
+            case "none": filter.Unassigned = true; break;
+            case "deactivated": filter.HeldByDeactivated = true; break;
+            default: filter.AssignedToUserId = FilterChoice.Id(Holder); break;
+        }
+        var result = await assets.ListAsync(filter);
+        var (typeOptions, locationOptions) = await assets.FilterOptionsAsync();
+        var everywhere = actor.CanAnywhere(Permission.AssetsView);
+        string OptionLabel(AssetFilterOption o) =>
+            o.DepartmentId == actor.DepartmentId && !everywhere
+                ? (o.Group is { Length: > 0 } g ? $"{g} / {o.Name}" : o.Name)
+                : (o.Group is { Length: > 0 } g2 ? $"{g2} / {o.Name} ({o.DepartmentName})" : $"{o.Name} ({o.DepartmentName})");
+        _types = [("", "All"), .. typeOptions.Select(o => (o.Id.ToString(), OptionLabel(o)))];
+        _locations = [("", "All"), .. locationOptions.Select(o => (o.Id.ToString(), OptionLabel(o)))];
+        _holders =
+        [
+            ("", "Anyone"), ("me", "Me"), ("none", "Unassigned"), ("deactivated", "Held by deactivated users"),
+            .. (await assets.HoldersAsync()).Select(h => (h.Id.ToString(), h.Name + (h.IsActive ? "" : " (deactivated)")))
+        ];
+        _departments = everywhere
+            ? [("", "All"), .. (await s.Get<DepartmentService>().ListAsync(true)).Select(d => (d.Id.ToString(), d.Name))]
+            : [];
+        // A disposed asset's warranty no longer matters.
+        _warrantyExpired = result.Items.Select(i => i.Asset).Where(a => a.Status != AssetStatus.Disposed && assets.WarrantyExpired(a)).Select(a => a.Id).ToHashSet();
+        _warrantyExpiring = result.Items.Select(i => i.Asset).Where(a => a.Status != AssetStatus.Disposed && assets.WarrantyExpiring(a)).Select(a => a.Id).ToHashSet();
+        _showDepartment = everywhere || result.Items.Any(i => i.Asset.DepartmentId != actor.DepartmentId);
+        _actor = actor;
+        _result = result;
+    });
+
+    private async Task QuickCheckAsync()
+    {
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, BackdropClick = false };
+        var dialog = await Dialogs.ShowAsync<QuickCheckDialog>("Quick check", options);
+        // After anything was recorded, the list's check columns are out of date.
+        if (await dialog.Result is { Canceled: false, Data: true }) await ReloadAsync();
+    }
+}

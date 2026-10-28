@@ -1,0 +1,87 @@
+@page "/Sprints/Create"
+@page "/Sprints/Edit/{Id:guid}"
+@attribute [RequirePermission(Permission.SprintsManage)]
+@inherits OrbitComponentBase
+@* Creating or editing a sprint (spec §6.3): its name, goal and dates. Sprints are company-wide: no project or department. *@
+
+<PageTitle>@(Id is null ? "New sprint" : "Edit sprint") - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (!Loaded)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Sprints">Sprints</a>
+        @if (_sprint is not null)
+        {
+            <span class="orbit-crumb-sep">/</span><a href="@($"/Sprints/Details/{_sprint.Id}")">@_sprint.Name</a>
+            <span class="orbit-crumb-sep">/</span><span aria-current="page">Edit</span>
+        }
+    </nav>
+    <MudText Typo="Typo.h5" HtmlTag="h1" Class="mb-3">@(Id is null ? "New sprint" : "Edit sprint")</MudText>
+
+    <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-form">
+        <MudTextField T="string" @bind-Value="_name" Label="Name" Placeholder="Sprint 14" MaxLength="200" Required="true"
+                      RequiredError="Give the sprint a name." Variant="Variant.Outlined" Immediate="true" />
+        <MudTextField T="string" @bind-Value="_goal" Label="Goal (optional)" Lines="3" Variant="Variant.Outlined" />
+        <div class="orbit-form-row">
+            <MudDatePicker @bind-Date="_start" Label="Start date" DateFormat="yyyy-MM-dd" Editable="true" AutoClose="true" Variant="Variant.Outlined" Class="orbit-field-sm" />
+            <MudDatePicker @bind-Date="_end" Label="End date" DateFormat="yyyy-MM-dd" Editable="true" AutoClose="true" Variant="Variant.Outlined" Class="orbit-field-sm" />
+        </div>
+        <div class="orbit-help">Sprints are company-wide: they have no project or department, and pull tasks from any department during planning.</div>
+        <div class="orbit-gap-row mt-3">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="SaveAsync">@(Id is null ? "Create sprint" : "Save")</MudButton>
+            <MudButton Variant="Variant.Outlined" Href="@(_sprint is null ? "/Sprints" : $"/Sprints/Details/{_sprint.Id}")">Cancel</MudButton>
+        </div>
+    </MudPaper>
+}
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+
+    private Sprint? _sprint;
+    private string? _name, _goal;
+    private DateTime? _start, _end;
+    private bool _busy;
+
+    protected override async Task OnParametersSetAsync() => await Load(async s =>
+    {
+        var actor = await s.Get<IActorProvider>().GetAsync();
+        AccessPolicy.Require(AccessPolicy.CanManageSprints(actor), "You don't have permission to manage sprints.");
+        if (Id is Guid id)
+        {
+            _sprint = await s.Get<SprintService>().GetAsync(id);
+            (_name, _goal) = (_sprint.Name, _sprint.Goal);
+            (_start, _end) = (_sprint.StartDate.ToDateTime(TimeOnly.MinValue), _sprint.EndDate.ToDateTime(TimeOnly.MinValue));
+        }
+        else
+        {
+            // A new sprint runs two weeks from today unless changed.
+            _start = DateTime.UtcNow.Date;
+            _end = DateTime.UtcNow.Date.AddDays(13);
+        }
+    });
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_name)) { Error("Give the sprint a name."); return; }
+        if (_start is not DateTime start || _end is not DateTime end) { Error("Choose the sprint's start and end dates."); return; }
+        var input = new SprintInput { Name = _name.Trim(), Goal = _goal, StartDate = DateOnly.FromDateTime(start), EndDate = DateOnly.FromDateTime(end) };
+        _busy = true;
+        Sprint? saved = null;
+        if (await Act(async s => saved = Id is Guid id
+                ? await s.Get<SprintService>().UpdateAsync(id, input)
+                : await s.Get<SprintService>().CreateAsync(input)))
+        {
+            Success(Id is null ? $"Sprint \"{saved!.Name}\" created." : $"Sprint \"{saved!.Name}\" saved.");
+            Nav.NavigateTo($"/Sprints/Details/{saved.Id}");
+        }
+        _busy = false;
+    }
+}

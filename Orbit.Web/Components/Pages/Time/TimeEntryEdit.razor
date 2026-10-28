@@ -1,0 +1,86 @@
+@page "/Time/Edit/{Id:guid}"
+@inherits OrbitComponentBase
+@* Editing a time entry (spec §6.10): its date, minutes (1 to 1440) and note, or deleting it; either goes back to its task. Only
+   the person who logged it, or whoever manages time in the task's department (AccessPolicy.CanEditTimeEntry). *@
+
+<PageTitle>Edit time entry - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_entry is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var e = _entry;
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="@($"/Tasks/Details/{e.TaskId}")">@Ui.Truncate(e.Task.Title, 60)</a><span class="orbit-crumb-sep">/</span><span aria-current="page">Time entry</span>
+    </nav>
+    <MudText Typo="Typo.h5" HtmlTag="h1" Class="mb-3">Edit time entry <span class="orbit-subtitle">by @e.User.DisplayName</span></MudText>
+
+    <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-form orbit-max-42">
+        <div class="orbit-form-row">
+            <MudDatePicker @bind-Date="_date" Label="Date" DateFormat="yyyy-MM-dd" Editable="true" AutoClose="true" Required="true"
+                           Variant="Variant.Outlined" Class="orbit-field-sm" />
+            <MudNumericField T="int" @bind-Value="_minutes" Label="Minutes" Min="1" Max="1440" Variant="Variant.Outlined" Class="orbit-field-sm" />
+        </div>
+        <MudTextField T="string" @bind-Value="_note" Label="Note" MaxLength="1000" Variant="Variant.Outlined" />
+        <div class="orbit-gap-row mt-3">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="SaveAsync">Save</MudButton>
+            <MudButton Variant="Variant.Outlined" Href="@($"/Tasks/Details/{e.TaskId}")">Cancel</MudButton>
+        </div>
+        <div>
+            <MudButton Variant="Variant.Text" Color="Color.Error" Disabled="_busy" OnClick="DeleteAsync" Class="pa-0">Delete entry</MudButton>
+        </div>
+    </MudPaper>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private TimeEntry? _entry;
+    private DateTime? _date;
+    private int _minutes;
+    private string? _note;
+    private bool _busy;
+
+    protected override async Task OnParametersSetAsync() => await Load(async s =>
+    {
+        var actor = await s.Get<IActorProvider>().GetAsync();
+        var entry = await s.Get<TimeEntryService>().GetAsync(Id);
+        AccessPolicy.Require(AccessPolicy.CanEditTimeEntry(actor, entry, entry.Task), "You can only edit your own time entries.");
+        (_date, _minutes, _note) = (entry.Date.ToDateTime(TimeOnly.MinValue), entry.DurationMinutes, entry.Note);
+        _entry = entry;
+    });
+
+    private async Task SaveAsync()
+    {
+        if (_date is not DateTime date) { Error("Choose the date."); return; }
+        if (_minutes is < 1 or > 1440) { Error("The time is between 1 and 1440 minutes."); return; }
+        var taskId = _entry!.TaskId;
+        var input = new TimeEntryInput { TaskId = taskId, Date = DateOnly.FromDateTime(date), DurationMinutes = _minutes, Note = _note };
+        _busy = true;
+        if (await Act(s => s.Get<TimeEntryService>().UpdateAsync(Id, input)))
+        {
+            Success("Time entry saved.");
+            Nav.NavigateTo($"/Tasks/Details/{taskId}");
+        }
+        _busy = false;
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (!await Confirm("Delete time entry", "Delete this time entry?")) return;
+        _busy = true;
+        Guid taskId = default;
+        if (await Act(async s => taskId = await s.Get<TimeEntryService>().DeleteAsync(Id)))
+        {
+            Success("Time entry deleted.");
+            Nav.NavigateTo($"/Tasks/Details/{taskId}");
+        }
+        _busy = false;
+    }
+}

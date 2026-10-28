@@ -1,0 +1,3 @@
+@* Reports (spec §12): every page here needs reports.view at some scope, as AuthorizeFolder("/Reports") did for the Razor
+   pages. ReportingService applies the scope (a department-scoped viewer sees their own department). *@
+@attribute [RequirePermission(Permission.ReportsView)]

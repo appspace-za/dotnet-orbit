@@ -1,0 +1,140 @@
+@page "/Admin/Departments/Details/{Id:guid}"
+@inherits OrbitComponentBase
+@* A department's overview (spec §6.6): its manager, its people with their roles, its projects with their open and total tasks, and
+   its open task count, with links into the task and project lists filtered to the department. *@
+
+<PageTitle>@(_detail?.Department.Name ?? "Department") - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_detail is null || _detail.Department.Id != Id)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var detail = _detail;
+    var d = detail.Department;
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Admin/Departments">Departments</a><span class="orbit-crumb-sep">/</span><span aria-current="page">@d.Name</span>
+    </nav>
+    <div class="orbit-page-header">
+        <div>
+            <div class="orbit-gap-row">
+                <MudText Typo="Typo.h5" HtmlTag="h1">@d.Name</MudText>
+                @if (d.IsArchived) { <MudChip T="string" Size="Size.Small" Color="Color.Secondary">Archived</MudChip> }
+            </div>
+            @if (!string.IsNullOrWhiteSpace(d.Description))
+            {
+                <div class="orbit-subtitle">@d.Description</div>
+            }
+            <div class="orbit-small orbit-gap-row mt-1">
+                <span class="orbit-muted">Manager:</span>
+                @if (d.Manager is null)
+                {
+                    <em class="orbit-muted">none</em>
+                }
+                else
+                {
+                    <span>@d.Manager.DisplayName@(d.Manager.IsActive ? "" : " (deactivated)")</span>
+                }
+            </div>
+        </div>
+        <div class="orbit-actions">
+            <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@($"/Tasks?DepartmentId={d.Id}&OpenOnly=true")">Open tasks</MudButton>
+            <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@($"/Projects?DepartmentId={d.Id}")">Projects</MudButton>
+            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Href="@($"/Admin/Departments/Edit/{d.Id}")">Edit</MudButton>
+        </div>
+    </div>
+
+    <MudGrid Spacing="3" Class="mb-3">
+        <MudItem xs="4">
+            <MudPaper Outlined="true" Class="orbit-stat"><div class="orbit-stat-value">@(detail.Users.Count(u => u.IsActive))</div><div class="orbit-stat-label">Active users</div></MudPaper>
+        </MudItem>
+        <MudItem xs="4">
+            <MudPaper Outlined="true" Class="orbit-stat"><div class="orbit-stat-value">@(detail.Projects.Count(p => p.Project.Status == ProjectStatus.Active))</div><div class="orbit-stat-label">Active projects</div></MudPaper>
+        </MudItem>
+        <MudItem xs="4">
+            <MudPaper Outlined="true" Class="orbit-stat"><div class="orbit-stat-value">@detail.OpenTaskCount</div><div class="orbit-stat-label">Open tasks (of @detail.TotalTaskCount)</div></MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" lg="6">
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header">
+                    <b>Users</b>
+                    <a href="/Admin/Users/Create" class="orbit-small">Create user</a>
+                </div>
+                @if (detail.Users.Count == 0)
+                {
+                    <p class="orbit-empty">No users in this department.</p>
+                }
+                else
+                {
+                    <div class="orbit-table-wrap">
+                        <MudSimpleTable Dense="true" Hover="true" Elevation="0" Class="orbit-tasks">
+                            <thead>
+                                <tr><th>Name</th><th>Role</th><th>Status</th><th></th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var u in detail.Users)
+                                {
+                                    // MudSimpleTable sets each row's colour, so a deactivated user is muted cell by cell.
+                                    var muted = u.IsActive ? null : "orbit-muted";
+                                    <tr @key="u.Id">
+                                        <td class="@muted">@u.DisplayName <div class="orbit-sub">@u.Email</div></td>
+                                        <td><MudChip T="string" Size="Size.Small" Color="RoleLook.Chip(u.Role)">@u.Role.Name</MudChip></td>
+                                        <td class="@muted">@(u.IsActive ? "Active" : "Deactivated")</td>
+                                        <td class="text-right"><a href="@($"/Admin/Users/Edit/{u.Id}")" class="orbit-small">Manage</a></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    </div>
+                }
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" lg="6">
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Projects</b></div>
+                @if (detail.Projects.Count == 0)
+                {
+                    <p class="orbit-empty">No projects in this department.</p>
+                }
+                else
+                {
+                    <div class="orbit-table-wrap">
+                        <MudSimpleTable Dense="true" Hover="true" Elevation="0" Class="orbit-tasks">
+                            <thead>
+                                <tr><th>Project</th><th>Status</th><th>Owner</th><th>Open / total</th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var p in detail.Projects)
+                                {
+                                    <tr @key="p.Project.Id">
+                                        <td><a href="@($"/Projects/Details/{p.Project.Id}")" class="orbit-title">@p.Project.Name</a></td>
+                                        <td><MudChip T="string" Size="Size.Small" Color="StatusLook.Project(p.Project.Status)">@p.Project.Status.Label()</MudChip></td>
+                                        <td>@p.Project.Owner.DisplayName</td>
+                                        <td class="text-nowrap">@p.OpenTasks / @p.TotalTasks</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    </div>
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private DepartmentDetail? _detail;
+
+    protected override async Task OnParametersSetAsync() =>
+        await Load(async s => _detail = await s.Get<DepartmentService>().GetDetailAsync(Id));
+}

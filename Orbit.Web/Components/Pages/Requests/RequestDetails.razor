@@ -1,0 +1,301 @@
+@page "/Requests/Request/{Id:guid}"
+@inherits OrbitComponentBase
+@* A request's page (spec §6.20), at the address the request emails link to: its steps as a timeline, and what the viewer may do -
+   fill in a form, open a page, approve or decline, retry or skip a failed step, cancel the request. Each change saves at once and
+   the timeline is read again. *@
+
+<PageTitle>@(_request is null ? "Request" : $"{_request.Number} {_request.Title}") - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_request is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var r = _request;
+    var steps = r.Steps.ToList();
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Requests">Requests</a><span class="orbit-crumb-sep">/</span><span aria-current="page">@r.Number</span>
+    </nav>
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1"><span class="orbit-number orbit-number-lg" title="Request number">@r.Number</span>@r.Title</MudText>
+            <div class="orbit-chips">
+                <MudChip T="string" Size="Size.Small" Color="StatusLook.Request(r.Status)">@r.Status.Label()</MudChip>
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@r.Flow.Category.Title › @r.Flow.Title</MudChip>
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@r.Department.Name</MudChip>
+                <span class="orbit-small orbit-muted orbit-gap-row">
+                    <span>Logged by @(r.RequesterId == _meId ? "you" : r.Requester.DisplayName)</span>
+                    <span title="@Ui.When(r.CreatedAt)">@Ui.Ago(r.CreatedAt)</span>
+                    @if (r.CompletedAt is DateTime done)
+                    {
+                        <span>· @r.Status.Label().ToLowerInvariant()</span><span title="@Ui.When(done)">@Ui.Ago(done)</span>
+                    }
+                </span>
+            </div>
+        </div>
+        @if (_canCancel)
+        {
+            <div class="orbit-actions">
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="CancelAsync">Cancel request</MudButton>
+            </div>
+        }
+    </div>
+
+    <ol class="request-timeline">
+        @for (var i = 0; i < steps.Count; i++)
+        {
+            var s = steps[i];
+            var fs = s.FlowStep;
+            var mine = MyApproval(s);
+            var canAct = CanAct(s);
+            <li class="@($"request-timeline-item is-{s.Status.ToString().ToLowerInvariant()}")" id="@($"step-{s.Id:N}")" @key="s.Id">
+                <div class="request-timeline-marker" aria-hidden="true">@(s.Status == RequestStepStatus.Completed ? "✓" : (i + 1).ToString())</div>
+                <MudPaper Outlined="true" Class="request-timeline-body">
+                    <div class="orbit-gap-row" style="flex-wrap:wrap">
+                        <b>@fs.Title</b>
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@fs.Kind.Label()</MudChip>
+                        <MudChip T="string" Size="Size.Small" Color="StatusLook.RequestStep(s.Status)">@s.Status.Label()</MudChip>
+                        <span class="orbit-small orbit-muted ml-auto">@StepNote(s, steps)</span>
+                    </div>
+                    @switch (fs.Kind)
+                    {
+                        case RequestStepKind.Form:
+                            if (s.Answers.Count > 0)
+                            {
+                                <dl class="request-review mt-2">
+                                    @foreach (var field in fs.Fields)
+                                    {
+                                        var answers = s.Answers.Where(a => a.FieldId == field.Id).ToList();
+                                        if (answers.Count == 0) { continue; }
+                                        <dt>@field.Prompt</dt>
+                                        <dd>@Answer(field, answers)</dd>
+                                    }
+                                </dl>
+                            }
+                            if (canAct)
+                            {
+                                <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Class="mt-2" Href="@($"/Requests/Form/{s.Id}")">Fill in this form</MudButton>
+                            }
+                            break;
+                        case RequestStepKind.Approval:
+                            foreach (var stage in s.Approvals.GroupBy(a => a.StageOrder).OrderBy(g => g.Key))
+                            {
+                                var rule = fs.Stages.FirstOrDefault(x => x.StageOrder == stage.Key)?.Rule;
+                                <div class="mt-2 orbit-small">
+                                    <div class="orbit-muted">Stage @stage.Key@(rule is null ? "" : $" · {rule.Value.Label().ToLowerInvariant()} must approve")</div>
+                                    @foreach (var a in stage.OrderBy(a => a.Approver.DisplayName))
+                                    {
+                                        <div class="orbit-gap-row" style="flex-wrap:wrap" @key="a.Id">
+                                            <span>@Who(a.Approver)</span>
+                                            <MudChip T="string" Size="Size.Small" Color="StatusLook.Approval(a.Decision)">@a.Decision.Label()</MudChip>
+                                            @if (!string.IsNullOrWhiteSpace(a.Comment)) { <span class="orbit-muted"><i>"@a.Comment"</i></span> }
+                                            @if (a.DecidedAt is DateTime d) { <span class="orbit-muted" title="@Ui.When(d)">@Ui.Ago(d)</span> }
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            if (mine is not null)
+                            {
+                                var approval = mine;
+                                <div class="mt-2 pt-2 request-decide">
+                                    <MudTextField T="string" Value="@_comments.GetValueOrDefault(approval.Id)" ValueChanged="v => _comments[approval.Id] = v"
+                                                  Label="Your comment (optional)" Lines="2" MaxLength="RequestFlowRules.MaxCommentLength" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                                    <div class="orbit-gap-row mt-2">
+                                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Success" Disabled="_busy" OnClick="() => DecideAsync(approval, true)">Approve</MudButton>
+                                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="() => DecideAsync(approval, false)">Decline</MudButton>
+                                    </div>
+                                </div>
+                            }
+                            break;
+                        case RequestStepKind.Task:
+                            if (s.Task is { } task)
+                            {
+                                <div class="mt-2 orbit-gap-row" style="flex-wrap:wrap">
+                                    <a href="@($"/Tasks/Details/{task.Id}")"><span class="orbit-number">@task.Number</span>@task.Title</a>
+                                    <MudChip T="string" Size="Size.Small" Color="TaskLook.Status(task.Status)">@task.Status.Label()</MudChip>
+                                    <span class="orbit-small orbit-muted">@(task.Assignments.Count == 0 ? "unassigned" : string.Join(", ", task.Assignments.Select(a => a.User.DisplayName)))</span>
+                                </div>
+                            }
+                            break;
+                        case RequestStepKind.Action:
+                            if (!string.IsNullOrWhiteSpace(s.Output))
+                            {
+                                <pre class="request-output">@s.Output</pre>
+                            }
+                            break;
+                        case RequestStepKind.Url:
+                            var url = RequestTokenRules.RenderUrl(fs.Url, _values);
+                            if (canAct)
+                            {
+                                var step = s;
+                                <div class="orbit-gap-row mt-2" style="flex-wrap:wrap">
+                                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Href="@url" Target="_blank" rel="noopener noreferrer"
+                                               OnClick="() => UrlOpenedAsync(step)">Open the page <span class="orbit-sr-only">(opens in a new tab)</span></MudButton>
+                                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="_busy" OnClick="() => UrlDoneAsync(step)">Mark as done</MudButton>
+                                    <span class="orbit-small orbit-muted">Opening the page marks the step done.</span>
+                                </div>
+                            }
+                            else if (!string.IsNullOrWhiteSpace(fs.Url))
+                            {
+                                <div class="orbit-small mt-2" style="overflow-wrap:anywhere"><a href="@url" target="_blank" rel="noopener noreferrer">@url</a></div>
+                            }
+                            break;
+                    }
+                    @if (s.Status == RequestStepStatus.Failed)
+                    {
+                        var failed = s;
+                        <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">
+                            <div>@s.Error</div>
+                            @if (_canManage && r.Status == RequestStatus.InProgress)
+                            {
+                                <div class="orbit-gap-row mt-2">
+                                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Disabled="_busy" OnClick="() => RetryAsync(failed)">Retry</MudButton>
+                                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="_busy" OnClick="() => SkipAsync(failed)">Skip</MudButton>
+                                </div>
+                            }
+                        </MudAlert>
+                    }
+                </MudPaper>
+            </li>
+        }
+    </ol>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private Request? _request;
+    private Actor? _actor;
+    private Guid? _meId;
+    /// <summary>The request's values, for a web-page step's address.</summary>
+    private IReadOnlyDictionary<string, string?> _values = new Dictionary<string, string?>();
+    private bool _canCancel, _canManage, _busy;
+    /// <summary>What the viewer has typed as their comment on each of their open decisions.</summary>
+    private readonly Dictionary<Guid, string?> _comments = new();
+
+    protected override Task OnParametersSetAsync() => ReloadAsync();
+
+    private async Task ReloadAsync() => await Load(async s =>
+    {
+        var actor = await s.Get<IActorProvider>().GetAsync();
+        var request = await s.Get<RequestService>().GetAsync(Id);
+        _values = RequestEngine.BuildValues(request);
+        _canCancel = AccessPolicy.CanCancelRequest(actor, request);
+        _canManage = AccessPolicy.CanManageRequestsIn(actor, request.DepartmentId);
+        _meId = actor.UserId;
+        _actor = actor;
+        _request = request;
+    });
+
+    private string Who(ApplicationUser? u) => u is null ? "" : u.Id == _meId ? "you" : u.DisplayName;
+
+    /// <summary>The viewer's open decision in the step's current stage, if the step is waiting on them.</summary>
+    private RequestApproval? MyApproval(RequestStep step)
+    {
+        if (step.Status != RequestStepStatus.Ready || step.Approvals.Count == 0) return null;
+        var current = step.Approvals.Max(a => a.StageOrder);
+        return step.Approvals.FirstOrDefault(a => a.StageOrder == current && a.ApproverId == _meId && a.Decision == ApprovalDecision.Pending);
+    }
+
+    private bool CanAct(RequestStep step) => step.Status == RequestStepStatus.Ready && AccessPolicy.CanActOnStep(_actor!, _request!, step);
+
+    /// <summary>Beside a step's status: what it waits for, who it waits on, or who finished it and when.</summary>
+    private RenderFragment StepNote(RequestStep s, IReadOnlyList<RequestStep> steps) => __builder =>
+    {
+        var fs = s.FlowStep;
+        switch (s.Status)
+        {
+            case RequestStepStatus.Pending:
+                var waits = fs.Dependencies.Select(d => steps.FirstOrDefault(x => x.FlowStepId == d.DependsOnStepId)?.FlowStep.Title).OfType<string>().ToList();
+                if (waits.Count > 0) { <span>after @string.Join(" and ", waits)</span> }
+                break;
+            case RequestStepStatus.Ready when fs.Kind is RequestStepKind.Form or RequestStepKind.Url:
+                <span>waiting for @Who(s.AssignedTo)</span>
+                break;
+            case RequestStepStatus.Ready when fs.Kind == RequestStepKind.Action:
+                <span>@(s.StartedAt is null ? "queued" : "running")</span>
+                break;
+            case RequestStepStatus.Completed or RequestStepStatus.Declined when s.CompletedAt is DateTime at:
+                <span>@(s.CompletedBy is null ? "" : $"by {Who(s.CompletedBy)} ")<span title="@Ui.When(at)">@Ui.Ago(at)</span></span>
+                break;
+        }
+    };
+
+    /// <summary>A form answer as read back: files to download, an asset or project linked, an urgency with its meaning, or the text.</summary>
+    private RenderFragment Answer(RequestFormField field, IReadOnlyList<RequestFormAnswer> answers) => __builder =>
+    {
+        if (field.FieldType == RequestFieldType.Attachment)
+        {
+            foreach (var a in answers)
+            {
+                if (a.AttachmentId is Guid att)
+                {
+                    <a href="@($"/Attachments/Download/{att}")" download>@a.Value</a><br />
+                }
+                else
+                {
+                    @a.Value<br />
+                }
+            }
+        }
+        else if (answers[0].AssetId is Guid assetId)
+        {
+            <a href="@($"/Assets/Details/{assetId}")">@answers[0].Value</a>
+        }
+        else if (answers[0].ProjectId is Guid projectId)
+        {
+            <a href="@($"/Projects/Details/{projectId}")">@answers[0].Value</a>
+        }
+        else if (field.FieldType == RequestFieldType.Urgency && RequestEngineRules.ParseUrgency(answers[0].Value) is TaskPriority urgency)
+        {
+            @($"{urgency} - {RequestEngineRules.UrgencyMeaning(field, urgency)}")
+        }
+        else
+        {
+            @answers[0].Value
+        }
+    };
+
+    private async Task RunAsync(Func<IServiceProvider, Task> action, string message)
+    {
+        _busy = true;
+        if (await Act(action))
+        {
+            Success(message);
+            await ReloadAsync();
+        }
+        _busy = false;
+    }
+
+    private async Task DecideAsync(RequestApproval approval, bool approve)
+    {
+        if (!approve && !await Confirm("Decline", "Decline this request? Steps that need it accepted won't run.", "Decline")) return;
+        var comment = _comments.GetValueOrDefault(approval.Id);
+        await RunAsync(s => s.Get<RequestService>().DecideAsync(approval.Id, approve, comment), approve ? "Approved." : "Declined.");
+        if (_request is not null && MyApproval(_request.Steps.First(x => x.Id == approval.StepId)) is null) _comments.Remove(approval.Id);
+    }
+
+    /// <summary>Opening a web-page step's link (in a new tab) marks the step done.</summary>
+    private Task UrlOpenedAsync(RequestStep step) => UrlDoneAsync(step);
+
+    private Task UrlDoneAsync(RequestStep step) => RunAsync(s => s.Get<RequestService>().MarkUrlDoneAsync(step.Id), "Marked as done.");
+
+    private async Task CancelAsync()
+    {
+        if (!await Confirm("Cancel request", "Cancel this request? Steps still open stop, and any task they created is cancelled too.", "Cancel request")) return;
+        await RunAsync(s => s.Get<RequestService>().CancelAsync(Id), "Request cancelled.");
+    }
+
+    private Task RetryAsync(RequestStep step) => RunAsync(s => s.Get<RequestService>().RetryAsync(step.Id), "Step retried.");
+
+    private async Task SkipAsync(RequestStep step)
+    {
+        if (!await Confirm("Skip step", "Skip this step? The steps that wait for it will never run.", "Skip")) return;
+        await RunAsync(s => s.Get<RequestService>().SkipAsync(step.Id), "Step skipped.");
+    }
+}

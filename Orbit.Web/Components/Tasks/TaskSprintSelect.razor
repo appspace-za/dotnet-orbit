@@ -1,0 +1,50 @@
+@inherits OrbitComponentBase
+@* The inline sprint control (spec §6.2, §6.3): picking a sprint plans the task into it, Backlog takes it out of its sprint.
+   Only the planned and active sprints are offered; a reopened task still in a completed one shows that sprint until moved. *@
+<MudSelect @key="_version" T="Guid" Value="Task.SprintId ?? Guid.Empty" ValueChanged="PickedAsync" ToStringFunc="Name"
+           Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Disabled="_busy" Class="orbit-inline" aria-label="Sprint">
+    <MudSelectItem T="Guid" Value="Guid.Empty">Backlog</MudSelectItem>
+    @if (Task.Sprint is { } current && Sprints.All(s => s.Id != current.Id))
+    {
+        <MudSelectItem T="Guid" Value="current.Id">@Label(current)</MudSelectItem>
+    }
+    @foreach (var s in Sprints)
+    {
+        <MudSelectItem T="Guid" Value="s.Id">@Label(s)</MudSelectItem>
+    }
+</MudSelect>
+
+@code {
+    [Parameter, EditorRequired] public TaskItem Task { get; set; } = null!;
+    /// <summary>The sprints offered: the planned and active ones.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<Sprint> Sprints { get; set; } = [];
+    [Parameter] public EventCallback Changed { get; set; }
+
+    private int _version;
+    private bool _busy;
+
+    private static string Label(Sprint s) => $"{s.Name} ({s.Status})";
+
+    private string Name(Guid id) =>
+        id == Guid.Empty ? "Backlog"
+        : Sprints.FirstOrDefault(s => s.Id == id) is { } s ? Label(s)
+        : Task.Sprint is { } current && current.Id == id ? Label(current)
+        : "";
+
+    private async Task PickedAsync(Guid id)
+    {
+        if (id == (Task.SprintId ?? Guid.Empty)) return;
+        _busy = true;
+        TaskItem? changed = null;
+        if (await Act(async s => changed = await s.Get<TaskService>().ChangeSprintAsync(Task.Id, id == Guid.Empty ? null : id)))
+        {
+            Success(TaskMessages.SprintSet(changed!));
+            await Changed.InvokeAsync();
+        }
+        else
+        {
+            _version++;
+        }
+        _busy = false;
+    }
+}

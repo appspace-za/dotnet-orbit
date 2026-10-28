@@ -1,0 +1,282 @@
+@page "/AssetTypes/Create"
+@page "/AssetTypes/Edit/{Id:guid}"
+@inherits OrbitComponentBase
+@* Creating or editing an asset type (spec §6.19). A new type gets its department - the creator's own, unless they configure every
+   department - which can't be changed later, and its name, category, check interval and description; its properties are added on
+   the edit page (AssetTypePropertiesCard), which also archives, restores and deletes the type. *@
+
+<PageTitle>@Title - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (!Loaded || (Id is not null && _type?.Id != Id))
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else if (_type is null)
+{
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Assets">Assets</a><span class="orbit-crumb-sep">/</span><a href="/AssetTypes">Asset types</a><span class="orbit-crumb-sep">/</span><span aria-current="page">New</span>
+    </nav>
+    <MudText Typo="Typo.h5" HtmlTag="h1" Class="mb-3">New asset type</MudText>
+
+    <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-form">
+        <div>
+            @if (_canChooseDepartment)
+            {
+                <MudSelect T="Guid" Value="_departmentId" ValueChanged="DepartmentChangedAsync" Label="Department" Required="true" RequiredError="Choose the department."
+                           Variant="Variant.Outlined" Class="orbit-field-lg" ToStringFunc="@(id => _departments.FirstOrDefault(d => d.Id == id)?.Name ?? "- choose -")">
+                    <MudSelectItem T="Guid" Value="Guid.Empty">- choose -</MudSelectItem>
+                    @foreach (var d in _departments)
+                    {
+                        <MudSelectItem T="Guid" Value="d.Id">@d.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            else
+            {
+                <MudTextField T="string" Value="_departmentName" Label="Department" Disabled="true" Variant="Variant.Outlined" Class="orbit-field-lg" />
+            }
+            <div class="orbit-help">The department whose assets this type describes. It can't be changed later.</div>
+        </div>
+        @TypeFields(create: true)
+        <div class="orbit-gap-row mt-3">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="CreateAsync">Create asset type</MudButton>
+            <MudButton Variant="Variant.Outlined" Href="/AssetTypes">Cancel</MudButton>
+        </div>
+    </MudPaper>
+}
+else
+{
+    var t = _type;
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Assets">Assets</a><span class="orbit-crumb-sep">/</span><a href="/AssetTypes">Asset types</a><span class="orbit-crumb-sep">/</span><span aria-current="page">@t.Name</span>
+    </nav>
+    <div class="orbit-page-header">
+        <div>
+            <div class="orbit-gap-row">
+                <MudText Typo="Typo.h5" HtmlTag="h1">@t.Name</MudText>
+                @if (t.IsArchived) { <MudChip T="string" Size="Size.Small">Archived</MudChip> }
+            </div>
+            <div class="orbit-subtitle">An asset type of <strong>@t.Department.Name</strong>.</div>
+        </div>
+    </div>
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" lg="5">
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Type</b></div>
+                <div class="orbit-card-body orbit-form">
+                    @TypeFields(create: false)
+                    <div><MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="SaveAsync">Save</MudButton></div>
+                </div>
+                <MudDivider />
+                <div class="orbit-card-body orbit-actions">
+                    @if (t.IsArchived)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Success" Disabled="_busy" OnClick="() => SetArchivedAsync(false)">Restore type</MudButton>
+                    }
+                    else
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="_busy" OnClick="() => SetArchivedAsync(true)">Archive type</MudButton>
+                    }
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="DeleteAsync">Delete type</MudButton>
+                </div>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" lg="7">
+            <AssetTypePropertiesCard TypeId="t.Id" Properties="_properties" ValueCounts="_valueCounts" Changed="PropertiesChangedAsync" />
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    /// <summary>The type to edit; null for a new one.</summary>
+    [Parameter] public Guid? Id { get; set; }
+
+    private AssetType? _type;
+    private IReadOnlyList<AssetTypeProperty> _properties = [];
+    private IReadOnlyDictionary<Guid, int> _valueCounts = new Dictionary<Guid, int>();
+    private IReadOnlyList<Department> _departments = [];
+    private IReadOnlyList<string> _categories = [];
+    private bool _canChooseDepartment, _busy;
+    private string? _departmentName;
+    private Guid _departmentId;
+    private string? _name, _category, _description;
+    private int? _interval;
+
+    private string Title => Id is null ? "New asset type" : _type is null ? "Asset type" : $"Edit {_type.Name}";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Creating a type goes on to its edit page, which is this component with an Id, so each page starts afresh.
+        _type = null;
+        _properties = [];
+        _valueCounts = new Dictionary<Guid, int>();
+        if (Id is Guid id)
+        {
+            if (await LoadTypeAsync(id)) ResetForm();
+            return;
+        }
+        _name = _category = _description = null;
+        _interval = null;
+        await Load(async s =>
+        {
+            var actor = await s.Get<IActorProvider>().GetAsync();
+            _canChooseDepartment = actor.CanAnywhere(Permission.AssetsConfigure);
+            _departments = await s.Get<DepartmentService>().ListAsync(false);
+            _departmentId = actor.DepartmentId ?? Guid.Empty;
+            _departmentName = _departments.FirstOrDefault(d => d.Id == _departmentId)?.Name;
+            _categories = actor.DepartmentId is Guid dept ? await s.Get<AssetTypeService>().CategoriesAsync(dept) : [];
+        });
+    }
+
+    /// <summary>The type, its properties in display order, and how many assets hold a value for each (the delete confirmation says so, §6.19).</summary>
+    private async Task<bool> LoadTypeAsync(Guid id) => await Load(async s =>
+    {
+        var types = s.Get<AssetTypeService>();
+        var type = await types.GetForConfigureAsync(id);
+        var properties = type.Properties.OrderBy(p => p.DisplayOrder).ThenBy(p => p.Name).ToList();
+        var counts = new Dictionary<Guid, int>();
+        foreach (var p in properties) counts[p.Id] = (await types.ValueCountsAsync(p.Id)).Values.Sum();
+        _categories = await types.CategoriesAsync(type.DepartmentId);
+        _properties = properties;
+        _valueCounts = counts;
+        _type = type;
+    });
+
+    /// <summary>
+    /// The form shows the type as stored: on opening the page and after saving it. Archiving and property changes reload the type
+    /// but leave what is typed here alone.
+    /// </summary>
+    private void ResetForm()
+    {
+        var t = _type!;
+        _departmentId = t.DepartmentId;
+        _name = t.Name;
+        _category = t.Category;
+        _description = t.Description;
+        _interval = t.CheckIntervalDays;
+    }
+
+    /// <summary>The type's own fields, the same on both pages apart from the new type's examples and the check interval's help.</summary>
+    private RenderFragment TypeFields(bool create) => __builder =>
+    {
+        <MudTextField T="string" @bind-Value="_name" Label="Name" Placeholder="@(create ? "e.g. Laptop" : null)" MaxLength="100" Required="true"
+                      RequiredError="A name is required." Variant="Variant.Outlined" Immediate="true" />
+        @* The categories already in the department are offered, as the Razor form's datalist did; any other text is kept as typed. *@
+        <MudAutocomplete T="string" @bind-Value="_category" SearchFunc="SearchCategoriesAsync" Label="Category" Placeholder="@(create ? "e.g. IT equipment" : null)"
+                         MaxLength="100" CoerceValue="true" Immediate="true" ResetValueOnEmptyText="true" MaxItems="null" Variant="Variant.Outlined" />
+        <div>
+            <MudNumericField T="int?" @bind-Value="_interval" Label="Check every" Placeholder="@(create ? "e.g. 365" : null)" Min="0" Max="AssetTypeService.MaxCheckIntervalDays"
+                             Adornment="Adornment.End" AdornmentText="days" Variant="Variant.Outlined" Class="orbit-field-sm" />
+            <div class="orbit-help">
+                @(create ? "How often assets of this type should be checked; blank for no scheduled checks." : "Blank for no scheduled checks. Changing it re-dates every asset of this type.")
+            </div>
+        </div>
+        <MudTextField T="string" @bind-Value="_description" Label="Description" Lines="2" MaxLength="1000" Variant="Variant.Outlined" />
+    };
+
+    private Task<IEnumerable<string>> SearchCategoriesAsync(string? text, CancellationToken ct) =>
+        Task.FromResult<IEnumerable<string>>(string.IsNullOrWhiteSpace(text)
+            ? _categories
+            : _categories.Where(c => c.Contains(text.Trim(), StringComparison.OrdinalIgnoreCase)).ToList());
+
+    /// <summary>The categories suggested follow the department chosen for a new type.</summary>
+    private async Task DepartmentChangedAsync(Guid id)
+    {
+        _departmentId = id;
+        IReadOnlyList<string> categories = [];
+        if (id != Guid.Empty) await Act(async s => categories = await s.Get<AssetTypeService>().CategoriesAsync(id));
+        _categories = categories;
+    }
+
+    private AssetTypeInput Input() => new()
+    {
+        DepartmentId = _departmentId == Guid.Empty ? null : _departmentId,
+        Name = _name ?? string.Empty,
+        Category = _category,
+        Description = _description,
+        CheckIntervalDays = _interval
+    };
+
+    private async Task CreateAsync()
+    {
+        // The Razor form's department select was required: "- choose -" mustn't quietly fall back to the creator's own department.
+        if (_canChooseDepartment && _departmentId == Guid.Empty)
+        {
+            Error("Choose the department.");
+            return;
+        }
+        _busy = true;
+        var input = Input();
+        AssetType? created = null;
+        if (await Act(async s =>
+            {
+                // Only someone who configures every department names one; everyone else's type is their own department's.
+                var actor = await s.Get<IActorProvider>().GetAsync();
+                if (!actor.CanAnywhere(Permission.AssetsConfigure)) input.DepartmentId = actor.DepartmentId;
+                created = await s.Get<AssetTypeService>().CreateAsync(input);
+            }))
+        {
+            Success($"Asset type \"{created!.Name}\" created. Add its properties below.");
+            Nav.NavigateTo($"/AssetTypes/Edit/{created.Id}");
+        }
+        _busy = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        var id = _type!.Id;
+        var input = Input();
+        _busy = true;
+        AssetType? saved = null;
+        if (await Act(async s => saved = await s.Get<AssetTypeService>().UpdateAsync(id, input)))
+        {
+            Success($"Asset type \"{saved!.Name}\" saved.");
+            if (await LoadTypeAsync(id)) ResetForm();
+        }
+        _busy = false;
+    }
+
+    /// <summary>Archive: no longer offered for new assets; the assets that have it keep it. Restoring doesn't ask.</summary>
+    private async Task SetArchivedAsync(bool archived)
+    {
+        var id = _type!.Id;
+        if (archived && !await Confirm("Archive asset type", "Archive this asset type? It stops being offered for new assets; assets that have it keep it.", "Archive")) return;
+        _busy = true;
+        if (await Act(s => s.Get<AssetTypeService>().SetArchivedAsync(id, archived)))
+        {
+            Success(archived ? "Asset type archived: no longer offered for new assets. Assets that have it keep it." : "Asset type restored.");
+            await LoadTypeAsync(id);
+        }
+        _busy = false;
+    }
+
+    /// <summary>Delete a type no asset uses, disposed ones included; the service refuses otherwise and suggests archiving.</summary>
+    private async Task DeleteAsync()
+    {
+        var id = _type!.Id;
+        if (!await Confirm("Delete asset type", $"Delete the asset type \"{_type.Name}\" and its properties? Only possible while no asset uses it.")) return;
+        _busy = true;
+        string? name = null;
+        if (await Act(async s =>
+            {
+                var types = s.Get<AssetTypeService>();
+                name = (await types.GetForConfigureAsync(id)).Name;
+                await types.DeleteAsync(id);
+            }))
+        {
+            Success($"Asset type \"{name}\" deleted.");
+            Nav.NavigateTo("/AssetTypes");
+        }
+        _busy = false;
+    }
+
+    private async Task PropertiesChangedAsync()
+    {
+        if (_type is { } t) await LoadTypeAsync(t.Id);
+    }
+}

@@ -1,0 +1,145 @@
+@inherits OrbitComponentBase
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@* The task clock (spec §6.10) on the task page: Start, or the running time and Stop. While it runs, orbit.clock.watch ticks the
+   time and checks in every heartbeat through this page's connection. Leaving the page stops the clock and logs its time: a
+   full page load by the browser's beacon (TaskClockEndpoint), a move to another Blazor page here (OnLeavingAsync). *@
+@if (Clock is not null)
+{
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+        <MudChip T="string" Color="Color.Success" Class="orbit-clock" title="@($"Clock running since {Ui.When(StartedUtc!.Value)}")">
+            <span @ref="_display"></span>
+        </MudChip>
+        <MudButton Color="Color.Error" Variant="Variant.Filled" Size="Size.Small" Disabled="_busy" OnClick="StopAsync">Stop Clock</MudButton>
+    </MudStack>
+}
+else if (CanStart)
+{
+    <MudButton Color="Color.Success" Variant="Variant.Filled" Size="Size.Small" Disabled="_busy" OnClick="StartAsync"
+               title="Time yourself on this task; the time is logged when you stop the clock or leave the page">Start Clock</MudButton>
+}
+
+@code {
+    [Parameter, EditorRequired] public Guid TaskId { get; set; }
+    /// <summary>The current user's clock, when it is running on this task.</summary>
+    [Parameter] public RunningClock? Clock { get; set; }
+    [Parameter] public bool CanStart { get; set; }
+    /// <summary>Raised after the clock started or stopped, so the page can reload (its time entries, the clock).</summary>
+    [Parameter] public EventCallback Changed { get; set; }
+    [CascadingParameter] private ShellContext Shell { get; set; } = null!;
+
+    private ElementReference _display;
+    private IJSObjectReference? _watch;
+    private DotNetObjectReference<TaskClock>? _self;
+    private DateTime? _watching;
+    private IDisposable? _leaving;
+    private bool _busy;
+    private bool _disposed;
+
+    private DateTime? StartedUtc => Clock is null ? null : DateTime.SpecifyKind(Clock.StartedAt, DateTimeKind.Utc);
+
+    protected override void OnInitialized() => _leaving = Nav.RegisterLocationChangingHandler(OnLeavingAsync);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Watch the clock that is shown: start when one appears, stop when it goes, start afresh when it restarts. The change is
+        // claimed before the first await: renders don't wait for this one, and one that came while the script call was out
+        // would otherwise start a second watcher, which nothing would stop.
+        var started = StartedUtc;
+        if (started == _watching) return;
+        _watching = started;
+        var old = _watch;
+        _watch = null;
+        await UnwatchAsync(old);
+        if (started is not DateTime at) return;
+        _self ??= DotNetObjectReference.Create(this);
+        var watch = await JS.InvokeAsync<IJSObjectReference>("orbit.clock.watch", _display, at.ToString("o"),
+            TimeRules.ClockHeartbeatSeconds, TaskClockEndpoint.Path(TaskId), Shell.RequestToken, _self);
+        // The clock stopped or restarted, or the page went, while the call was out: this watcher is already out of date.
+        if (_disposed || _watching != started) await UnwatchAsync(watch);
+        else _watch = watch;
+    }
+
+    /// <summary>
+    /// The check-in, every heartbeat while this page is connected (§6.10). It keeps the clock alive and says whether it still
+    /// runs here; when it doesn't - stopped from another tab of this task, or found stale after the computer slept - the page reloads.
+    /// </summary>
+    [JSInvokable]
+    public async Task HeartbeatAsync()
+    {
+        if (Clock is null) return;
+        ClockHeartbeatResult beat;
+        try
+        {
+            beat = await Runner.RunAsync(s => s.Get<TimeEntryService>().HeartbeatAsync(TaskId));
+        }
+        catch (OrbitException)
+        {
+            return;
+        }
+        if (beat.Stopped is { } stopped) Success(TaskMessages.ClockStopped(stopped, includeTask: false));
+        if (!beat.Running) await Changed.InvokeAsync();
+    }
+
+    private async Task StartAsync()
+    {
+        _busy = true;
+        ClockStartResult? started = null;
+        if (await Act(async s => started = await s.Get<TimeEntryService>().StartClockAsync(TaskId)))
+        {
+            Success(started!.AlreadyRunning ? "The clock is already running on this task."
+                : started.Previous is null ? "Clock started."
+                : $"{TaskMessages.ClockStopped(started.Previous, includeTask: false)} Clock started again.");
+            await Changed.InvokeAsync();
+        }
+        _busy = false;
+    }
+
+    private async Task StopAsync()
+    {
+        _busy = true;
+        if (await StopClockAsync()) await Changed.InvokeAsync();
+        _busy = false;
+    }
+
+    private async Task<bool> StopClockAsync()
+    {
+        ClockStopResult? stopped = null;
+        if (!await Act(async s => stopped = await s.Get<TimeEntryService>().StopClockAsync(TaskId))) return false;
+        if (stopped is null) Error("No clock is running on this task.");
+        else Success(TaskMessages.ClockStopped(stopped, includeTask: false));
+        return true;
+    }
+
+    /// <summary>Moving to another page inside the app is leaving this one: stop the clock, as the beacon does on a page load.</summary>
+    private async ValueTask OnLeavingAsync(LocationChangingContext context)
+    {
+        if (Clock is null) return;
+        var target = Nav.ToAbsoluteUri(context.TargetLocation).AbsolutePath;
+        if (string.Equals(target, $"/Tasks/Details/{TaskId}", StringComparison.OrdinalIgnoreCase)) return;
+        await StopClockAsync();
+    }
+
+    private static async Task UnwatchAsync(IJSObjectReference? watch)
+    {
+        if (watch is null) return;
+        try
+        {
+            await watch.InvokeVoidAsync("dispose");
+            await watch.DisposeAsync();
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        _leaving?.Dispose();
+        var watch = _watch;
+        _watch = null;
+        await UnwatchAsync(watch);
+        _self?.Dispose();
+    }
+}

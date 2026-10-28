@@ -1,0 +1,3 @@
+@* Request flows (spec §6.20, Admin > Request flows): every page here needs requests.configure at some scope, as
+   AuthorizeFolder("/RequestCatalogue") did for the Razor pages. RequestCatalogueService applies the scope. *@
+@attribute [RequirePermission(Permission.RequestsConfigure)]

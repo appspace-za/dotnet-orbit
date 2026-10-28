@@ -1,0 +1,11 @@
+@page "/Assets/Create"
+@attribute [RequirePermission(Permission.AssetsCreate)]
+@* Register an asset (spec §6.19): blank, in ?departmentId= for whoever registers anywhere, or a copy of ?copyFrom= (an asset id). *@
+
+<PageTitle>Register asset - Orbit</PageTitle>
+<AssetEditor CopyFrom="FilterChoice.Id(CopyFromId)" DepartmentId="FilterChoice.Id(DepartmentId)" />
+
+@code {
+    [SupplyParameterFromQuery(Name = "copyFrom")] public string? CopyFromId { get; set; }
+    [SupplyParameterFromQuery(Name = "departmentId")] public string? DepartmentId { get; set; }
+}

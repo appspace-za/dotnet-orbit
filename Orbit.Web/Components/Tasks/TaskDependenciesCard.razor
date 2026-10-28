@@ -1,0 +1,168 @@
+@inherits OrbitComponentBase
+@* Dependencies (spec §6.15): what this task waits on and what waits on it, between tasks on the same project. Links to other
+   tasks open in a new tab, so a clock running on this page keeps running (§6.10). *@
+<MudPaper Outlined="true" Class="orbit-card">
+    <div class="orbit-card-header"><b>Dependencies</b></div>
+    <div class="orbit-card-body">
+        <MudText Typo="Typo.subtitle2" HtmlTag="h2">Waiting on <span class="orbit-muted">(@Structure.Predecessors.Count)</span></MudText>
+        @if (Structure.Predecessors.Count == 0)
+        {
+            <p class="orbit-muted orbit-small">This task doesn't wait on any other task.</p>
+        }
+        else
+        {
+            @Links(Structure.Predecessors, waitsOnIt: true)
+        }
+
+        <MudText Typo="Typo.subtitle2" HtmlTag="h2" Class="mt-3">Blocks <span class="orbit-muted">(@Structure.Successors.Count)</span></MudText>
+        @if (Structure.Successors.Count == 0)
+        {
+            <p class="orbit-muted orbit-small">No task waits on this one.</p>
+        }
+        else
+        {
+            @Links(Structure.Successors, waitsOnIt: false)
+        }
+
+        @if (CanLink)
+        {
+            <div class="orbit-form-row mt-3">
+                <MudSelect T="string" @bind-Value="_direction" Label="This task" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Class="orbit-field-sm">
+                    <MudSelectItem T="string" Value="@("waits-on")">waits on</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("blocks")">is waited on by</MudSelectItem>
+                </MudSelect>
+                <MudSelect T="Guid" @bind-Value="_other" Label="Task" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Class="orbit-field-lg"
+                           ToStringFunc="CandidateName" Placeholder="Choose a task on the same project">
+                    @foreach (var c in Candidates)
+                    {
+                        <MudSelectItem T="Guid" Value="c.Id">@CandidateName(c.Id)</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudSelect T="DependencyType" @bind-Value="_type" Label="Type" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true"
+                           Class="orbit-field-sm" ToStringFunc="@(t => $"{t.Code()} - {t.Label()}")">
+                    @foreach (var t in Enum.GetValues<DependencyType>())
+                    {
+                        <MudSelectItem T="DependencyType" Value="t">@t.Code() - @t.Label()</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudNumericField T="int" @bind-Value="_lag" Label="Lag (days)" Min="-3650" Max="3650" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-field-xs" />
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="_busy" OnClick="AddAsync">Add</MudButton>
+            </div>
+            <div class="orbit-help">FS: can't start until it finishes. SS: can't start until it starts. FF: can't finish until it finishes. SF: can't finish until it starts. Lag only affects the planned-date check, never the workflow gate.</div>
+        }
+    </div>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public TaskItem Task { get; set; } = null!;
+    [Parameter, EditorRequired] public Actor Actor { get; set; } = null!;
+    [Parameter, EditorRequired] public TaskStructure Structure { get; set; } = null!;
+    /// <summary>Edit rights on this task; the far end of a new link is checked by the service.</summary>
+    [Parameter] public bool CanLink { get; set; }
+    /// <summary>Tasks this one can be linked to: the same project.</summary>
+    [Parameter] public IReadOnlyList<TaskItem> Candidates { get; set; } = [];
+    [Parameter] public EventCallback Changed { get; set; }
+
+    private string _direction = "waits-on";
+    private Guid _other;
+    private DependencyType _type = DependencyType.FinishToStart;
+    private int _lag;
+    private bool _busy;
+
+    private string CandidateName(Guid id) =>
+        Candidates.FirstOrDefault(c => c.Id == id) is { } c ? $"{c.Title} ({c.Department.Name}, {c.Status.Label()})" : "";
+
+    /// <summary>One table of links: <paramref name="waitsOnIt"/> for the tasks this one waits on, otherwise those waiting on it.</summary>
+    private RenderFragment Links(IReadOnlyList<DependencyView> links, bool waitsOnIt) => __builder =>
+    {
+        <div class="orbit-table-wrap">
+            <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks mb-2">
+                <thead><tr><th>Task</th><th>Type</th><th>Lag</th><th>Its status</th><th>Gate</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var d in links)
+                    {
+                        <tr @key="d.Link.Id">
+                            <td>
+                                @if (AccessPolicy.CanViewTask(Actor, d.Other))
+                                {
+                                    <a href="@($"/Tasks/Details/{d.Other.Id}")" target="_blank" rel="noopener" title="Opens in a new tab" class="orbit-title">@d.Other.Title</a>
+                                }
+                                else
+                                {
+                                    <span>@d.Other.Title</span>
+                                }
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@d.Other.Department.Name</MudChip>
+                                @if (d.DateConflict)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning"
+                                             title="@(waitsOnIt ? "This task's planned dates are earlier than this link allows" : "That task's planned dates are earlier than this link allows")">Date conflict</MudChip>
+                                }
+                            </td>
+                            <td><abbr title="@d.Link.Type.Label()">@d.Link.Type.Code()</abbr></td>
+                            <td>@Ui.Lag(d.Link.LagDays)</td>
+                            <td><MudChip T="string" Size="Size.Small" Color="TaskLook.Status(d.Other.Status)">@d.Other.Status.Label()</MudChip></td>
+                            <td>
+                                @if (waitsOnIt)
+                                {
+                                    if (d.Met) { <span class="orbit-ok">met</span> }
+                                    else { <span class="orbit-warn">waiting for it to @(d.Link.Type.WaitsForFinish() ? "finish" : "start")</span> }
+                                }
+                                else
+                                {
+                                    if (d.Met) { <span class="orbit-ok">released</span> }
+                                    else { <span class="orbit-muted">held until this task @(d.Link.Type.WaitsForFinish() ? "finishes" : "starts")</span> }
+                                }
+                            </td>
+                            <td class="text-right">
+                                @if (d.CanRemove)
+                                {
+                                    var linkId = d.Link.Id;
+                                    <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" Disabled="_busy" OnClick="() => RemoveAsync(linkId)">Remove</MudButton>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </div>
+    };
+
+    /// <summary>Adds a link: "waits on" makes the chosen task this one's predecessor, "is waited on by" its successor.</summary>
+    private async Task AddAsync()
+    {
+        if (_other == Guid.Empty)
+        {
+            Error("Choose a task to link.");
+            return;
+        }
+        _busy = true;
+        var waitsOn = _direction != "blocks";
+        TaskDependency? link = null;
+        if (await Act(async s => link = await s.Get<TaskStructureService>().AddAsync(new DependencyInput
+            {
+                PredecessorTaskId = waitsOn ? _other : Task.Id,
+                SuccessorTaskId = waitsOn ? Task.Id : _other,
+                Type = _type,
+                LagDays = _lag
+            })))
+        {
+            Success($"\"{Ui.Truncate(link!.Successor.Title, 40)}\" now waits on \"{Ui.Truncate(link.Predecessor.Title, 40)}\" ({link.Type.Code()}).");
+            _other = Guid.Empty;
+            _lag = 0;
+            await Changed.InvokeAsync();
+        }
+        _busy = false;
+    }
+
+    private async Task RemoveAsync(Guid linkId)
+    {
+        if (!await Confirm("Remove dependency", "Remove this dependency?", "Remove")) return;
+        _busy = true;
+        if (await Act(s => s.Get<TaskStructureService>().RemoveAsync(linkId)))
+        {
+            Success("Dependency removed.");
+            await Changed.InvokeAsync();
+        }
+        _busy = false;
+    }
+}

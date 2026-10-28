@@ -1,0 +1,100 @@
+@inherits OrbitComponentBase
+@using Microsoft.AspNetCore.Components.Forms
+@* Files attached to a task or a project (spec §6.18). Picking files uploads them at once, each saved or refused on its own,
+   through Upload, which says where they go. A download link carries the download attribute, so the browser saves the file
+   without leaving the page (a running task clock keeps running). *@
+<MudPaper Outlined="true" Class="orbit-card">
+    <div class="orbit-card-header"><span><b>Attachments</b> <span class="orbit-muted">(@Attachments.Count)</span></span></div>
+    @if (Attachments.Count == 0)
+    {
+        <div class="orbit-list-item orbit-muted"><i>No attachments.</i></div>
+    }
+    @foreach (var a in Attachments)
+    {
+        <div class="orbit-list-item orbit-list-row" @key="a.Id">
+            <div class="orbit-truncate">
+                <a href="@($"/Attachments/Download/{a.Id}")" download class="orbit-title" title="Download">@a.FileName</a>
+                <div class="orbit-sub">@Ui.Bytes(a.SizeBytes) · @Ui.AuthorName(a.UploadedBy) · @Ui.When(a.UploadedAt)</div>
+            </div>
+            @if (CanDelete(a))
+            {
+                var attachment = a;
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" title="Delete this attachment"
+                           OnClick="() => DeleteAsync(attachment)">Delete</MudButton>
+            }
+        </div>
+    }
+    @if (CanAttach)
+    {
+        <div class="orbit-list-item orbit-list-row">
+            <MudFileUpload @ref="_upload" T="IReadOnlyList<IBrowserFile>" FilesChanged="UploadAsync" MaximumFileCount="100" Disabled="_busy">
+                <CustomContent>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" StartIcon="@Icons.Material.Filled.AttachFile"
+                               Disabled="_busy" OnClick="@context.OpenFilePickerAsync">@(_busy ? "Uploading..." : "Attach files")</MudButton>
+                </CustomContent>
+            </MudFileUpload>
+            <span class="orbit-help">Up to @Limits.MaxFilesPerUpload files, @Limits.MaxFileSizeMb MB each.</span>
+        </div>
+    }
+    else if (CannotAttachNote is not null)
+    {
+        <div class="orbit-list-item orbit-muted orbit-small">@CannotAttachNote</div>
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<Attachment> Attachments { get; set; } = [];
+    [Parameter] public bool CanAttach { get; set; }
+    /// <summary>Said in place of the upload button when the viewer may not attach (a project shared with their department).</summary>
+    [Parameter] public string? CannotAttachNote { get; set; }
+    [Parameter, EditorRequired] public AttachmentOptions Limits { get; set; } = null!;
+    /// <summary>Whether the viewer may delete an attachment (AccessPolicy.CanDeleteAttachment for the parent).</summary>
+    [Parameter, EditorRequired] public Func<Attachment, bool> CanDelete { get; set; } = _ => false;
+    /// <summary>Stores one upload on the parent, in the operation's scope: AttachmentService.AddToTaskAsync, AddToProjectAsync, ...</summary>
+    [Parameter, EditorRequired] public Func<IServiceProvider, AttachmentUpload, Task<Attachment>> Upload { get; set; } = null!;
+    [Parameter] public EventCallback Changed { get; set; }
+
+    private MudFileUpload<IReadOnlyList<IBrowserFile>>? _upload;
+    private bool _busy;
+
+    private async Task UploadAsync(IReadOnlyList<IBrowserFile>? files)
+    {
+        if (files is null || files.Count == 0) return;
+        if (files.Count > Limits.MaxFilesPerUpload)
+        {
+            Error($"At most {Limits.MaxFilesPerUpload} files per upload.");
+            if (_upload is not null) await _upload.ClearAsync();
+            return;
+        }
+        _busy = true;
+        var added = new List<string>();
+        foreach (var file in files)
+        {
+            // The service refuses an over-size file by its declared size before reading any of it.
+            Attachment? attachment = null;
+            if (await Act(async s =>
+                {
+                    await using var content = file.OpenReadStream(maxAllowedSize: Math.Max(file.Size, 1));
+                    attachment = await Upload(s, new AttachmentUpload(file.Name, file.ContentType, file.Size, content));
+                }))
+                added.Add(attachment!.FileName);
+        }
+        if (added.Count > 0) Success(added.Count == 1 ? $"Attached \"{added[0]}\"." : $"Attached {added.Count} files.");
+        // The upload keeps the picked files on show; they are attachments now (or refused), so clear them.
+        if (_upload is not null) await _upload.ClearAsync();
+        _busy = false;
+        await Changed.InvokeAsync();
+    }
+
+    private async Task DeleteAsync(Attachment attachment)
+    {
+        if (!await Confirm("Delete attachment", $"Delete the attachment \"{attachment.FileName}\"?")) return;
+        _busy = true;
+        if (await Act(s => s.Get<AttachmentService>().DeleteAsync(attachment.Id)))
+        {
+            Success("Attachment deleted.");
+            await Changed.InvokeAsync();
+        }
+        _busy = false;
+    }
+}

@@ -5,53 +5,9 @@ using Orbit.Data.Entities;
 
 namespace Orbit.Helpers;
 
-/// <summary>Small presentation helpers shared by the Razor Pages.</summary>
+/// <summary>Small presentation helpers shared by the pages: dates, names, money, sizes and links.</summary>
 public static class Ui
 {
-    public static string StatusBadge(TaskItemStatus s) => s switch
-    {
-        TaskItemStatus.Todo => "text-bg-secondary",
-        TaskItemStatus.InProgress => "text-bg-primary",
-        TaskItemStatus.Waiting => "text-bg-info",
-        TaskItemStatus.Blocked => "text-bg-danger",
-        TaskItemStatus.Done => "text-bg-success",
-        TaskItemStatus.Cancelled => "text-bg-dark",
-        _ => "text-bg-light"
-    };
-
-    public static string PriorityBadge(TaskPriority p) => p switch
-    {
-        TaskPriority.Low => "text-bg-light border",
-        TaskPriority.Medium => "text-bg-info",
-        TaskPriority.High => "text-bg-warning",
-        TaskPriority.Critical => "text-bg-danger",
-        _ => "text-bg-light"
-    };
-
-    public static string TypeBadge(TaskType t) => t switch
-    {
-        TaskType.Meeting => "bg-primary-subtle text-primary-emphasis border",
-        TaskType.Planning => "bg-info-subtle text-info-emphasis border",
-        TaskType.Training => "bg-success-subtle text-success-emphasis border",
-        TaskType.Audit => "bg-warning-subtle text-warning-emphasis border",
-        // Orbit's own orange (site.css): Problem took the red Change had, and Bootstrap has no subtle colour free but a second grey.
-        TaskType.Change => "badge-type-change border",
-        // Not info-subtle: that is the Request source badge, which a request-flow task of this type shows beside it.
-        TaskType.Request => "bg-secondary-subtle text-secondary-emphasis border",
-        // The Nagios source badge's red as well. A Nagios task retyped as a Problem shows both, told apart by their labels.
-        TaskType.Problem => "bg-danger-subtle text-danger-emphasis border",
-        _ => "text-bg-light border"
-    };
-
-    public static string SourceBadge(TaskSource s) => s switch
-    {
-        TaskSource.Api => "badge-claude",
-        TaskSource.Recurring => "text-bg-light border",
-        TaskSource.Request => "bg-info-subtle text-info-emphasis border",
-        TaskSource.Nagios => "bg-danger-subtle text-danger-emphasis border",
-        _ => "text-bg-light border"
-    };
-
     public static string SourceLabel(TaskSource s) => s switch
     {
         TaskSource.Api => "Claude",
@@ -61,92 +17,22 @@ public static class Ui
         _ => "Manual"
     };
 
-    /// <summary>A Nagios problem state (§6.21), in Nagios' own colours: red for down and critical, amber for warning.</summary>
-    public static string NagiosStateBadge(NagiosProblemState s) => s switch
+    /// <summary>"Laptop · Head office · Jane Smith, Ann Lee +1 · Damaged": what tells two similar assets apart in a picker (§6.19).</summary>
+    public static string AssetDetail(string type, string? location, IReadOnlyList<string> holders, AssetStatus status)
     {
-        NagiosProblemState.Down or NagiosProblemState.Critical => "text-bg-danger",
-        NagiosProblemState.Warning => "text-bg-warning",
-        _ => "text-bg-secondary"
-    };
-
-    public static string RequestStatusBadge(RequestStatus s) => s switch
-    {
-        RequestStatus.InProgress => "text-bg-primary",
-        RequestStatus.Completed => "text-bg-success",
-        RequestStatus.Declined => "text-bg-danger",
-        RequestStatus.Cancelled => "text-bg-secondary",
-        _ => "text-bg-light border"
-    };
-
-    public static string RequestStepBadge(RequestStepStatus s) => s switch
-    {
-        RequestStepStatus.Ready => "text-bg-primary",
-        RequestStepStatus.Completed => "text-bg-success",
-        RequestStepStatus.Declined => "text-bg-danger",
-        RequestStepStatus.Failed => "text-bg-danger",
-        RequestStepStatus.Skipped => "text-bg-secondary",
-        RequestStepStatus.Cancelled => "text-bg-secondary",
-        _ => "text-bg-light border"
-    };
-
-    public static string ProjectStatusBadge(ProjectStatus s) => s switch
-    {
-        ProjectStatus.Active => "text-bg-success",
-        ProjectStatus.OnHold => "text-bg-warning",
-        ProjectStatus.Completed => "text-bg-primary",
-        ProjectStatus.Archived => "text-bg-secondary",
-        _ => "text-bg-light"
-    };
-
-    public static string SprintStatusBadge(SprintStatus s) => s switch
-    {
-        SprintStatus.Planned => "text-bg-secondary",
-        SprintStatus.Active => "text-bg-success",
-        SprintStatus.Completed => "text-bg-dark",
-        _ => "text-bg-light"
-    };
-
-    public static string BufferStatusBadge(BufferStatus s) => s switch
-    {
-        BufferStatus.Green => "text-bg-success",
-        BufferStatus.Amber => "text-bg-warning",
-        BufferStatus.Red => "text-bg-danger",
-        _ => "text-bg-secondary"
-    };
-
-    public static string AssetStatusBadge(AssetStatus s) => s switch
-    {
-        AssetStatus.Active => "text-bg-success",
-        AssetStatus.InStorage => "text-bg-secondary",
-        AssetStatus.Damaged => "text-bg-warning",
-        AssetStatus.Lost => "text-bg-danger",
-        AssetStatus.Disposed => "text-bg-dark",
-        _ => "text-bg-light"
-    };
+        var parts = new List<string> { type };
+        if (location is not null) parts.Add(location);
+        if (holders.Count > 0) parts.Add(string.Join(", ", holders.Take(2)) + (holders.Count > 2 ? $" +{holders.Count - 2}" : ""));
+        if (status != AssetStatus.Active) parts.Add(status.Label());
+        return string.Join(" · ", parts);
+    }
 
     /// <summary>How a task names its asset (§6.19): the ERP number and name, or just the name.</summary>
     public static string AssetLabel(Asset asset) => Orbit.Application.Assets.AssetRules.Label(asset.AssetNumber, asset.Name);
 
-    public static string CheckOutcomeBadge(AssetCheckOutcome o) => o switch
-    {
-        AssetCheckOutcome.Ok => "text-bg-success",
-        AssetCheckOutcome.IssueFound => "text-bg-warning",
-        AssetCheckOutcome.NotFound => "text-bg-danger",
-        _ => "text-bg-light"
-    };
-
     /// <summary>A purchase value in the organisation's one currency (§6.19): "18,500.00".</summary>
     public static string Money(decimal? value) =>
         value?.ToString("#,##0.00", System.Globalization.CultureInfo.InvariantCulture) ?? "-";
-
-    /// <summary>Built-in: danger; any grant at All departments: warning; else secondary (spec §6.5).</summary>
-    public static string RoleBadge(RoleRef r) =>
-        r.IsBuiltIn ? "text-bg-danger" : r.ReachesEverywhere ? "text-bg-warning" : "text-bg-secondary";
-
-    public static string RoleBadge(ApplicationRole r) =>
-        r.IsBuiltIn ? "text-bg-danger"
-        : r.Permissions.Any(p => p.Scope == PermissionScope.All) ? "text-bg-warning"
-        : "text-bg-secondary";
 
     public static string ScopeLabel(PermissionScope s) => s.Label();
 
@@ -201,6 +87,14 @@ public static class Ui
             html.AppendHtml(link);
         }
         return html;
+    }
+
+    /// <summary><see cref="Linkify"/> as an HTML string, for a Blazor component (<c>@((MarkupString)Ui.LinkifyHtml(text))</c>).</summary>
+    public static string LinkifyHtml(string? text)
+    {
+        using var writer = new StringWriter();
+        Linkify(text).WriteTo(writer, System.Text.Encodings.Web.HtmlEncoder.Default);
+        return writer.ToString();
     }
 
     /// <summary>
@@ -260,25 +154,9 @@ public static class Ui
         _ => action.ToLowerInvariant()
     };
 
-    public static IEnumerable<SelectListItem> EnumItems<T>(T? selected, string? emptyLabel = null, Func<T, string>? label = null, IEnumerable<T>? only = null)
-        where T : struct, Enum
-    {
-        if (emptyLabel is not null)
-            yield return new SelectListItem(emptyLabel, string.Empty, selected is null);
-        foreach (var value in only ?? Enum.GetValues<T>())
-            yield return new SelectListItem(label?.Invoke(value) ?? value.ToString(), value.ToString(), selected.HasValue && selected.Value.Equals(value));
-    }
-
-    public static string TaskStatusLabel(TaskItemStatus s) => s.Label();
-    public static string ProjectStatusLabel(ProjectStatus s) => s.Label();
-
     /// <summary>Status options the actor may pick for this task in an inline control: every status if they may change it (§6.5), otherwise only the current one.</summary>
     public static IReadOnlyList<TaskItemStatus> AllowedStatuses(Actor actor, TaskItem task) =>
         AccessPolicy.CanChangeStatus(actor, task) ? Enum.GetValues<TaskItemStatus>() : [task.Status];
-
-    /// <summary>Options for the dependency type picker (§6.15): "FS - Finish-to-Start" and so on.</summary>
-    public static IEnumerable<SelectListItem> DependencyTypeItems(DependencyType selected) =>
-        EnumItems<DependencyType>(selected, null, t => $"{t.Code()} - {t.Label()}");
 
     /// <summary>A lag in days as "+2 d" / "-1 d", or "-" for none.</summary>
     public static string Lag(int lagDays) => lagDays == 0 ? "-" : $"{(lagDays > 0 ? "+" : "")}{lagDays} d";

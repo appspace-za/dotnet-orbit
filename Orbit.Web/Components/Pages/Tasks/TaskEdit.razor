@@ -1,0 +1,10 @@
+@page "/Tasks/Edit/{Id:guid}"
+@* Editing a task (spec §6.2). There is no page door, as there was none on the Razor page: the editor checks the right to edit
+   this task (§6.5) and the service each change. *@
+
+<PageTitle>Edit task - Orbit</PageTitle>
+<TaskEditor TaskId="Id" />
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+}

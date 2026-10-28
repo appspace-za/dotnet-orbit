@@ -1,0 +1,392 @@
+@page "/Projects/Details/{Id:guid}"
+@inherits OrbitComponentBase
+@using Microsoft.Extensions.Options
+@inject IOptions<AttachmentOptions> AttachmentOptions
+@* A project's page (spec §6.1): its progress overall and by department (§6.2.1), the headline of its last critical path
+   analysis (§6.17), its tasks (filtered by department, status and assignee in the address), recurring tasks, attachments
+   (§6.18) and comments. A department that only shares the project sees it read-only, apart from its own tasks and comments. *@
+
+<PageTitle>@(_project?.Name ?? "Project") - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_project is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var p = _project;
+    var s = _summary!;
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Projects">Projects</a><span class="orbit-crumb-sep">/</span><span aria-current="page">@p.Name</span>
+    </nav>
+
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1"><span class="orbit-number orbit-number-lg" title="Project number">@p.Number</span>@p.Name</MudText>
+            <div class="orbit-chips">
+                <MudChip T="string" Size="Size.Small" Color="StatusLook.Project(p.Status)">@p.Status.Label()</MudChip>
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@p.Department.Name</MudChip>
+                @if (_isCrossDepartment)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Info" title="Tasks from more than one department are filed under this project">Cross-department</MudChip>
+                }
+                <span class="orbit-muted orbit-small">Owner: @p.Owner.DisplayName</span>
+                @if (p.TargetDate is DateOnly target)
+                {
+                    <span class="orbit-muted orbit-small">· Target: @Ui.Day(target)</span>
+                }
+                @if (p.RequiredBufferWorkingDays is int buffer)
+                {
+                    <span class="orbit-muted orbit-small" title="Required project buffer: working days of schedule protection before the target date">· Buffer: @buffer working day@(buffer == 1 ? "" : "s")</span>
+                }
+            </div>
+        </div>
+        <div class="orbit-actions">
+            @if (_canAddTasks)
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Href="@($"/Tasks/Create?projectId={p.Id}")">New task</MudButton>
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@($"/Recurring/Create?projectId={p.Id}")">New recurring task</MudButton>
+            }
+            <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@($"/Projects/Gantt/{p.Id}")" title="Timeline of the project's tasks, subtasks and dependencies">Gantt</MudButton>
+            @if (_canEdit)
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Href="@($"/Projects/Edit/{p.Id}")">Edit</MudButton>
+                @if (p.Status != ProjectStatus.Archived)
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="ArchiveAsync">Archive</MudButton>
+                }
+            }
+        </div>
+    </div>
+
+    @if (_isSharedView)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+            This project is owned by <b>@p.Department.Name</b>. It is shown to you because it has tasks for your department:
+            you can open and work those, see the rest of the project read-only, and comment on it.
+        </MudAlert>
+    }
+
+    <MudGrid Spacing="3" Class="mb-1">
+        <MudItem xs="12" md="8">
+            <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-fill">
+                @if (string.IsNullOrWhiteSpace(p.Description))
+                {
+                    <p class="orbit-muted ma-0"><i>No description.</i></p>
+                }
+                else
+                {
+                    <div class="orbit-text">@((MarkupString)Ui.LinkifyHtml(p.Description))</div>
+                }
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="4">
+            <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-fill">
+                <div class="orbit-list-row"><b>Progress</b><span>@s.Done / @s.Total tasks done</span></div>
+                <MudProgressLinear Value="s.PercentDone" Color="Color.Success" Rounded="true" Size="Size.Medium" Class="my-2" />
+                <div class="orbit-chips">
+                    <MudChip T="string" Size="Size.Small">Todo @s.Todo</MudChip>
+                    <MudChip T="string" Size="Size.Small" Color="Color.Primary">In progress @s.InProgress</MudChip>
+                    <MudChip T="string" Size="Size.Small" Color="Color.Info">Waiting @s.Waiting</MudChip>
+                    <MudChip T="string" Size="Size.Small" Color="Color.Error">Blocked @s.Blocked</MudChip>
+                    <MudChip T="string" Size="Size.Small" Color="Color.Success">Done @s.Done</MudChip>
+                    <MudChip T="string" Size="Size.Small" Color="Color.Dark">Cancelled @s.Cancelled</MudChip>
+                    @if (s.Overdue > 0) { <MudChip T="string" Size="Size.Small" Color="Color.Warning">Overdue @s.Overdue</MudChip> }
+                </div>
+                <div class="mt-2 orbit-small orbit-muted">
+                    Time logged: <b>@TimeFormat.Minutes(s.TotalMinutesLogged)</b>
+                    @if (s.TotalMinutesEstimated > 0)
+                    {
+                        <span> · Estimated: <b>@TimeFormat.Minutes(s.TotalMinutesEstimated)</b></span>
+                        @if (s.TotalMinutesLogged > s.TotalMinutesEstimated)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Warning" title="More time has been logged than the open and done tasks were estimated at">Over estimate</MudChip>
+                        }
+                    }
+                </div>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-list-row">
+        <div class="orbit-small orbit-gap-row">
+            <b>Critical path</b>
+            @if (_criticalPath is { } cp)
+            {
+                <MudChip T="string" Size="Size.Small" Color="StatusLook.Buffer(cp.BufferStatus)" title="Project buffer status">@cp.BufferStatus.Label()</MudChip>
+                @if (cp.IsStale)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" title="The schedule has changed since this analysis">out of date</MudChip>
+                }
+                <span class="orbit-muted">
+                    Planned completion <b>@Ui.Day(cp.PlannedCompletion)</b>@(cp.TargetDate is DateOnly cpTarget ? $" · target {Ui.Day(cpTarget)}" : "")
+                    @if (cp.BufferRemainingDays is int left)
+                    {
+                        <text> · buffer remaining <b>@left d</b>@(cp.BufferConsumptionPercent is int pct ? $" ({pct}% consumed)" : "")</text>
+                    }
+                    · @cp.CriticalTaskCount critical, @cp.NearCriticalTaskCount near-critical, @cp.WarningCount warning@(cp.WarningCount == 1 ? "" : "s")
+                    · analysed @Ui.Ago(cp.RunAt)
+                </span>
+            }
+            else
+            {
+                <span class="orbit-muted">Not analysed yet. Run the analysis after planning to see the critical tasks, the planned completion against the target and the project buffer.</span>
+            }
+        </div>
+        <div class="orbit-gap-row">
+            <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@($"/Projects/Gantt/{p.Id}")">View on Gantt</MudButton>
+            @if (_canRunAnalysis)
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="RunAnalysisAsync">
+                    @(_criticalPath is null ? "Run critical path analysis" : "Run analysis again")
+                </MudButton>
+            }
+        </div>
+    </MudPaper>
+
+    @if (s.ByDepartment.Count > 0)
+    {
+        <MudPaper Outlined="true" Class="orbit-card">
+            <div class="orbit-card-header">
+                <b>By department</b>
+                @if (FilterChoice.Id(DepartmentId) is not null)
+                {
+                    <a href="@($"/Projects/Details/{p.Id}")" class="orbit-small">Show all departments</a>
+                }
+            </div>
+            <div class="orbit-table-wrap">
+                <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks">
+                    <thead>
+                        <tr>
+                            <th>Department</th><th class="text-right">To do</th><th class="text-right">In progress</th><th class="text-right">Waiting</th>
+                            <th class="text-right">Blocked</th><th class="text-right">Done</th><th class="text-right">Overdue</th><th class="text-right">Open / Total</th>
+                            <th class="orbit-col-progress">Progress</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var d in s.ByDepartment)
+                        {
+                            var selected = d.DepartmentId == FilterChoice.Id(DepartmentId);
+                            <tr class="@(selected ? "orbit-row-selected" : null)" @key="d.DepartmentId">
+                                <td>
+                                    <a href="@DepartmentUrl(d.DepartmentId)" class="orbit-title" title="Show only this department's tasks">@d.Name</a>
+                                    @if (d.DepartmentId == p.DepartmentId && s.ByDepartment.Count > 1)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" title="The project's own department">Owner</MudChip>
+                                    }
+                                </td>
+                                <td class="text-right"><a href="@DepartmentUrl(d.DepartmentId, TaskItemStatus.Todo)">@d.Todo</a></td>
+                                <td class="text-right"><a href="@DepartmentUrl(d.DepartmentId, TaskItemStatus.InProgress)">@d.InProgress</a></td>
+                                <td class="text-right"><a href="@DepartmentUrl(d.DepartmentId, TaskItemStatus.Waiting)">@d.Waiting</a></td>
+                                <td class="text-right"><a href="@DepartmentUrl(d.DepartmentId, TaskItemStatus.Blocked)" class="@(d.Blocked > 0 ? "orbit-overdue" : null)">@d.Blocked</a></td>
+                                <td class="text-right"><a href="@DepartmentUrl(d.DepartmentId, TaskItemStatus.Done)">@d.Done</a></td>
+                                <td class="text-right @(d.Overdue > 0 ? "orbit-overdue" : "orbit-muted")">@d.Overdue</td>
+                                <td class="text-right">@d.Open / @d.Total</td>
+                                <td><MudProgressLinear Value="d.PercentDone" Color="Color.Success" Rounded="true" title="@($"{d.PercentDone}% done")" /></td>
+                            </tr>
+                        }
+                    </tbody>
+                    @if (s.ByDepartment.Count > 1)
+                    {
+                        <tfoot>
+                            <tr>
+                                <td><b>All departments</b></td>
+                                <td class="text-right"><b>@s.Todo</b></td>
+                                <td class="text-right"><b>@s.InProgress</b></td>
+                                <td class="text-right"><b>@s.Waiting</b></td>
+                                <td class="text-right"><b>@s.Blocked</b></td>
+                                <td class="text-right"><b>@s.Done</b></td>
+                                <td class="text-right @(s.Overdue > 0 ? "orbit-overdue" : "orbit-muted")"><b>@s.Overdue</b></td>
+                                <td class="text-right"><b>@s.Open / @s.Total</b></td>
+                                <td><MudProgressLinear Value="s.PercentDone" Color="Color.Success" Rounded="true" title="@($"{s.PercentDone}% done")" /></td>
+                            </tr>
+                        </tfoot>
+                    }
+                </MudSimpleTable>
+            </div>
+        </MudPaper>
+    }
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        <div class="orbit-card-header">
+            <span><b>Tasks</b> <span class="orbit-muted">(@_tasks.Count of @p.Tasks.Count)</span></span>
+            <div class="orbit-gap-row">
+                @if (_isCrossDepartment)
+                {
+                    <FilterSelect Label="Department" Value="@DepartmentId" ValueChanged="v => Go(nameof(DepartmentId), v)" Options="_departmentOptions" Class="orbit-field-sm" />
+                }
+                <FilterSelect Label="Status" Value="@StatusChoice" ValueChanged="v => Go(StatusKey, v)" Options="StatusOptions" Class="orbit-field-sm" />
+                <FilterSelect Label="Assignee" Value="@AssigneeId" ValueChanged="v => Go(nameof(AssigneeId), v)" Options="_assigneeOptions" Class="orbit-field-sm" />
+            </div>
+        </div>
+        <TaskTable Tasks="_tasks" Actor="_actor!" Today="_today" ShowProject="false" ShowDepartment="_isCrossDepartment" ShowSprint="true" ShowPlanToday="true"
+                   QuickEditAssignees="_quickEditAssignees" QuickEditSprints="_openSprints" Waiting="_waiting" EmptyMessage="No tasks match." Changed="ReloadAsync" />
+    </MudPaper>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        <div class="orbit-card-header"><span><b>Recurring tasks</b> <span class="orbit-muted">(@p.RecurringTaskDefinitions.Count)</span></span></div>
+        @if (p.RecurringTaskDefinitions.Count == 0)
+        {
+            <p class="orbit-empty">No recurring task definitions on this project.</p>
+        }
+        else
+        {
+            <div class="orbit-table-wrap">
+                <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks">
+                    <thead>
+                        <tr>
+                            <th>Title</th>
+                            @if (_isCrossDepartment) { <th>Department</th> }
+                            <th>Rule</th><th>Next due</th><th>Lead</th><th>Assignee</th><th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var r in p.RecurringTaskDefinitions.OrderByDescending(x => x.Active).ThenBy(x => x.NextRunDate))
+                        {
+                            <tr @key="r.Id">
+                                <td>
+                                    @if (AccessPolicy.CanViewRecurring(_actor!, r))
+                                    {
+                                        <a href="@($"/Recurring/Details/{r.Id}")">@r.Title</a>
+                                    }
+                                    else
+                                    {
+                                        <span>@r.Title</span>
+                                    }
+                                </td>
+                                @if (_isCrossDepartment) { <td><MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@r.Department.Name</MudChip></td> }
+                                <td><code>@r.RecurrenceRule</code></td>
+                                <td class="text-nowrap">@Ui.Day(r.NextRunDate)</td>
+                                <td>@r.LeadTimeDays d</td>
+                                <td>@(r.AssigneeNames ?? "-")</td>
+                                <td><MudChip T="string" Size="Size.Small" Color="@(r.Active ? Color.Success : Color.Default)">@(r.Active ? "Active" : "Paused")</MudChip></td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        }
+    </MudPaper>
+
+    <AttachmentsCard Attachments="_attachments" CanAttach="_canAttach" Limits="AttachmentOptions.Value" Changed="ReloadAsync"
+                     CannotAttachNote="@(_isSharedView ? $"Only {p.Department.Name} can attach files to this project." : null)"
+                     CanDelete="a => AccessPolicy.CanDeleteAttachment(_actor!, a, p)"
+                     Upload="(sp, upload) => sp.Get<AttachmentService>().AddToProjectAsync(Id, upload)" />
+    <CommentsCard Comments="_comments" Post="(sp, body) => sp.Get<CommentService>().AddToProjectAsync(Id, body)" Changed="ReloadAsync" />
+}
+
+@code {
+    private const string StatusKey = "Status";
+
+    [Parameter] public Guid Id { get; set; }
+    // The task filters (§6.1), read leniently from the address as the Razor page's binding did.
+    [SupplyParameterFromQuery(Name = StatusKey)] public string? StatusChoice { get; set; }
+    [SupplyParameterFromQuery] public string? AssigneeId { get; set; }
+    [SupplyParameterFromQuery] public string? DepartmentId { get; set; }
+
+    private static readonly IReadOnlyList<(string Value, string Text)> StatusOptions = FilterSelect.EnumOptions<TaskItemStatus>(s => s.Label());
+
+    private Actor? _actor;
+    private Project? _project;
+    private ProjectStatusSummary? _summary;
+    private CriticalPathSummary? _criticalPath;
+    private DateOnly _today;
+    private IReadOnlyList<TaskItem> _tasks = [];
+    private IReadOnlyDictionary<Guid, WaitingSummary> _waiting = new Dictionary<Guid, WaitingSummary>();
+    private IReadOnlyList<UserSummary> _quickEditAssignees = [];
+    private IReadOnlyList<Sprint> _openSprints = [];
+    private IReadOnlyList<Attachment> _attachments = [];
+    private IReadOnlyList<Comment> _comments = [];
+    private IReadOnlyList<(string Value, string Text)> _departmentOptions = [], _assigneeOptions = [];
+    private bool _canEdit, _canAddTasks, _isCrossDepartment, _isSharedView, _canRunAnalysis, _canAttach, _busy;
+
+    protected override Task OnParametersSetAsync() => ReloadAsync();
+
+    private async Task ReloadAsync() => await Load(async sp =>
+    {
+        var actor = await sp.Get<IActorProvider>().GetAsync();
+        var projects = sp.Get<ProjectService>();
+        var project = await projects.GetAsync(Id);
+        var summary = await projects.GetStatusAsync(Id);
+        _canEdit = AccessPolicy.CanEditProject(actor, project);
+        _canAddTasks = project.Status != ProjectStatus.Archived && AccessPolicy.CanAddTaskToProject(actor, project);
+        _isSharedView = !AccessPolicy.CanViewProject(actor, project);
+        _isCrossDepartment = summary.IsCrossDepartment || project.RecurringTaskDefinitions.Any(r => r.DepartmentId != project.DepartmentId);
+        foreach (var t in project.Tasks) t.Project = project;
+
+        var status = FilterQuery.Enum<TaskItemStatus>(StatusChoice);
+        var assigneeId = FilterChoice.Id(AssigneeId);
+        var departmentId = FilterChoice.Id(DepartmentId);
+        var tasks = project.Tasks.AsEnumerable();
+        if (status is TaskItemStatus st) tasks = tasks.Where(t => t.Status == st);
+        if (assigneeId is Guid a) tasks = tasks.Where(t => t.IsAssignedTo(a));
+        if (departmentId is Guid d) tasks = tasks.Where(t => t.DepartmentId == d);
+        var list = tasks
+            .OrderBy(t => t.Status.IsClosed()).ThenBy(t => t.DueDate == null).ThenBy(t => t.DueDate)
+            .ThenByDescending(t => t.Priority).ThenByDescending(t => t.CreatedAt).ToList();
+        _assigneeOptions =
+        [
+            ("", "All assignees"),
+            .. project.Tasks.SelectMany(t => t.Assignees).DistinctBy(u => u.Id).OrderBy(u => u.DisplayName).Select(u => (u.Id.ToString(), u.DisplayName))
+        ];
+        _departmentOptions =
+        [
+            ("", "All departments"),
+            .. project.Tasks.Select(t => t.Department).DistinctBy(x => x.Id).OrderBy(x => x.Name).Select(x => (x.Id.ToString(), x.Name))
+        ];
+        _quickEditAssignees = await sp.Get<UserDirectoryService>().GetQuickEditCandidatesAsync();
+        _openSprints = await sp.Get<SprintService>().ListOpenAsync();
+        _waiting = await sp.Get<TaskStructureService>().GetWaitingAsync(list);
+        _criticalPath = await sp.Get<CriticalPathService>().GetSummaryAsync(project);
+        _canRunAnalysis = AccessPolicy.CanRunCriticalPath(actor, project);
+        _attachments = await sp.Get<AttachmentService>().ListForProjectAsync(Id);
+        _canAttach = project.Status != ProjectStatus.Archived && AccessPolicy.CanAttachToProject(actor, project);
+        _comments = await sp.Get<CommentService>().ListForProjectAsync(Id);
+
+        _actor = actor;
+        _today = DateOnly.FromDateTime(DateTime.UtcNow);
+        _tasks = list;
+        _summary = summary;
+        _project = project;
+    });
+
+    private string DepartmentUrl(Guid departmentId, TaskItemStatus? status = null) =>
+        $"/Projects/Details/{Id}?" + new FilterQuery().Add(nameof(DepartmentId), departmentId).Add(StatusKey, status?.ToString());
+
+    private void Go(string key, string? value)
+    {
+        var filters = new Dictionary<string, string?> { [nameof(DepartmentId)] = DepartmentId, [StatusKey] = StatusChoice, [nameof(AssigneeId)] = AssigneeId, [key] = value };
+        var query = new FilterQuery().Add(nameof(DepartmentId), filters[nameof(DepartmentId)]).Add(StatusKey, filters[StatusKey]).Add(nameof(AssigneeId), filters[nameof(AssigneeId)]);
+        Nav.NavigateTo(query.At($"/Projects/Details/{Id}"));
+    }
+
+    /// <summary>Run Critical Path Analysis (§6.17) from the project page; the result is shown on the Gantt.</summary>
+    private async Task RunAnalysisAsync()
+    {
+        _busy = true;
+        CriticalPathResult? result = null;
+        if (await Act(async sp => result = await sp.Get<CriticalPathService>().RunAsync(Id)))
+        {
+            if (result!.Blocked) Error(CriticalPathText.Blocked(result));
+            else Success(CriticalPathText.Describe(result));
+            Nav.NavigateTo($"/Projects/Gantt/{Id}");
+        }
+        _busy = false;
+    }
+
+    private async Task ArchiveAsync()
+    {
+        if (!await Confirm("Archive project", "Archive this project? Its tasks are kept.", "Archive")) return;
+        _busy = true;
+        if (await Act(sp => sp.Get<ProjectService>().ArchiveAsync(Id)))
+        {
+            Success("Project archived. Its tasks are kept.");
+            await ReloadAsync();
+        }
+        _busy = false;
+    }
+}

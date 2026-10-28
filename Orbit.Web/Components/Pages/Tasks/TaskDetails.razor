@@ -1,0 +1,290 @@
+@page "/Tasks/Details/{Id:guid}"
+@inherits OrbitComponentBase
+@using Microsoft.Extensions.Options
+@inject IOptions<AttachmentOptions> AttachmentOptions
+@* A task's page (spec §6.2): its status and controls, description, solution notes, subtasks and dependencies (§6.15),
+   attachments (§6.18), comments, time (§6.10), assignees (§6.2.3), details and history. Every change saves at once and the
+   page reloads its data; links to other tasks open in a new tab, so a running clock keeps running. Email links point here. *@
+
+<PageTitle>@(_task?.Title ?? "Task") - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_task is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var t = _task;
+    var overdue = t.IsOverdue(_today);
+
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Tasks">Tasks</a>
+        @if (t.Project is not null)
+        {
+            <span class="orbit-crumb-sep">/</span><a href="@($"/Projects/Details/{t.ProjectId}")">@t.Project.Name</a>
+        }
+        @foreach (var a in _structure!.Ancestors)
+        {
+            <span class="orbit-crumb-sep">/</span>
+            @if (AccessPolicy.CanViewTask(_actor!, a))
+            {
+                <a href="@($"/Tasks/Details/{a.Id}")" title="Parent task">@Ui.Truncate(a.Title, 40)</a>
+            }
+            else
+            {
+                <span title="Parent task (@a.Department.Name)">@Ui.Truncate(a.Title, 40)</span>
+            }
+        }
+        <span class="orbit-crumb-sep">/</span><span aria-current="page">@Ui.Truncate(t.Title, 60)</span>
+    </nav>
+
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1" Class="@(overdue ? "orbit-overdue" : null)">
+                <span class="orbit-number orbit-number-lg" title="Task number">@t.Number</span>@t.Title
+            </MudText>
+            <div class="orbit-chips">
+                <MudChip T="string" Size="Size.Small" Color="TaskLook.Status(t.Status)">@t.Status.Label()</MudChip>
+                <MudChip T="string" Size="Size.Small" Color="TaskLook.Priority(t.Priority)" Variant="@(t.Priority == TaskPriority.Low ? Variant.Outlined : Variant.Filled)">@t.Priority</MudChip>
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="TaskLook.Type(t.Type)" Class="@TaskLook.TypeClass(t.Type)" title="Type">@t.Type</MudChip>
+                @if (_fromRequest is { } from)
+                {
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="TaskLook.Source(t.Source)" Href="@($"/Requests/Request/{from.Id}")"
+                             title="Created by a request">Request @from.Number</MudChip>
+                }
+                else
+                {
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="TaskLook.Source(t.Source)" Class="@TaskLook.SourceClass(t.Source)">@Ui.SourceLabel(t.Source)</MudChip>
+                }
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@t.Department.Name</MudChip>
+                @if (t.Sprint is not null)
+                {
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Href="@($"/Sprints/Details/{t.SprintId}")">Sprint: @t.Sprint.Name</MudChip>
+                }
+                else
+                {
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Backlog</MudChip>
+                }
+                @if (overdue)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Error">Overdue</MudChip>
+                }
+                @if (_structure.WaitingOn.Count > 0)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning"
+                             title="@((t.Status == TaskItemStatus.Todo ? "Can't start until: " : "Can't finish until: ") + string.Join("; ", _structure.WaitingOn.Select(w => w.Describe())))">Gated</MudChip>
+                }
+                @if (_structure.HasDateConflict)
+                {
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning" title="A dependency's planned dates don't add up - see Dependencies">Date conflict</MudChip>
+                }
+                @if (t.PlannedFor == _today)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Primary" title="On today's day plan">Today</MudChip>
+                }
+                else if (t.PlannedFor is DateOnly plannedFor)
+                {
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" title="@($"On the day plan for {Ui.Day(plannedFor)}")">Planned @Ui.Day(plannedFor)</MudChip>
+                }
+            </div>
+        </div>
+        <div class="orbit-actions">
+            @if (_canTake)
+            {
+                <TakeButton Task="t" Text="Take this task" Variant="Variant.Filled" Changed="ReloadAsync" />
+            }
+            @if (t.IsOpen && AccessPolicy.CanPlanTask(_actor!, t))
+            {
+                var onTodaysPlan = t.PlannedFor == _today;
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="@(onTodaysPlan ? Color.Default : Color.Primary)" Disabled="_busy"
+                           title="@(onTodaysPlan ? "Take this task off today's day plan" : "Put this task on today's day plan")"
+                           OnClick="() => PlanTodayAsync(!onTodaysPlan)">@(onTodaysPlan ? "Remove from today" : "Plan for today")</MudButton>
+            }
+            <TaskClock TaskId="t.Id" Clock="_clock" CanStart="_canStartClock" Changed="ReloadAsync" />
+            @if (_statuses.Count > 1)
+            {
+                <TaskStatusSelect Task="t" Statuses="_statuses" Label="Status" Changed="ReloadAsync" />
+            }
+            @if (_canEdit)
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Href="@($"/Tasks/Edit/{t.Id}")">Edit</MudButton>
+            }
+        </div>
+    </div>
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" lg="8">
+            <MudPaper Outlined="true" Class="orbit-card orbit-card-body">
+                @if (string.IsNullOrWhiteSpace(t.Description))
+                {
+                    <p class="orbit-muted ma-0"><i>No description.</i></p>
+                }
+                else
+                {
+                    <div class="orbit-text">@((MarkupString)Ui.LinkifyHtml(t.Description))</div>
+                }
+            </MudPaper>
+
+            @* How the task was resolved (§6.2.4); a reopened task keeps the notes of its last close. *@
+            @if (!string.IsNullOrWhiteSpace(t.SolutionNotes))
+            {
+                <MudPaper Outlined="true" Class="orbit-card">
+                    <div class="orbit-card-header">
+                        <span><b>Solution notes</b>@if (t.IsOpen) { <span class="orbit-muted"> - from when it was last closed</span> }</span>
+                    </div>
+                    <div class="orbit-card-body orbit-text">@((MarkupString)Ui.LinkifyHtml(t.SolutionNotes))</div>
+                </MudPaper>
+            }
+
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header">
+                    <span><b>Subtasks</b> <span class="orbit-muted">(@_structure.ChildrenClosed/@_structure.Children.Count done)</span></span>
+                    @if (_canAddSubtask)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Href="@($"/Tasks/Create?parentTaskId={t.Id}")">Add subtask</MudButton>
+                    }
+                </div>
+                @if (_structure.Children.Count > 0)
+                {
+                    <div class="orbit-table-wrap">
+                        <MudSimpleTable Dense="true" Hover="true" Elevation="0" Class="orbit-tasks">
+                            <thead><tr><th>Task</th><th>Department</th><th>Assignee</th><th>Start</th><th>Due</th><th>Status</th></tr></thead>
+                            <tbody>
+                                @foreach (var c in _structure.Children)
+                                {
+                                    <tr @key="c.Id">
+                                        <td>
+                                            @if (AccessPolicy.CanViewTask(_actor!, c))
+                                            {
+                                                <a href="@($"/Tasks/Details/{c.Id}")" target="_blank" rel="noopener" title="Opens in a new tab" class="orbit-title">@c.Title</a>
+                                            }
+                                            else
+                                            {
+                                                <span class="orbit-title">@c.Title</span>
+                                            }
+                                        </td>
+                                        <td><MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@c.Department.Name</MudChip></td>
+                                        <td>@(c.AssigneeNames ?? "-")</td>
+                                        <td class="text-nowrap">@Ui.Day(c.StartDate)</td>
+                                        <td class="@(c.IsOverdue(_today) ? "orbit-overdue text-nowrap" : "text-nowrap")">@Ui.Day(c.DueDate)</td>
+                                        <td><MudChip T="string" Size="Size.Small" Color="TaskLook.Status(c.Status)">@c.Status.Label()</MudChip></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    </div>
+                }
+                else
+                {
+                    <div class="orbit-list-item orbit-muted orbit-small">No subtasks.@(_canAddSubtask ? " Break this task down with \"Add subtask\"." : "")</div>
+                }
+            </MudPaper>
+
+            @* Dependencies exist only between tasks on the same project (§6.15); a standalone task has no such section. *@
+            @if (t.ProjectId is not null)
+            {
+                <TaskDependenciesCard Task="t" Actor="_actor!" Structure="_structure" CanLink="_canLink" Candidates="_linkCandidates" Changed="ReloadAsync" />
+            }
+
+            <AttachmentsCard Attachments="_attachments" CanAttach="_canAttach" Limits="AttachmentOptions.Value" Changed="ReloadAsync"
+                             CanDelete="a => AccessPolicy.CanDeleteAttachment(_actor!, a, t)"
+                             Upload="(s, upload) => s.Get<AttachmentService>().AddToTaskAsync(Id, upload)" />
+            <CommentsCard Comments="_comments" Post="(s, body) => s.Get<CommentService>().AddAsync(Id, body)" Changed="ReloadAsync" />
+            <TaskTimeCard Task="t" Actor="_actor!" Entries="_timeEntries" CanLogTime="_canLogTime" CanLogForOthers="_canLogForOthers"
+                          TimeUsers="_timeUsers" Changed="ReloadAsync" />
+        </MudItem>
+
+        <MudItem xs="12" lg="4">
+            <TaskAssigneesCard Task="t" CanEdit="_canEdit" Changed="ReloadAsync" />
+            <TaskFactsCard Task="t" Actor="_actor!" Today="_today" Nagios="_fromNagios" />
+            <HistoryCard Activity="_activity" />
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private Actor? _actor;
+    private TaskItem? _task;
+    private DateOnly _today;
+    private TaskStructure? _structure;
+    private RunningClock? _clock;
+    private IReadOnlyList<Comment> _comments = [];
+    private IReadOnlyList<TimeEntry> _timeEntries = [];
+    private IReadOnlyList<AuditLog> _activity = [];
+    private IReadOnlyList<UserSummary> _timeUsers = [];
+    private IReadOnlyList<TaskItem> _linkCandidates = [];
+    private IReadOnlyList<Attachment> _attachments = [];
+    private IReadOnlyList<TaskItemStatus> _statuses = [];
+    private (Guid Id, string Number)? _fromRequest;
+    private NagiosTaskLink? _fromNagios;
+    private bool _canEdit, _canTake, _canLogTime, _canLogForOthers, _canStartClock, _canLink, _canAddSubtask, _canAttach, _busy;
+
+    protected override Task OnParametersSetAsync() => ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        await Load(async s =>
+        {
+            var actor = await s.Get<IActorProvider>().GetAsync();
+            var tasks = s.Get<TaskService>();
+            var time = s.Get<TimeEntryService>();
+            var structure = s.Get<TaskStructureService>();
+            var task = await tasks.GetAsync(Id);
+
+            // Clocks on other tasks run on in their own tabs (§6.10). One whose page has stopped checking in (crash, killed
+            // tab, ...) is stopped at its last heartbeat; the sweep job would get it within a minute anyway, but stopping it
+            // here lets this page say so.
+            var stale = await time.StopStaleClocksAsync();
+            if (stale.Count > 0) Success(string.Join(" ", stale.Select(x => TaskMessages.ClockStopped(x, includeTask: true))));
+
+            _clock = await time.GetRunningClockAsync(Id);
+            _canStartClock = actor.UserId is Guid clockUser && AccessPolicy.CanLogTimeFor(actor, task, clockUser);
+            _comments = await s.Get<CommentService>().ListAsync(Id);
+            _timeEntries = await time.ListForTaskAsync(Id);
+            _activity = (await s.Get<AuditService>().ListAsync(new AuditFilter
+            {
+                EntityId = Id, From = task.CreatedAt.AddSeconds(-1), To = DateTime.UtcNow.AddMinutes(1), PageSize = 30
+            })).Items;
+            _canEdit = AccessPolicy.CanEditTask(actor, task);
+            _canTake = AccessPolicy.CanTakeTask(actor, task);
+            _canLogForOthers = AccessPolicy.CanLogTimeForOthers(actor, task);
+            _canLogTime = actor.UserId is Guid me && AccessPolicy.CanLogTimeFor(actor, task, me) || _canLogForOthers;
+            _statuses = Ui.AllowedStatuses(actor, task);
+            _timeUsers = _canLogForOthers ? await s.Get<UserDirectoryService>().GetAssignableAsync(task.DepartmentId) : [];
+
+            _structure = await structure.GetStructureAsync(task);
+            _canLink = _canEdit && task.ProjectId is not null; // dependencies need a project (§6.15)
+            _canAddSubtask = task.IsOpen && (task.Project is null
+                ? AccessPolicy.CanCreateTaskIn(actor, task.DepartmentId)
+                : task.Project.Status != ProjectStatus.Archived && AccessPolicy.CanAddTaskToProject(actor, task.Project));
+            _linkCandidates = _canLink ? await structure.ListLinkCandidatesAsync(task) : [];
+
+            _attachments = await s.Get<AttachmentService>().ListForTaskAsync(Id);
+            _canAttach = AccessPolicy.CanAttachToTask(actor, task);
+            _fromRequest = task.Source == TaskSource.Request ? await s.Get<RequestService>().ForTaskAsync(Id) : null;
+            _fromNagios = task.Source == TaskSource.Nagios ? await s.Get<NagiosService>().ForTaskAsync(Id) : null;
+
+            _actor = actor;
+            _today = DateOnly.FromDateTime(DateTime.UtcNow);
+            _task = task;
+        });
+    }
+
+    private async Task PlanTodayAsync(bool planned)
+    {
+        _busy = true;
+        TaskItem? changed = null;
+        if (await Act(async s => changed = await s.Get<TaskService>().SetPlannedForAsync(Id, planned ? DateOnly.FromDateTime(DateTime.UtcNow) : null)))
+        {
+            Success(TaskMessages.PlannedToday(changed!, planned));
+            await ReloadAsync();
+        }
+        _busy = false;
+    }
+}

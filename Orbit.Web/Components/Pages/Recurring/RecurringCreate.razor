@@ -1,0 +1,10 @@
+@page "/Recurring/Create"
+@* A new recurring task definition (spec §6.4), optionally on ?projectId= (the project page's "New recurring task"). There is no
+   page door, as there was none on the Razor page: the service checks the right to create tasks in the department (§6.5). *@
+
+<PageTitle>New recurring task - Orbit</PageTitle>
+<RecurringEditor ProjectId="FilterChoice.Id(ProjectIdText)" />
+
+@code {
+    [SupplyParameterFromQuery(Name = "projectId")] public string? ProjectIdText { get; set; }
+}

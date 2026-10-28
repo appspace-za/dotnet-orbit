@@ -1,0 +1,184 @@
+@page "/RequestCatalogue"
+@page "/RequestCatalogue/Index"
+@inherits OrbitComponentBase
+@* Configuring request flows (spec §6.20, Admin > Request flows): the categories within the caller's requests.configure reach, by
+   department, each moved up or down among its department's; a form to add one (the department fixed at Department scope, a
+   picker at All); and a note on how a flow works. Moving a category reloads the list and leaves the add form as typed. *@
+
+<PageTitle>Request flows - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_actor is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">Request flows</MudText>
+            <div class="orbit-subtitle">
+                What each department offers on the Requests page: categories of flows, each a sequence of steps - forms, approvals, tasks,
+                actions and web pages - that a request walks through.
+            </div>
+        </div>
+        @if (AccessPolicy.CanSubmitRequests(_actor))
+        {
+            <MudButton Href="/Requests" Variant="Variant.Outlined" Size="Size.Small">Open the Requests page</MudButton>
+        }
+    </div>
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" lg="8">
+            @if (_sections.Count == 0)
+            {
+                <MudPaper Outlined="true" Class="orbit-card">
+                    <p class="orbit-empty">No request categories yet. Add one, then its flows.</p>
+                </MudPaper>
+            }
+            @foreach (var section in _sections)
+            {
+                var dept = section.Department;
+                var list = section.Categories;
+                <MudPaper Outlined="true" Class="orbit-card" @key="dept.Id">
+                    <div class="orbit-card-header">
+                        <span class="orbit-gap-row">
+                            <b>@dept.Name</b>
+                            @if (dept.IsArchived) { <MudChip T="string" Size="Size.Small">Archived department</MudChip> }
+                        </span>
+                    </div>
+                    @for (var i = 0; i < list.Count; i++)
+                    {
+                        var c = list[i];
+                        var first = i == 0;
+                        var last = i == list.Count - 1;
+                        <div class="orbit-list-item orbit-gap-row orbit-gap-lg" @key="c.Id">
+                            <span class="@($"request-option-icon {RequestIcons.ColourClass(c.Colour)}")"><RequestIcon Name="@c.Icon" Size="20" /></span>
+                            <div class="@(c.IsArchived ? "orbit-grow orbit-muted" : "orbit-grow")" style="min-width: 12rem">
+                                <span class="orbit-gap-row">
+                                    <a href="@($"/RequestCatalogue/Category/{c.Id}")"><b>@c.Title</b></a>
+                                    @if (c.IsArchived) { <MudChip T="string" Size="Size.Small">Archived</MudChip> }
+                                </span>
+                                <div class="orbit-small orbit-muted">@Summary(c)</div>
+                            </div>
+                            <div class="orbit-gap-row">
+                                <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small" Variant="Variant.Outlined" Disabled="@(_busy || first)"
+                                               OnClick="() => MoveAsync(c.Id, -1)" title="Move up" aria-label="@($"Move {c.Title} up")" />
+                                <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small" Variant="Variant.Outlined" Disabled="@(_busy || last)"
+                                               OnClick="() => MoveAsync(c.Id, 1)" title="Move down" aria-label="@($"Move {c.Title} down")" />
+                                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Href="@($"/RequestCatalogue/Category/{c.Id}")">Edit</MudButton>
+                            </div>
+                        </div>
+                    }
+                </MudPaper>
+            }
+        </MudItem>
+
+        <MudItem xs="12" lg="4">
+            @if (_departments.Count > 0)
+            {
+                <MudPaper Outlined="true" Class="orbit-card">
+                    <div class="orbit-card-header"><b>Add a category</b></div>
+                    <div class="orbit-card-body orbit-form">
+                        <RequestCategoryFields Form="_new" Departments="@(_everywhere ? _departments : null)" />
+                        <div><MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="AddAsync">Add category</MudButton></div>
+                    </div>
+                </MudPaper>
+            }
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>How a flow works</b></div>
+                <div class="orbit-card-body orbit-small orbit-muted">
+                    <p class="mt-0">
+                        A flow is a list of <strong>steps</strong>. A step can wait for other steps, and use what they gathered: a task's title can be
+                        <code>{{details.description}}</code>, the answer to the <em>description</em> field of the <em>details</em> form.
+                    </p>
+                    <ul class="mb-0 pl-4">
+                        <li><strong>Form</strong> - questions for the person asking (or a named person).</li>
+                        <li><strong>Approval</strong> - stages of approvers; later steps can hang on accept or decline.</li>
+                        <li><strong>Task</strong> - creates an Orbit task; done when the task is.</li>
+                        <li><strong>Action</strong> - runs a script from the action library.</li>
+                        <li><strong>Web page</strong> - opens a page in a new tab.</li>
+                    </ul>
+                </div>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    private Actor? _actor;
+    private bool _everywhere, _busy;
+    private IReadOnlyList<RequestCatalogueSection> _sections = [];
+    /// <summary>The open departments the caller configures: their own at Department scope, every one at All.</summary>
+    private IReadOnlyList<Department> _departments = [];
+    private CategoryForm _new = new();
+
+    protected override async Task OnInitializedAsync() => await LoadAsync(resetForm: true);
+
+    private async Task LoadAsync(bool resetForm) => await Load(async s =>
+    {
+        var actor = await s.Get<IActorProvider>().GetAsync();
+        var everywhere = actor.CanAnywhere(Permission.RequestsConfigure);
+        var departments = s.Get<DepartmentService>();
+        var categories = await s.Get<RequestCatalogueService>().ListAsync();
+        IReadOnlyList<Department> open = everywhere
+            ? await departments.ListAsync(false)
+            : actor.DepartmentId is Guid own && actor.ScopeOf(Permission.RequestsConfigure) == PermissionScope.Department
+                ? [await departments.GetAsync(own)]
+                : [];
+        open = open.Where(d => !d.IsArchived).ToList();
+        // The service orders by department name, then display order.
+        _sections = categories.GroupBy(c => c.DepartmentId)
+            .Select(g => new RequestCatalogueSection(g.First().Department, g.OrderBy(c => c.DisplayOrder).ThenBy(c => c.Title).ToList()))
+            .ToList();
+        _departments = open;
+        _everywhere = everywhere;
+        if (resetForm)
+        {
+            // The caller's own department is chosen when it is offered; otherwise the first, as the Razor form's select showed.
+            _new = new CategoryForm { DepartmentId = open.Any(d => d.Id == actor.DepartmentId) ? actor.DepartmentId : open.FirstOrDefault()?.Id };
+        }
+        _actor = actor;
+    });
+
+    /// <summary>The line under a category: its flows, how many are offered, and the start of its description.</summary>
+    private static string Summary(RequestCategory c)
+    {
+        var count = c.Flows.Count;
+        var text = $"{count} {(count == 1 ? "flow" : "flows")}";
+        if (count > 0) text += $", {c.Flows.Count(RequestFlowRules.IsLive)} offered";
+        if (!string.IsNullOrWhiteSpace(c.Description)) text += $" · {Ui.Truncate(c.Description, 80)}";
+        return text;
+    }
+
+    private async Task AddAsync()
+    {
+        _busy = true;
+        var input = _new.ToInput();
+        RequestCategory? added = null;
+        if (await Act(async s =>
+            {
+                // Only someone who configures every department names one; everyone else's category is their own department's, as the
+                // Razor form's hidden field posted.
+                var actor = await s.Get<IActorProvider>().GetAsync();
+                if (!actor.CanAnywhere(Permission.RequestsConfigure)) input.DepartmentId = actor.DepartmentId;
+                added = await s.Get<RequestCatalogueService>().CreateCategoryAsync(input);
+            }))
+        {
+            Success($"Category \"{added!.Title}\" added. Now add its flows.");
+            Nav.NavigateTo($"/RequestCatalogue/Category/{added.Id}");
+        }
+        _busy = false;
+    }
+
+    /// <summary>Moves a category one place up (-1) or down (+1) among its department's; the Razor page said nothing either.</summary>
+    private async Task MoveAsync(Guid id, int direction)
+    {
+        _busy = true;
+        if (await Act(s => s.Get<RequestCatalogueService>().MoveCategoryAsync(id, direction))) await LoadAsync(resetForm: false);
+        _busy = false;
+    }
+}

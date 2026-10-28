@@ -1,0 +1,78 @@
+@inherits OrbitComponentBase
+@* Who does the task (spec §6.2.3): any number of people, added and removed here without saving anything else on it. *@
+<MudPaper Outlined="true" Class="orbit-card">
+    <div class="orbit-card-header"><b>Assignees</b></div>
+    @if (Task.Assignments.Count == 0)
+    {
+        <div class="orbit-list-item orbit-muted"><i>Unassigned</i></div>
+    }
+    @foreach (var x in Task.Assignments.OrderBy(x => x.User.DisplayName))
+    {
+        <div class="orbit-list-item orbit-list-row" @key="x.UserId">
+            <div>
+                <div>
+                    <b>@x.User.DisplayName</b>
+                    @if (!x.User.IsActive)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Warning">deactivated</MudChip>
+                    }
+                </div>
+                <div class="orbit-sub">
+                    @(x.User.Department?.Name ?? "No department") · since @Ui.When(x.AssignedAt)@(x.AssignedBy is null ? "" : $" by {Ui.AuthorName(x.AssignedBy)}")
+                </div>
+            </div>
+            @if (CanEdit)
+            {
+                var user = x.User;
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy"
+                           title="@($"{user.DisplayName} is no longer assigned to it")" OnClick="() => UnassignAsync(user)">Remove</MudButton>
+            }
+        </div>
+    }
+    @if (CanEdit)
+    {
+        <div class="orbit-list-item">
+            <PersonPicker DepartmentId="Task.DepartmentId" Disabled="_busy" Picked="AssignAsync" />
+        </div>
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public TaskItem Task { get; set; } = null!;
+    [Parameter, EditorRequired] public bool CanEdit { get; set; }
+    [Parameter] public EventCallback Changed { get; set; }
+
+    private bool _busy;
+
+    private async Task AssignAsync(UserSummary person)
+    {
+        _busy = true;
+        TaskItem? changed = null;
+        if (await Act(async s => changed = await s.Get<TaskService>().AddAssigneeAsync(Task.Id, person.Id)))
+        {
+            Success($"Assigned to {changed!.Assignees.First(u => u.Id == person.Id).DisplayName}.");
+            await Changed.InvokeAsync();
+        }
+        _busy = false;
+    }
+
+    private async Task UnassignAsync(ApplicationUser user)
+    {
+        if (!await Confirm("Remove assignee", $"Take {user.DisplayName} off this task?", "Remove")) return;
+        _busy = true;
+        Actor? actor = null;
+        TaskItem? changed = null;
+        if (await Act(async s =>
+            {
+                actor = await s.Get<IActorProvider>().GetAsync();
+                changed = await s.Get<TaskService>().RemoveAssigneeAsync(Task.Id, user.Id);
+            }))
+        {
+            Success(user.Id == actor!.UserId ? "You are no longer assigned to this task." : "Assignee removed.");
+            // Someone whose only tie to the task was being assigned to it may not be able to open it any more.
+            if (!AccessPolicy.CanViewTask(actor, changed!)) Nav.NavigateTo("/Tasks/My");
+            else await Changed.InvokeAsync();
+        }
+        _busy = false;
+    }
+}

@@ -1,0 +1,284 @@
+@page "/Admin/Users/Edit/{Id:guid}"
+@inherits OrbitComponentBase
+@using System.Text
+@using Microsoft.AspNetCore.WebUtilities
+@* A user's page (spec §6.5, §6.13): their role, status, sign-in method and lockout, the assets they still hold (§6.19, what a
+   leaver hands back); Unlock, Deactivate (never yourself) and Reactivate; the profile - display name, role, department,
+   manager and sign-in method; and, for a local user, a one-time reset link or a temporary password. A directory user's
+   password lives in the directory, so the page says so instead. Each action reloads the page, as the Razor page's redirect did. *@
+
+<PageTitle>@(_account?.DisplayName ?? "User") - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_account is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var u = _account;
+    var isSelf = _actorUserId == u.Id;
+    var isDirectoryUser = u.AuthSource == AuthSource.Ldap;
+
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Admin/Users">Users</a><span class="orbit-crumb-sep">/</span><span aria-current="page">@u.DisplayName</span>
+    </nav>
+
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">@u.DisplayName</MudText>
+            <div class="orbit-gap-row orbit-muted mt-1">
+                <span>@u.Email ·</span>
+                <MudChip T="string" Size="Size.Small" Color="RoleLook.Chip(u.Role)">@u.Role.Name</MudChip>
+                @if (u.IsActive)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Success">Active</MudChip>
+                }
+                else
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Secondary">Deactivated</MudChip>
+                }
+                @if (isDirectoryUser)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Info">LDAP</MudChip>
+                }
+                @if (u.IsLockedOut)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning">Locked out until @Ui.When(u.LockoutEnd!.Value.UtcDateTime)</MudChip>
+                }
+            </div>
+            @if (_assetsHeld > 0)
+            {
+                <div class="orbit-small mt-1">
+                    Holds <a href="@($"/Assets?Holder={u.Id}")">@_assetsHeld @(_assetsHeld == 1 ? "asset" : "assets")</a>@(u.IsActive ? "" : " - recover them: deactivating a user doesn't unassign their assets").
+                </div>
+            }
+        </div>
+        <div class="orbit-actions">
+            @if (u.IsLockedOut)
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning" Disabled="_busy" OnClick="UnlockAsync"
+                           title="Too many wrong passwords locked this account. Unlocking lets them try again now.">Unlock</MudButton>
+            }
+            @if (u.IsActive && !isSelf)
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="DeactivateAsync">Deactivate</MudButton>
+            }
+            else if (!u.IsActive)
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Success" Disabled="_busy" OnClick="ReactivateAsync">Reactivate</MudButton>
+            }
+        </div>
+    </div>
+
+    @if (_resetLink is not null)
+    {
+        @* Shown once, after the action that made it; any later action or reload drops it, as the Razor page's TempData did. *@
+        <MudPaper Outlined="true" Class="orbit-card orbit-card-primary orbit-card-body">
+            <div class="mb-1"><b>One-time password reset link</b></div>
+            <div class="orbit-form-row">
+                <MudTextField T="string" Value="_resetLink" ReadOnly="true" Lines="2" Variant="Variant.Outlined" Class="orbit-code orbit-field-grow"
+                              aria-label="One-time password reset link" />
+                <CopyButton Text="@_resetLink" What="link" Size="Size.Small" />
+            </div>
+            <div class="orbit-small mt-1">Give this to the user. It is not shown again.</div>
+        </MudPaper>
+    }
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" lg="7">
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Profile, role and department</b></div>
+                <div class="orbit-card-body orbit-form">
+                    <MudTextField T="string" @bind-Value="_form.DisplayName" Label="Display name" MaxLength="200" Required="true"
+                                  RequiredError="Display name is required." Variant="Variant.Outlined" />
+
+                    <UserAccessFields Form="_form" Roles="_roles" Departments="_departments" Manager="_manager" UserId="u.Id" />
+
+                    <div>
+                        <MudSelect T="AuthSource" @bind-Value="_form.AuthSource" Label="Sign-in method" Variant="Variant.Outlined" Class="orbit-field-sm"
+                                   ToStringFunc="@(a => a.Label())">
+                            @foreach (var a in Enum.GetValues<AuthSource>())
+                            {
+                                <MudSelectItem T="AuthSource" Value="a">@a.Label()</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <div class="orbit-help">
+                            Directory users sign in with their company (Active Directory) password; the email above must match their directory account.
+                            Switching method removes any password Orbit holds for the user and signs them out.
+                        </div>
+                        @if (!_directoryEnabled)
+                        {
+                            <div class="orbit-help mt-0">Directory sign-in isn't enabled yet - set it up under <a href="/Admin/Directory/Index">Admin &gt; Directory</a>.</div>
+                        }
+                    </div>
+
+                    <div class="orbit-gap-row">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="SaveAsync">Save</MudButton>
+                        <MudButton Variant="Variant.Outlined" Href="/Admin/Users">Back</MudButton>
+                    </div>
+                    @if (isSelf)
+                    {
+                        <div class="orbit-help mt-0">This is your own account. At least one active System Administrator with a local password must always remain.</div>
+                    }
+                </div>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" lg="5">
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Password</b></div>
+                <div class="orbit-card-body">
+                    @if (isDirectoryUser)
+                    {
+                        <p class="orbit-small orbit-muted my-0">This user signs in with the company directory. Orbit holds no password for them: it is changed and reset in the directory, and disabling the directory account stops new sign-ins. Deactivate the user here as well to end a session that is already open.</p>
+                    }
+                    else
+                    {
+                        <p class="orbit-small orbit-muted mt-0">Either generate a one-time reset link (Identity's standard reset flow) or set a temporary password to hand over directly.</p>
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(_busy || !u.IsActive)" OnClick="ResetLinkAsync"
+                                   Class="mb-3">Generate reset link</MudButton>
+                        <div class="orbit-form-row">
+                            @* Plain text, as on the Razor page: the admin reads it back to hand it over. Cleared after Set, whatever happens. *@
+                            <MudTextField T="string" @bind-Value="_temporaryPassword" Label="Temporary password" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                          Class="orbit-field-grow" Disabled="!u.IsActive" autocomplete="off" />
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="@(_busy || !u.IsActive)" OnClick="SetPasswordAsync">Set</MudButton>
+                        </div>
+                    }
+                </div>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private UserSummary? _account;
+    private Guid? _actorUserId;
+    private UserForm _form = new();
+    private IReadOnlyList<RolePickerItem> _roles = [];
+    private IReadOnlyList<Department> _departments = [];
+    private List<UserSummary> _manager = [];
+    private bool _directoryEnabled, _busy;
+    /// <summary>Assets (not disposed) this person still holds (§6.19) - what a leaver has to hand back.</summary>
+    private int _assetsHeld;
+    private string? _temporaryPassword;
+    private string? _resetLink;
+
+    protected override async Task OnParametersSetAsync() => await LoadAsync();
+
+    /// <summary>The user and the form as saved; drops a reset link shown earlier.</summary>
+    private async Task LoadAsync() => await Load(async s =>
+    {
+        var actor = await s.Get<IActorProvider>().GetAsync();
+        var account = await s.Get<UserAdminService>().GetAsync(Id);
+        _directoryEnabled = await s.Get<LdapSettingsService>().IsEnabledAsync();
+        _assetsHeld = await s.Get<AssetService>().CountHeldByAsync(Id);
+        _roles = await s.Get<RoleService>().ListForPickerAsync();
+        _departments = await s.Get<DepartmentService>().ListAsync(false);
+        var form = UserForm.From(account);
+        form.Email = account.Email;
+        // An archived department isn't offered, so the field shows none, as the Razor select fell back to "(none)".
+        if (form.DepartmentId is Guid d && _departments.All(x => x.Id != d)) form.DepartmentId = null;
+        _manager = form.ManagerId is Guid m ? (await s.Get<UserDirectoryService>().FindManyAsync([m])).ToList() : [];
+        _form = form;
+        _actorUserId = actor.UserId;
+        _account = account;
+        _resetLink = null;
+    });
+
+    private async Task SaveAsync()
+    {
+        var account = _account!;
+        if (string.IsNullOrWhiteSpace(_form.DisplayName))
+        {
+            Error("Display name is required.");
+            return;
+        }
+        _form.ManagerId = _manager.FirstOrDefault()?.Id;
+        var input = _form.ToInput();
+        input.Password = null;
+        _busy = true;
+        UserSummary? updated = null;
+        // A refusal keeps what was typed, as the Razor page's re-render did.
+        if (await Act(async s => updated = await s.Get<UserAdminService>().UpdateAsync(account.Id, input)))
+        {
+            var saved = updated!;
+            var wasDirectoryUser = account.AuthSource == AuthSource.Ldap;
+            Success(wasDirectoryUser && saved.AuthSource == AuthSource.Local
+                ? $"{saved.DisplayName} saved. They now sign in with a local password and don't have one yet: set a temporary password or generate a reset link below."
+                : $"{saved.DisplayName} saved.");
+            await LoadAsync();
+        }
+        _busy = false;
+    }
+
+    private async Task DeactivateAsync()
+    {
+        if (!await Confirm("Deactivate user", "Deactivate this user? They will be signed out and unable to sign in. Their tasks, comments and history are kept.", "Deactivate")) return;
+        _busy = true;
+        if (await Act(s => s.Get<UserAdminService>().DeactivateAsync(Id)))
+            Success("User deactivated. They can no longer sign in; their history is kept.");
+        await LoadAsync();
+        _busy = false;
+    }
+
+    private async Task UnlockAsync()
+    {
+        _busy = true;
+        UserSummary? user = null;
+        if (await Act(async s => user = await s.Get<UserAdminService>().UnlockAsync(Id)))
+            Success(user?.AuthSource == AuthSource.Ldap
+                ? "User unlocked in Orbit. If the directory has locked the account as well, it has to be unlocked there too."
+                : "User unlocked. They can sign in again now.");
+        await LoadAsync();
+        _busy = false;
+    }
+
+    private async Task ReactivateAsync()
+    {
+        _busy = true;
+        if (await Act(s => s.Get<UserAdminService>().ReactivateAsync(Id)))
+            Success("User reactivated.");
+        await LoadAsync();
+        _busy = false;
+    }
+
+    /// <summary>Identity's reset token as the one-time link to /Identity/Account/ResetPassword, shown on the page until the next action.</summary>
+    private async Task ResetLinkAsync()
+    {
+        _busy = true;
+        string? link = null, name = null;
+        var made = await Act(async s =>
+        {
+            var (user, token) = await s.Get<UserAdminService>().GeneratePasswordResetTokenAsync(Id);
+            var code = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(token));
+            link = $"{Nav.BaseUri}Identity/Account/ResetPassword?code={Uri.EscapeDataString(code)}";
+            name = user.DisplayName;
+        });
+        if (made) Success($"Reset link generated for {name}. Hand it to them; it expires in a day.");
+        await LoadAsync();
+        _resetLink = made ? link : null;
+        _busy = false;
+    }
+
+    private async Task SetPasswordAsync()
+    {
+        // The Razor field was required, so an empty one never reached the service.
+        if (string.IsNullOrEmpty(_temporaryPassword))
+        {
+            Error("A password is required.");
+            return;
+        }
+        var password = _temporaryPassword;
+        _temporaryPassword = null;
+        _busy = true;
+        if (await Act(s => s.Get<UserAdminService>().SetTemporaryPasswordAsync(Id, password)))
+            Success("Temporary password set. Existing sessions for this user are signed out.");
+        await LoadAsync();
+        _busy = false;
+    }
+}

@@ -1,0 +1,530 @@
+@page "/RequestCatalogue/Step/{Id:guid}"
+@inherits OrbitComponentBase
+@* One step of a request flow (spec §6.20): its title and key, the steps it waits for (with an outcome beside each approval), and
+   by kind who performs a form or web page and the page's address, a task's settings, or the action it runs and a template per
+   parameter. These are saved with one Save. Beside them a form's fields (RequestStepFields) or an approval's stages and approvers
+   (RequestStepApprovals), each saved on its own, or the values the step's templates may use. While requests are in progress
+   through the flow the key, the dependencies and a form's fields can't change. *@
+
+<PageTitle>@Title - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_step is null || _step.Id != Id)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var s = _step;
+    var f = s.Flow;
+    var problems = RequestFlowRules.Problems(s);
+    var frozen = _inProgress > 0;
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/RequestCatalogue">Request flows</a><span class="orbit-crumb-sep">/</span><a href="@($"/RequestCatalogue/Category/{f.Category.Id}")">@f.Category.Title</a><span class="orbit-crumb-sep">/</span><a href="@($"/RequestCatalogue/Flow/{f.Id}")">@f.Title</a><span class="orbit-crumb-sep">/</span><span aria-current="page">@s.Title</span>
+    </nav>
+    <div class="orbit-page-header">
+        <div>
+            <div class="orbit-gap-row">
+                <MudText Typo="Typo.h5" HtmlTag="h1">@s.Title</MudText>
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@s.Kind.Label()</MudChip>
+                @if (problems.Count > 0)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning">Not set up: @string.Join("; ", problems)</MudChip>
+                }
+            </div>
+            <div class="orbit-subtitle">Step <span class="orbit-key">@s.Key</span> of <strong>@f.Title</strong>.</div>
+        </div>
+        <div class="orbit-actions">
+            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="DeleteAsync">Delete step</MudButton>
+        </div>
+    </div>
+
+    @if (frozen)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">@FrozenNote</MudAlert>
+    }
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" lg="6">
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Settings</b></div>
+                <div class="orbit-card-body orbit-form">
+                    <MudTextField T="string" @bind-Value="_form.Title" Label="Title" MaxLength="RequestFlowRules.MaxStepTitleLength" Required="true"
+                                  RequiredError="The step needs a title." Variant="Variant.Outlined" />
+                    <MudTextField T="string" @bind-Value="_form.Key" Label="Key" MaxLength="RequestFlowRules.MaxKeyLength" ReadOnly="frozen"
+                                  HelperText="@("Later steps refer to this step's values as {{" + s.Key + ".something}}.")"
+                                  Variant="Variant.Outlined" Class="orbit-code" spellcheck="false" />
+
+                    <div>
+                        <div class="orbit-section-title mt-0 mb-1">Waits for</div>
+                        @if (_others.Count == 0)
+                        {
+                            <div class="orbit-small orbit-muted">No other steps yet.</div>
+                        }
+                        else
+                        {
+                            <div class="orbit-help mt-0 mb-1">Tick the steps this one can't start before. Save, and their values appear in the lists below.</div>
+                            @foreach (var other in _others)
+                            {
+                                var o = other;
+                                <div class="orbit-form-row" @key="o.Id">
+                                    <MudCheckBox T="bool" Value="@(_form.DependsOn.Contains(o.Id))" ValueChanged="@(v => SetDependsOn(o.Id, v))" Disabled="frozen"
+                                                 Label="@($"{o.Title} ({o.Kind.Label()})")" Dense="true" Color="Color.Primary" />
+                                    @if (o.Kind == RequestStepKind.Approval)
+                                    {
+                                        <MudSelect T="string" Value="@(OutcomeChoice(o.Id))" ValueChanged="@(v => SetOutcome(o.Id, v))" Disabled="frozen" ToStringFunc="OutcomeLabel"
+                                                   Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Class="orbit-field-lg" aria-label="@($"When {o.Title} is")">
+                                            <MudSelectItem T="string" Value="@Either">@OutcomeLabel(Either)</MudSelectItem>
+                                            <MudSelectItem T="string" Value="@(nameof(RequestOutcome.Accepted))">@OutcomeLabel(nameof(RequestOutcome.Accepted))</MudSelectItem>
+                                            <MudSelectItem T="string" Value="@(nameof(RequestOutcome.Declined))">@OutcomeLabel(nameof(RequestOutcome.Declined))</MudSelectItem>
+                                        </MudSelect>
+                                    }
+                                </div>
+                            }
+                        }
+                    </div>
+
+                    @switch (s.Kind)
+                    {
+                        case RequestStepKind.Form:
+                        case RequestStepKind.Url:
+                            <div>
+                                <div class="orbit-section-title mt-0 mb-1">Performed by</div>
+                                <PeopleField Selected="_performer" SelectedChanged="StateHasChanged" Single="true" Placeholder="Type a name or email..." Search="SearchPeople" />
+                                @if (_performer.Count == 0)
+                                {
+                                    <div class="orbit-small orbit-muted">The person who logged the request</div>
+                                }
+                                <div class="orbit-help">Leave empty for the person who logged the request; or name who @(s.Kind == RequestStepKind.Form ? "fills in this form" : "opens this page").</div>
+                            </div>
+                            if (s.Kind == RequestStepKind.Url)
+                            {
+                                <div>
+                                    <MudTextField T="string" @bind-Value="_form.Url" Label="Web address" Placeholder="https://..." MaxLength="RequestFlowRules.MaxUrlLength"
+                                                  InputId="step-url" Variant="Variant.Outlined" />
+                                    <TokenPicker Tokens="_tokens" TargetId="step-url" ValueChanged="v => _form.Url = v" />
+                                </div>
+                            }
+                            break;
+
+                        case RequestStepKind.Task:
+                            <div class="orbit-form-row">
+                                <MudSelect T="Guid" @bind-Value="TaskDepartment" Label="Filed in department" ToStringFunc="TaskDepartmentName" Variant="Variant.Outlined"
+                                           Class="orbit-field-lg">
+                                    @foreach (var d in _taskDepartments)
+                                    {
+                                        <MudSelectItem T="Guid" Value="d.Id">@d.Name</MudSelectItem>
+                                    }
+                                </MudSelect>
+                                <MudSelect T="TaskType" @bind-Value="_form.TaskType" Label="Type" ToStringFunc="@(t => t.ToString())" Variant="Variant.Outlined" Class="orbit-field-sm">
+                                    @foreach (var t in Enum.GetValues<TaskType>())
+                                    {
+                                        <MudSelectItem T="TaskType" Value="t">@t</MudSelectItem>
+                                    }
+                                </MudSelect>
+                                <MudSelect T="TaskPriority" @bind-Value="_form.TaskPriority" Label="Priority" ToStringFunc="@(p => p.ToString())" Variant="Variant.Outlined"
+                                           Class="orbit-field-sm">
+                                    @foreach (var p in Enum.GetValues<TaskPriority>())
+                                    {
+                                        <MudSelectItem T="TaskPriority" Value="p">@p</MudSelectItem>
+                                    }
+                                </MudSelect>
+                            </div>
+                            <div>
+                                <MudTextField T="string" @bind-Value="_form.TitleTemplate" Label="Task title" Placeholder="e.g. Product code for {{details.description}}"
+                                              MaxLength="RequestFlowRules.MaxTitleTemplateLength" InputId="step-title-template" Variant="Variant.Outlined" />
+                                <TokenPicker Tokens="_tokens" TargetId="step-title-template" ValueChanged="v => _form.TitleTemplate = v" />
+                            </div>
+                            <div>
+                                <MudTextField T="string" @bind-Value="_form.DescriptionTemplate" Label="Task description (optional)" Lines="5"
+                                              MaxLength="RequestFlowRules.MaxTemplateLength" InputId="step-description-template" Variant="Variant.Outlined" />
+                                <TokenPicker Tokens="_tokens" TargetId="step-description-template" ValueChanged="v => _form.DescriptionTemplate = v" />
+                            </div>
+                            <div>
+                                <div class="orbit-section-title mt-0 mb-1">Assigned to</div>
+                                <PeopleField Selected="_assignees" SelectedChanged="StateHasChanged" Placeholder="Type a name or email..." Search="SearchPeople" />
+                                @if (_assignees.Count == 0)
+                                {
+                                    <div class="orbit-small orbit-muted">Nobody - the task waits for someone in the department to take it</div>
+                                }
+                            </div>
+                            <div class="orbit-form-row">
+                                <MudSelect T="RequesteeSource" @bind-Value="_form.RequesteeSource" Label="The task is for" ToStringFunc="@(r => r.Label())"
+                                           Variant="Variant.Outlined" Class="orbit-field-lg">
+                                    @foreach (var r in Enum.GetValues<RequesteeSource>())
+                                    {
+                                        <MudSelectItem T="RequesteeSource" Value="r">@r.Label()</MudSelectItem>
+                                    }
+                                </MudSelect>
+                                @if (_form.RequesteeSource == RequesteeSource.Field)
+                                {
+                                    <MudSelect T="Guid" @bind-Value="RequesteeField" Label="Named by the field" ToStringFunc="FieldLabel" Variant="Variant.Outlined" Class="orbit-field-lg">
+                                        @FieldItems(RequestFieldType.User)
+                                    </MudSelect>
+                                }
+                            </div>
+                            <div>
+                                <div class="orbit-form-row">
+                                    <MudSelect T="Guid" @bind-Value="PriorityField" Label="Urgency from" ToStringFunc="FieldLabel" Variant="Variant.Outlined" Class="orbit-field-sm">
+                                        @FieldItems(RequestFieldType.Urgency)
+                                    </MudSelect>
+                                    <MudSelect T="string" @bind-Value="_form.DueDate" Label="Due date from" ToStringFunc="DueDateLabel" Variant="Variant.Outlined" Class="orbit-field-sm">
+                                        <MudSelectItem T="string" Value="@DueNone">@DueDateLabel(DueNone)</MudSelectItem>
+                                        <MudSelectItem T="string" Value="@DueCreated">@DueDateLabel(DueCreated)</MudSelectItem>
+                                        @foreach (var choice in FieldChoices(RequestFieldType.Date))
+                                        {
+                                            <MudSelectItem T="string" Value="@(choice.Id.ToString())">@choice.Label</MudSelectItem>
+                                        }
+                                    </MudSelect>
+                                    <MudSelect T="Guid" @bind-Value="AssetField" Label="Asset from" ToStringFunc="FieldLabel" Variant="Variant.Outlined" Class="orbit-field-sm">
+                                        @FieldItems(RequestFieldType.Asset)
+                                    </MudSelect>
+                                    <MudSelect T="Guid" @bind-Value="ProjectField" Label="Project from" ToStringFunc="FieldLabel" Variant="Variant.Outlined" Class="orbit-field-sm">
+                                        @FieldItems(RequestFieldType.Project)
+                                    </MudSelect>
+                                </div>
+                                <div class="orbit-help">
+                                    Each takes its value from a question of a form this step waits for. The priority above applies when no Urgency question is chosen,
+                                    or it wasn't answered. The due date can instead be the day the task is created.
+                                </div>
+                            </div>
+                            <div class="orbit-form-row">
+                                <MudSelect T="string" @bind-Value="_form.CopyAttachments" Label="Files to attach to the task" ToStringFunc="CopyLabel" Variant="Variant.Outlined"
+                                           Class="orbit-field-lg">
+                                    <MudSelectItem T="string" Value="@CopyNone">@CopyLabel(CopyNone)</MudSelectItem>
+                                    <MudSelectItem T="string" Value="@CopyAll">@CopyLabel(CopyAll)</MudSelectItem>
+                                    @foreach (var form in FileForms())
+                                    {
+                                        <MudSelectItem T="string" Value="@(form.Id.ToString())">@CopyLabel(form.Id.ToString())</MudSelectItem>
+                                    }
+                                </MudSelect>
+                            </div>
+                            break;
+
+                        case RequestStepKind.Action:
+                            <div>
+                                <div class="orbit-form-row">
+                                    <MudSelect T="Guid" @bind-Value="ActionChoice" Label="Action" ToStringFunc="ActionLabel" Variant="Variant.Outlined" Class="orbit-field-lg">
+                                        <MudSelectItem T="Guid" Value="Guid.Empty">@ActionLabel(Guid.Empty)</MudSelectItem>
+                                        @foreach (var a in _actions)
+                                        {
+                                            <MudSelectItem T="Guid" Value="a.Id">@ActionLabel(a.Id)</MudSelectItem>
+                                        }
+                                    </MudSelect>
+                                </div>
+                                @if (_actions.Count == 0)
+                                {
+                                    <div class="orbit-help">The action library is empty: someone with the Create actions permission writes them under Admin &gt; Actions.</div>
+                                }
+                            </div>
+                            if (_actions.FirstOrDefault(a => a.Id == _form.ActionId) is { } chosen)
+                            {
+                                var inputs = InputsFor(chosen.Id);
+                                <div class="orbit-form">
+                                    @if (!string.IsNullOrWhiteSpace(chosen.Description))
+                                    {
+                                        <div class="orbit-small orbit-muted">@chosen.Description</div>
+                                    }
+                                    @if (chosen.Parameters.Count == 0)
+                                    {
+                                        <div class="orbit-small orbit-muted">This action takes no parameters.</div>
+                                    }
+                                    @foreach (var parameter in chosen.Parameters.OrderBy(p => p.DisplayOrder))
+                                    {
+                                        var paramKey = parameter.Key;
+                                        var inputId = $"input-{chosen.Id:N}-{paramKey}";
+                                        <div @key="inputId">
+                                            <MudTextField T="string" Value="@(inputs.GetValueOrDefault(paramKey))" ValueChanged="@(v => inputs[paramKey] = v)" Label="@parameter.Label"
+                                                          HelperText="@paramKey" MaxLength="RequestFlowRules.MaxTemplateLength" InputId="@inputId" Variant="Variant.Outlined" />
+                                            <TokenPicker Tokens="_tokens" TargetId="@inputId" ValueChanged="@(v => inputs[paramKey] = v)" />
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            break;
+                    }
+
+                    <div><MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="SaveAsync">Save</MudButton></div>
+                </div>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" lg="6">
+            @switch (s.Kind)
+            {
+                case RequestStepKind.Form:
+                    <RequestStepFields StepId="s.Id" StepKey="@s.Key" Fields="s.Fields" Frozen="frozen" Changed="StepChangedAsync" />
+                    break;
+
+                case RequestStepKind.Approval:
+                    <RequestStepApprovals StepId="s.Id" Stages="s.Stages" Roles="_roles" Departments="_departments" Changed="StepChangedAsync" />
+                    break;
+
+                default:
+                    <MudPaper Outlined="true" Class="orbit-card">
+                        <div class="orbit-card-header"><b>Values this step can use</b></div>
+                        @if (_tokens.Count == 0)
+                        {
+                            <p class="orbit-empty">None yet.</p>
+                        }
+                        else
+                        {
+                            <dl class="orbit-dl">
+                                @foreach (var t in _tokens)
+                                {
+                                    <dt class="orbit-key">@t.Text</dt>
+                                    <dd class="orbit-muted">@t.Label</dd>
+                                }
+                            </dl>
+                        }
+                        <div class="orbit-card-footer">
+                            The request's own values are always there; a step's values come once this step waits for it (save the dependencies first).
+                        </div>
+                    </MudPaper>
+                    break;
+            }
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    /// <summary>The flow builder's people search, as the Razor page's /RequestCatalogue/People endpoint did.</summary>
+    private static readonly Func<IServiceProvider, string?, CancellationToken, Task<IReadOnlyList<UserSummary>>> SearchPeople =
+        (sp, q, ct) => sp.Get<UserDirectoryService>().SearchRequestFlowPeopleAsync(q, 20, ct);
+
+    // The values of the selects that StepForm keeps as strings, as the Razor page posted them.
+    private const string Either = "either";
+    private const string DueNone = "none";
+    private const string DueCreated = "created";
+    private const string CopyNone = "none";
+    private const string CopyAll = "all";
+
+    private RequestFlowStep? _step;
+    /// <summary>The flow's other steps, in order, for Waits for.</summary>
+    private IReadOnlyList<RequestFlowStep> _others = [];
+    /// <summary>The steps this one waits for, directly or through others, as saved: their values are what its templates may use.</summary>
+    private IReadOnlyList<RequestFlowStep> _predecessors = [];
+    /// <summary>The fields of the predecessor forms, by id, as "Form title: Prompt".</summary>
+    private IReadOnlyDictionary<Guid, string> _fieldLabels = new Dictionary<Guid, string>();
+    private IReadOnlyList<RequestToken> _tokens = [];
+    private IReadOnlyList<Department> _departments = [];
+    /// <summary>The departments a task step may be filed in: the open ones, and the step's own if it has been archived since.</summary>
+    private IReadOnlyList<(Guid Id, string Name)> _taskDepartments = [];
+    private IReadOnlyList<ApplicationRole> _roles = [];
+    private IReadOnlyList<RequestAction> _actions = [];
+    private int _inProgress;
+    private bool _busy;
+
+    private StepForm _form = new();
+    private List<UserSummary> _performer = [];
+    private List<UserSummary> _assignees = [];
+    /// <summary>
+    /// The parameter templates as typed, by action: switching to another action and back keeps them, as the Razor page's hidden
+    /// inputs did. Only the chosen action's are saved.
+    /// </summary>
+    private Dictionary<Guid, Dictionary<string, string?>> _actionInputs = new();
+
+    private string Title => _step is null ? "Request step" : $"Set up {_step.Title}";
+
+    private string FrozenNote =>
+        $"{_inProgress} {(_inProgress == 1 ? "request is" : "requests are")} in progress through this flow, so the key, the dependencies and (for a form) the " +
+        "fields can't change until they finish. Everything else can.";
+
+    private Guid TaskDepartment { get => _form.TaskDepartmentId ?? Guid.Empty; set => _form.TaskDepartmentId = NullIfEmpty(value); }
+    private Guid RequesteeField { get => _form.RequesteeFieldId ?? Guid.Empty; set => _form.RequesteeFieldId = NullIfEmpty(value); }
+    private Guid PriorityField { get => _form.PriorityFieldId ?? Guid.Empty; set => _form.PriorityFieldId = NullIfEmpty(value); }
+    private Guid AssetField { get => _form.AssetFieldId ?? Guid.Empty; set => _form.AssetFieldId = NullIfEmpty(value); }
+    private Guid ProjectField { get => _form.ProjectFieldId ?? Guid.Empty; set => _form.ProjectFieldId = NullIfEmpty(value); }
+    private Guid ActionChoice { get => _form.ActionId ?? Guid.Empty; set => _form.ActionId = NullIfEmpty(value); }
+
+    private static Guid? NullIfEmpty(Guid id) => id == Guid.Empty ? null : id;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _step = null;
+        await LoadAsync(resetForm: true);
+    }
+
+    /// <summary>
+    /// The step with its flow, the steps it waits for and the values they offer, and what its kind chooses from. The form shows the
+    /// step as stored on opening the page and after saving it; a field, stage or approver change reloads the step but leaves what is
+    /// typed in the settings alone.
+    /// </summary>
+    private async Task<bool> LoadAsync(bool resetForm) => await Load(async s =>
+    {
+        var catalogue = s.Get<RequestCatalogueService>();
+        var step = await catalogue.GetStepAsync(Id);
+        var flow = step.Flow;
+        var predecessorIds = RequestFlowRules.TransitivePredecessors(step.Id, flow.Steps.SelectMany(x => x.Dependencies).ToList());
+        var predecessors = flow.Steps.Where(x => predecessorIds.Contains(x.Id)).ToList();
+        var inProgress = await catalogue.InProgressRequestCountAsync(flow.Id);
+        IReadOnlyList<Department> departments = step.Kind is RequestStepKind.Task or RequestStepKind.Approval ? await catalogue.OpenDepartmentsAsync() : [];
+        IReadOnlyList<ApplicationRole> roles = step.Kind == RequestStepKind.Approval ? await catalogue.RolesForApproversAsync() : [];
+        IReadOnlyList<RequestAction> actions = step.Kind == RequestStepKind.Action ? await catalogue.ActionsForPickerAsync() : [];
+        List<UserSummary>? performer = null, assignees = null;
+        if (resetForm)
+        {
+            var users = s.Get<UserDirectoryService>();
+            performer = step.PerformedById is Guid performerId ? (await users.FindManyAsync([performerId])).ToList() : [];
+            assignees = (await users.FindManyAsync(step.Assignees.Select(a => a.UserId).ToList())).ToList();
+        }
+
+        var taskDepartments = departments.Select(d => (d.Id, d.Name)).ToList();
+        if (step.TaskDepartment is { } own && taskDepartments.All(d => d.Id != own.Id)) taskDepartments.Add((own.Id, $"{own.Name} (archived)"));
+
+        _others = flow.Steps.Where(x => x.Id != step.Id).ToList();
+        _predecessors = predecessors;
+        _fieldLabels = predecessors.Where(x => x.Kind == RequestStepKind.Form)
+            .SelectMany(x => x.Fields.Select(fld => (fld.Id, Label: $"{x.Title}: {fld.Prompt}")))
+            .ToDictionary(x => x.Id, x => x.Label);
+        _tokens = RequestTokenRules.Available(predecessors);
+        _inProgress = inProgress;
+        _departments = departments;
+        _taskDepartments = taskDepartments;
+        _roles = roles;
+        _actions = actions;
+        if (resetForm)
+        {
+            _performer = performer!;
+            _assignees = assignees!;
+            _form = FormFrom(step);
+        }
+        _step = step;
+    });
+
+    /// <summary>
+    /// The settings as the step stores them. The Razor page's selects could only show what they offered, so a field, form or action
+    /// that is no longer offered (the step no longer waits for its form) showed - and saved - as None; it does here too.
+    /// </summary>
+    private StepForm FormFrom(RequestFlowStep step)
+    {
+        var form = StepForm.From(step);
+        form.RequesteeFieldId = Offered(form.RequesteeFieldId, RequestFieldType.User);
+        form.PriorityFieldId = Offered(form.PriorityFieldId, RequestFieldType.Urgency);
+        form.AssetFieldId = Offered(form.AssetFieldId, RequestFieldType.Asset);
+        form.ProjectFieldId = Offered(form.ProjectFieldId, RequestFieldType.Project);
+        if (Guid.TryParse(form.DueDate, out var dueField) && Offered(dueField, RequestFieldType.Date) is null) form.DueDate = DueNone;
+        if (Guid.TryParse(form.CopyAttachments, out var fromStep) && FileForms().All(p => p.Id != fromStep)) form.CopyAttachments = CopyNone;
+        if (form.ActionId is Guid actionId && _actions.All(a => a.Id != actionId)) form.ActionId = null;
+        _actionInputs = new Dictionary<Guid, Dictionary<string, string?>>();
+        if (form.ActionId is Guid chosen) _actionInputs[chosen] = new Dictionary<string, string?>(form.ActionInputs);
+        return form;
+    }
+
+    private Guid? Offered(Guid? fieldId, RequestFieldType type) =>
+        fieldId is Guid id && FieldChoices(type).Any(c => c.Id == id) ? id : null;
+
+    /// <summary>The fields of one type on the forms this step waits for, for the task step's selects.</summary>
+    private IEnumerable<(Guid Id, string Label)> FieldChoices(RequestFieldType type) =>
+        _predecessors.Where(x => x.Kind == RequestStepKind.Form)
+            .SelectMany(x => x.Fields.Where(fld => fld.FieldType == type).Select(fld => (fld.Id, $"{x.Title}: {fld.Prompt}")));
+
+    /// <summary>The forms this step waits for that take files: a task step may copy one form's files.</summary>
+    private IEnumerable<RequestFlowStep> FileForms() =>
+        _predecessors.Where(x => x.Kind == RequestStepKind.Form && x.Fields.Any(fld => fld.FieldType == RequestFieldType.Attachment));
+
+    /// <summary>A field select's items: None, then the fields of one type on the forms this step waits for.</summary>
+    private RenderFragment FieldItems(RequestFieldType type) => __builder =>
+    {
+        <MudSelectItem T="Guid" Value="Guid.Empty">None</MudSelectItem>
+        foreach (var choice in FieldChoices(type))
+        {
+            <MudSelectItem T="Guid" Value="choice.Id">@choice.Label</MudSelectItem>
+        }
+    };
+
+    private string FieldLabel(Guid id) => _fieldLabels.GetValueOrDefault(id) ?? "None";
+
+    private string TaskDepartmentName(Guid id) => _taskDepartments.FirstOrDefault(d => d.Id == id).Name ?? "- choose -";
+
+    private string DueDateLabel(string? value) => value switch
+    {
+        DueCreated => "The day the task is created",
+        _ when Guid.TryParse(value, out var id) && _fieldLabels.TryGetValue(id, out var label) => label,
+        _ => "None"
+    };
+
+    private string CopyLabel(string? value) => value switch
+    {
+        CopyAll => "Every file from the forms this step waits for",
+        _ when Guid.TryParse(value, out var id) && _predecessors.FirstOrDefault(p => p.Id == id) is { } form => $"The files of \"{form.Title}\"",
+        _ => "None"
+    };
+
+    private string ActionLabel(Guid id) =>
+        _actions.FirstOrDefault(x => x.Id == id) is { } a ? $"{a.Name} ({a.RunsOn.Label().ToLowerInvariant()})" : "Choose an action...";
+
+    private Dictionary<string, string?> InputsFor(Guid actionId)
+    {
+        if (!_actionInputs.TryGetValue(actionId, out var inputs)) _actionInputs[actionId] = inputs = new Dictionary<string, string?>();
+        return inputs;
+    }
+
+    private void SetDependsOn(Guid stepId, bool on)
+    {
+        _form.DependsOn.Remove(stepId);
+        if (on) _form.DependsOn.Add(stepId);
+    }
+
+    /// <summary>An approval's outcome select: "either" (when it finishes), Accepted or Declined, kept as StepForm.Outcome reads it.</summary>
+    private string OutcomeChoice(Guid stepId) => _form.Outcome.GetValueOrDefault(stepId) is { Length: > 0 } outcome ? outcome : Either;
+
+    private void SetOutcome(Guid stepId, string? value) => _form.Outcome[stepId] = value == Either ? null : value;
+
+    private static string OutcomeLabel(string? value) => value switch
+    {
+        nameof(RequestOutcome.Accepted) => "only when it is accepted",
+        nameof(RequestOutcome.Declined) => "only when it is declined",
+        _ => "when it finishes, either way"
+    };
+
+    private async Task SaveAsync()
+    {
+        var id = _step!.Id;
+        _form.PerformedById = _performer.FirstOrDefault()?.Id;
+        _form.AssigneeIds = _assignees.Select(u => u.Id).ToList();
+        _form.ActionInputs = _form.ActionId is Guid actionId && _actionInputs.TryGetValue(actionId, out var typed)
+            ? new Dictionary<string, string?>(typed)
+            : new Dictionary<string, string?>();
+        var input = _form.ToInput();
+        // The Razor form posted the field naming whom the task is for only while "The person a field names" was chosen.
+        if (input.RequesteeSource != RequesteeSource.Field) input.RequesteeFieldId = null;
+        _busy = true;
+        RequestFlowStep? saved = null;
+        if (await Act(async s => saved = await s.Get<RequestCatalogueService>().UpdateStepAsync(id, input)))
+        {
+            Success($"Step \"{saved!.Title}\" saved.");
+            await LoadAsync(resetForm: true);
+        }
+        _busy = false;
+    }
+
+    /// <summary>The service refuses a step of a flow a request was ever logged through; the dependencies on it go with it.</summary>
+    private async Task DeleteAsync()
+    {
+        var step = _step!;
+        if (!await Confirm("Delete step", $"Delete the step \"{step.Title}\"? Steps that depend on it stop doing so.")) return;
+        _busy = true;
+        string? title = null;
+        var flowId = Guid.Empty;
+        if (await Act(async s =>
+            {
+                var catalogue = s.Get<RequestCatalogueService>();
+                title = (await catalogue.GetStepAsync(step.Id)).Title;
+                flowId = await catalogue.DeleteStepAsync(step.Id);
+            }))
+        {
+            Success($"Step \"{title}\" deleted.");
+            Nav.NavigateTo($"/RequestCatalogue/Flow/{flowId}");
+        }
+        _busy = false;
+    }
+
+    /// <summary>A field, stage or approver changed: the step is read again (its badge, its rows), the settings as typed are kept.</summary>
+    private async Task StepChangedAsync() => await LoadAsync(resetForm: false);
+}

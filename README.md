@@ -3,8 +3,19 @@
 Task and project tracker for the whole business: departments with server-side boundaries, company-wide
 sprints, recurring tasks, time tracking, reports, an asset register, request flows, tasks raised from Nagios
 monitoring, and an MCP server so Claude can create and query work.
-Built on ASP.NET Core Razor Pages (.NET 10), EF Core + PostgreSQL, ASP.NET Core Identity, the
-`ModelContextProtocol` .NET SDK, Quartz.NET, Ical.Net and QuestPDF. The full specification is in `orbit-spec.md`.
+Built on ASP.NET Core (.NET 10) with Blazor Server + MudBlazor, EF Core + PostgreSQL, ASP.NET Core
+Identity, the `ModelContextProtocol` .NET SDK, Quartz.NET, Ical.Net and QuestPDF. The full specification is in `orbit-spec.md`.
+
+**The web UI is Blazor** (spec §6): Blazor Server with MudBlazor, converted from Razor Pages page by page at the same
+URLs, so bookmarks and the links in emails still work. On the lists a filter applies as soon as you change it (the
+search box as you type), and it's remembered for the browser session. In the task tables, changing a task's status,
+assignee, due date, sprint or *Today* tick saves at once, with no page reload, and a message at the bottom right
+confirms it. Setting *Done* still asks for solution notes. On the task page, comments, time entries, assignees (picked
+by typing a name), dependencies and attachments are added and removed in place, and the clock keeps running while you
+work on the page. On an asset's page, checks, holders and the location change in place too, and Quick check refreshes
+the list when you close it. Only sign-in and the account pages (ASP.NET Identity's own) and the error page are still
+Razor pages, on a slim layout in the same colours with a way back into the app. Signing out, or in as someone else,
+reloads Orbit's other open tabs in that browser, so none of them goes on working as the old account.
 
 ## Solution layout
 
@@ -12,7 +23,7 @@ Built on ASP.NET Core Razor Pages (.NET 10), EF Core + PostgreSQL, ASP.NET Core 
 
 | Project | What it is |
 |---|---|
-| `Orbit.Web/` | The web app: Razor Pages UI, MCP server, background jobs, and the server side of the Orbit Agent. Builds `Orbit.Web.dll`. |
+| `Orbit.Web/` | The web app: the UI (Blazor, plus Identity's Razor pages), MCP server, background jobs, and the server side of the Orbit Agent. Builds `Orbit.Web.dll`. |
 | `Orbit.Agent/` | The **Orbit Agent** - a separate Worker Service that runs inside the corporate network. Published on its own; not part of the web app's output. |
 | `Orbit.Agents.Contracts/` | Messages and method names shared by the web app and the agent, so the two can't drift. No dependencies. |
 | `Orbit.Scripting/` | The Roslyn script host that runs request actions (spec §6.20), referenced by the web app and the agent so a script compiles the same on both. Brings Npgsql and SqlClient for the scripts' database connections. |
@@ -33,7 +44,8 @@ Inside `Orbit.Web/`, folders stand in for the layers of spec §11, and namespace
 | `Mcp/` | `OrbitTools` - the 32 MCP tools, mapped onto the same services the UI uses |
 | `Jobs/` | Quartz.NET jobs: recurring-task generation, due-date notifications, the clock sweep, the request action runner, the Nagios check and the email dispatcher, cron-scheduled from `Jobs:*` |
 | `Reporting/` | QuestPDF report rendering |
-| `Pages/` | Razor Pages UI (dashboard, tasks, projects, backlog, sprints, recurring, time, assets, requests, admin, reports) |
+| `Components/` | Blazor UI (MudBlazor): the shell and theme (`Layout/`), `OrbitRunner` and `OrbitComponentBase` (`Infrastructure/`), the task table and its controls (`Tasks/`), the shared pickers and cards (`Shared/`), and the pages (`Pages/`, one folder per area, `Admin/` for the Admin menu) |
+| `Pages/` | The Razor pages that remain: the error page, and the layout the Identity pages share |
 | `Areas/Identity/` | Overrides of the default Identity UI (login, self-registration disabled, no self-delete) |
 | `Migrations/` | EF Core migrations |
 
@@ -136,10 +148,9 @@ In the Tasks list, a project page and My Tasks the **Sprint** column is a dropdo
 to plan the task into it, or *Backlog* to take it out, without the edit form or the Backlog page. It follows
 `tasks.plan`, like planning from the Backlog, and is offered on open tasks only; a closed task, or one you can't plan,
 shows its sprint as a link. A reopened task still in a completed sprint shows that sprint until it is moved. The
-status, assignee, due-date and sprint controls are shared partials (`_StatusControl`, `_AssigneeControl`,
-`_DueDateControl`, `_SprintControl` in `Pages/Shared`). A change through any of them, the Today tick or *Take* keeps
-your place: the page reloads, scrolls back to where you were (with the control focused, if it is still in view), and
-shows the message floating in a corner. The Tasks list also has a **Sprint** filter: a planned or active sprint, or
+status, assignee, due-date and sprint controls are shared components (`Components/Tasks`). A change through any of
+them, the Today tick or *Take* saves without reloading the page, so you keep your place, and the message shows
+floating in a corner. The Tasks list also has a **Sprint** filter: a planned or active sprint, or
 *Backlog* for the tasks in none. Its **Project**, **Assignee** and **Requestee** filters each offer *None*: the
 standalone tasks on no project, the tasks nobody is assigned to, and the tasks created for nobody else. Assignee
 *None* replaced the old *Unassigned* tick box. The Backlog's Project and Assignee filters offer *None* too.

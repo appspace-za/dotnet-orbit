@@ -1,0 +1,346 @@
+@page "/Admin/Messages/Edit"
+@page "/Admin/Messages/Edit/{Id:guid}"
+@inherits OrbitComponentBase
+@using Orbit.Application.Messages
+@* Writing a message (spec §6.7): its name, the condition it waits for (When), whom it goes to - the trigger's recipients, ticked, and
+   any addresses - and its subject and body, each with a picker that inserts one of the trigger's values where the cursor is; and On.
+   The trigger is chosen when the message is created (?trigger=, by name) and never changes; a new message with no trigger, or one
+   that isn't, goes back to the list. Preview fills it in with sample values and shows the HTML as it is sent. A save or preview the
+   service refuses shows why above the form and keeps what was typed, as the Razor page did. *@
+
+<PageTitle>@Title - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_definition is null || (Id is not null && _item?.Id != Id))
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var m = _item;
+    var d = _definition;
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Admin/Messages">Messages</a><span class="orbit-crumb-sep">/</span><span aria-current="page">@(m?.Name ?? "New message")</span>
+    </nav>
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">@Title</MudText>
+            <div class="orbit-subtitle">Sent on <strong>@d.Label</strong>: @d.Description</div>
+        </div>
+        @if (m is not null)
+        {
+            <div class="orbit-actions">
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="DeleteAsync">Delete</MudButton>
+            </div>
+        }
+    </div>
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" lg="8">
+            <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-form">
+                @if (_saveError is not null)
+                {
+                    <MudAlert Severity="Severity.Error" Dense="true">@_saveError</MudAlert>
+                }
+                <div class="orbit-form-row">
+                    <MudTextField T="string" @bind-Value="_form.Name" Label="Name" Placeholder="For the list: what it tells whom" MaxLength="MessageRules.NameMaxLength"
+                                  Required="true" RequiredError="A name is required." Variant="Variant.Outlined" Class="orbit-field-grow" />
+                    @if (d.Conditions.Count == 1)
+                    {
+                        <MudTextField T="string" Value="@AlwaysLabel" Label="When" ReadOnly="true" Variant="Variant.Outlined" Class="orbit-field-sm" />
+                    }
+                    else
+                    {
+                        <MudSelect T="MessageCondition" @bind-Value="_form.Condition" Label="When" ToStringFunc="@(c => c.Label())" Variant="Variant.Outlined"
+                                   Class="orbit-field-lg">
+                            @foreach (var c in d.Conditions)
+                            {
+                                <MudSelectItem T="MessageCondition" Value="c">@c.Label()</MudSelectItem>
+                            }
+                        </MudSelect>
+                    }
+                </div>
+
+                <div>
+                    <div class="orbit-section-title mt-0 mb-1">To</div>
+                    <div class="orbit-gap-row">
+                        @foreach (var kind in d.Recipients)
+                        {
+                            var k = kind;
+                            <MudCheckBox T="bool" @key="k" Value="@(_form.Recipients.Contains(k))" ValueChanged="@(v => SetRecipient(k, v))" Label="@k.Label()"
+                                         Dense="true" Color="Color.Primary" />
+                        }
+                    </div>
+                    @if (d.Offers(MessageRecipientKind.DepartmentMembers))
+                    {
+                        <div class="orbit-help">
+                            The department's members are the active people in the @(d.IsAboutProjects ? "project's" : "task's") department whose role shows them
+                            its @(d.IsAboutProjects ? "projects" : "tasks").
+                        </div>
+                    }
+                    <MudTextField T="string" @bind-Value="_form.Addresses" Label="Also to these addresses (optional)" Placeholder="@AddressesExample"
+                                  MaxLength="MessageRules.AddressesMaxLength" Variant="Variant.Outlined" Class="mt-3" />
+                    <div class="orbit-help">
+                        For anyone the roles above don't cover - a shared mailbox, a supplier. Separate addresses with <code>;</code>, at most
+                        @MessageRules.MaxAddresses. Each gets an email of its own whenever the message is sent, whoever acted; <code>@RecipientToken</code>
+                        is the name given before the address, or the address itself.
+                    </div>
+                </div>
+
+                <div>
+                    <MudTextField T="string" @bind-Value="_form.Subject" Label="Subject" MaxLength="MessageRules.SubjectMaxLength" Required="true"
+                                  RequiredError="A subject is required." InputId="message-subject" Variant="Variant.Outlined" />
+                    <TokenPicker Tokens="_tokens" TargetId="message-subject" ValueChanged="v => _form.Subject = v" />
+                </div>
+                <div>
+                    <MudTextField T="string" @bind-Value="_form.Body" Label="Body" Lines="12" MaxLength="MessageRules.BodyMaxLength" Required="true"
+                                  RequiredError="A body is required." InputId="message-body" Variant="Variant.Outlined" />
+                    <TokenPicker Tokens="_tokens" TargetId="message-body" ValueChanged="v => _form.Body = v" />
+                    <div class="orbit-help">Plain text. A blank line starts a paragraph, and web addresses become links. A value that is empty leaves nothing.</div>
+                </div>
+
+                <MudCheckBox T="bool" @bind-Value="_form.Enabled" Label="On: send it" Dense="true" Color="Color.Primary" />
+
+                <div class="orbit-gap-row">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="SaveAsync">Save</MudButton>
+                    <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="PreviewAsync">Preview</MudButton>
+                </div>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" lg="4">
+            @if (_preview is { } p)
+            {
+                <MudPaper Outlined="true" Class="orbit-card">
+                    <div class="orbit-card-header"><b>Preview, with sample values</b></div>
+                    <div class="orbit-card-body orbit-small">
+                        <div class="orbit-gap-row mb-2"><span class="orbit-muted">Subject:</span><span>@p.Subject</span></div>
+                        @* The HTML as it is sent: MessageRules.ToHtml encodes every value and every character typed. *@
+                        <MudPaper Outlined="true" Class="pa-2" Style="background: var(--mud-palette-background-gray)">@((MarkupString)p.Html)</MudPaper>
+                    </div>
+                </MudPaper>
+            }
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Who gets it</b></div>
+                <div class="orbit-card-body orbit-small orbit-muted">
+                    <p class="mt-0 mb-2">
+                        Everyone in the roles ticked who is active and has an email address, except whoever caused the event: nobody is told what they did
+                        themselves, and something done by a scheduled job or by Claude leaves nobody out.
+                    </p>
+                    <p class="mt-0 mb-2">The addresses listed get it too, whoever caused the event.</p>
+                    <p class="my-0">
+                        One email per address per change: when several messages would reach the same person, they get the one whose recipient comes first in
+                        the list above, and an address listed here gets nothing more when one of those people has it.
+                    </p>
+                </div>
+            </MudPaper>
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Values</b></div>
+                <dl class="orbit-dl">
+                    @foreach (var t in d.Tokens)
+                    {
+                        <dt class="orbit-key">@t.Text</dt>
+                        <dd class="orbit-muted">@t.Label</dd>
+                    }
+                </dl>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    /// <summary>The message to edit; null for a new one.</summary>
+    [Parameter] public Guid? Id { get; set; }
+
+    /// <summary>A new message's trigger, by name (?trigger=TaskCreated), as the Razor page took it. An existing message keeps its own.</summary>
+    [SupplyParameterFromQuery(Name = "trigger")] public string? Trigger { get; set; }
+
+    private const string AlwaysLabel = "Always";
+    private const string AddressesExample = "helpdesk@example.com; IT Support <it@example.com>";
+    private const string RecipientToken = "{{recipient.name}}";
+
+    private MessageTemplate? _item;
+    private MessageTriggerDefinition? _definition;
+    /// <summary>The trigger's values as the token picker lists them.</summary>
+    private IReadOnlyList<RequestToken> _tokens = [];
+    private MessageDraft _form = new();
+    private MessagePreview? _preview;
+    /// <summary>Why the last save or preview was refused, shown above the form until the next one (the Razor page's SaveError).</summary>
+    private string? _saveError;
+    private bool _busy;
+
+    private string Title => _item?.Name ?? (_definition is { } d ? $"New message: {d.Label}" : "Message");
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Creating a message goes on to its edit page, which is this component with an Id, so each page starts afresh.
+        _item = null;
+        _definition = null;
+        _preview = null;
+        _saveError = null;
+        if (await LoadAsync()) ResetForm();
+    }
+
+    /// <summary>
+    /// The message and its trigger's definition. False when the load was refused, or for a new message with no trigger or one that
+    /// isn't a trigger, which goes back to the list as the Razor page redirected.
+    /// </summary>
+    private async Task<bool> LoadAsync()
+    {
+        MessageTemplate? item = null;
+        var id = Id;
+        if (!await Load(async s =>
+            {
+                // The page door is messages.manage, which is All only; a new message loads nothing the service would check.
+                var actor = await s.Get<IActorProvider>().GetAsync();
+                AccessPolicy.Require(AccessPolicy.CanManageMessages(actor), "You don't have permission to manage messages.");
+                item = id is Guid existing ? await s.Get<MessageTemplateService>().GetAsync(existing) : null;
+            }))
+            return false;
+
+        var which = item?.Trigger ?? FilterQuery.Enum<MessageTrigger>(Trigger);
+        if (which is not MessageTrigger trigger || !MessageCatalogue.ByTrigger.TryGetValue(trigger, out var definition))
+        {
+            Nav.NavigateTo("/Admin/Messages", replace: true);
+            return false;
+        }
+        _tokens = definition.Tokens.Select(t => new RequestToken(t.Name, t.Label)).ToList();
+        _item = item;
+        _definition = definition;
+        return true;
+    }
+
+    /// <summary>
+    /// The form shows the message as stored, or a new one's start: the trigger's first recipient, "[Orbit] " and a greeting. As the
+    /// Razor page's checkboxes could only post what they offered, a recipient the trigger doesn't offer is dropped.
+    /// </summary>
+    private void ResetForm()
+    {
+        var d = _definition!;
+        _form = _item is null
+            ? new MessageDraft { Recipients = [d.Recipients[0]], Subject = "[Orbit] ", Body = "Hi {{recipient.name}},\n\n" }
+            : MessageDraft.From(_item);
+        _form.Recipients.RemoveAll(k => !d.Offers(k));
+    }
+
+    private void SetRecipient(MessageRecipientKind kind, bool on)
+    {
+        _form.Recipients.Remove(kind);
+        if (on) _form.Recipients.Add(kind);
+    }
+
+    /// <summary>
+    /// A refusal (a ValidationException) shows above the form and keeps what was typed; anything else the service refuses shows as an
+    /// error message. A new message goes on to its edit page; an existing one shows as stored.
+    /// </summary>
+    private async Task SaveAsync()
+    {
+        var id = _item?.Id;
+        var trigger = _definition!.Trigger;
+        var input = _form.ToInput();
+        _busy = true;
+        _saveError = null;
+        _preview = null;
+        MessageTemplate? saved = null;
+        string? refused = null;
+        if (await Act(async s =>
+            {
+                var messages = s.Get<MessageTemplateService>();
+                try
+                {
+                    saved = id is Guid existing ? await messages.UpdateAsync(existing, input) : await messages.CreateAsync(trigger, input);
+                }
+                catch (Orbit.Application.ValidationException ex)
+                {
+                    refused = ex.Message;
+                }
+            }))
+        {
+            if (refused is not null)
+            {
+                _saveError = refused;
+            }
+            else
+            {
+                Success($"Message \"{saved!.Name}\" saved.");
+                if (id is null) Nav.NavigateTo($"/Admin/Messages/Edit/{saved.Id}");
+                else if (await LoadAsync()) ResetForm();
+            }
+        }
+        _busy = false;
+    }
+
+    /// <summary>The message as typed, filled in with the trigger's sample values; the service checks it as a save would.</summary>
+    private async Task PreviewAsync()
+    {
+        var trigger = _definition!.Trigger;
+        var input = _form.ToInput();
+        _busy = true;
+        _saveError = null;
+        MessagePreview? preview = null;
+        string? refused = null;
+        if (await Act(async s =>
+            {
+                try
+                {
+                    preview = await s.Get<MessageTemplateService>().PreviewAsync(trigger, input);
+                }
+                catch (Orbit.Application.ValidationException ex)
+                {
+                    refused = ex.Message;
+                }
+            }))
+        {
+            _saveError = refused;
+            _preview = preview;
+        }
+        _busy = false;
+    }
+
+    /// <summary>A message can always go: the emails it wrote stay in the outbox, under its name.</summary>
+    private async Task DeleteAsync()
+    {
+        var item = _item!;
+        if (!await Confirm("Delete message", $"Delete the message \"{item.Name}\"? The emails it has written stay in the outbox.")) return;
+        _busy = true;
+        string? name = null;
+        if (await Act(async s =>
+            {
+                var messages = s.Get<MessageTemplateService>();
+                name = (await messages.GetAsync(item.Id)).Name;
+                await messages.DeleteAsync(item.Id);
+            }))
+        {
+            Success($"Message \"{name}\" deleted.");
+            Nav.NavigateTo("/Admin/Messages");
+        }
+        _busy = false;
+    }
+
+    /// <summary>A message as typed (the Razor page's MessageForm).</summary>
+    private sealed class MessageDraft
+    {
+        public string? Name { get; set; }
+        public MessageCondition Condition { get; set; } = MessageCondition.Always;
+        public List<MessageRecipientKind> Recipients { get; set; } = [];
+        /// <summary>Addresses it also goes to, separated by <c>;</c>.</summary>
+        public string? Addresses { get; set; }
+        public string? Subject { get; set; }
+        public string? Body { get; set; }
+        public bool Enabled { get; set; } = true;
+
+        public MessageTemplateInput ToInput() => new()
+        {
+            Name = Name, Condition = Condition, Recipients = Recipients.ToList(), Addresses = Addresses, Subject = Subject, Body = Body, Enabled = Enabled
+        };
+
+        public static MessageDraft From(MessageTemplate m) => new()
+        {
+            Name = m.Name, Condition = m.Condition, Recipients = m.Recipients.Select(r => r.Kind).Order().ToList(),
+            Addresses = m.Addresses, Subject = m.Subject, Body = m.Body, Enabled = m.Enabled
+        };
+    }
+}

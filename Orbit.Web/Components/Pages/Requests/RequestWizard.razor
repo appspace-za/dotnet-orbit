@@ -1,0 +1,534 @@
+@inherits OrbitComponentBase
+@* A request form (spec §6.20), for logging a request (RequestStart) or a later form step (RequestFormStep): its questions one at
+   a time, Next checking each before moving on, Back returning, and a last step reviewing every answer (each with Change) before
+   it is sent. A panel beside it lists the questions with the answers so far. The server checks the answers again: a refused
+   answer is marked beside its question and the form opens there, everything else kept - files too, which are held here until
+   the form is sent. Every question stays rendered (hidden when not on show), so what was picked survives moving about. *@
+
+@if (ShowSteps)
+{
+    <RequestProgressSteps Current="@(OnReview ? 3 : 2)" />
+}
+<div class="request-flow">
+    <div>
+        @if (_generalError is not null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-3">@_generalError</MudAlert>
+        }
+        else if (_serverErrors > 0)
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-3">@(_serverErrors == 1 ? "One answer needs attention." : $"{_serverErrors} answers need attention.") It's marked below.</MudAlert>
+        }
+        <MudPaper Outlined="true">
+            <div class="request-flow-head">
+                <div class="request-flow-counter" aria-live="polite">@(OnReview ? "Check and send" : $"Step {_current + 1} of {Fields.Count}")</div>
+                <MudProgressLinear Color="Color.Primary" Value="@Percent" Rounded="true" Size="Size.Small" aria-label="Progress through the form" />
+            </div>
+            <div class="request-flow-body">
+                @for (var i = 0; i < Fields.Count; i++)
+                {
+                    var index = i;
+                    var f = Fields[i];
+                    var a = _answers[f.Id];
+                    var error = _errors.GetValueOrDefault(f.Id);
+                    <section class="request-question" hidden="@(index != _current)" aria-labelledby="@($"q-{f.Id:N}")" @key="f.Id">
+                        <h2 id="@($"q-{f.Id:N}")" tabindex="-1" @ref="_headings[index]">
+                            @f.Prompt
+                            @if (!f.IsRequired) { <span class="orbit-muted orbit-small" style="font-weight:400"> (optional)</span> }
+                        </h2>
+                        @if (f.HelpText is not null)
+                        {
+                            <p class="request-question-help">@f.HelpText</p>
+                        }
+                        @Question(f, a, error is not null)
+                        <div class="request-question-error" role="alert">@error</div>
+                    </section>
+                }
+                <section class="request-question" hidden="@(!OnReview)" aria-labelledby="request-review-heading">
+                    @if (Fields.Count == 0 && NoQuestions is not null)
+                    {
+                        <p class="mt-0">@NoQuestions</p>
+                    }
+                    <h2 id="request-review-heading" tabindex="-1" @ref="_reviewHeading">@ReviewHeading</h2>
+                    @if (ReviewIntro is not null)
+                    {
+                        <p class="request-question-help">@ReviewIntro</p>
+                    }
+                    @if (Fields.Count > 0)
+                    {
+                        <dl class="request-review">
+                            @for (var i = 0; i < Fields.Count; i++)
+                            {
+                                var index = i;
+                                var f = Fields[i];
+                                <dt>
+                                    @f.Prompt
+                                    <button type="button" class="request-change" aria-label="@($"Change: {f.Prompt}")" @onclick="() => GoAsync(index)">Change</button>
+                                </dt>
+                                @AnswerText(f)
+                            }
+                        </dl>
+                    }
+                </section>
+            </div>
+            <div class="request-flow-foot">
+                @if (_current > 0)
+                {
+                    <MudButton Variant="Variant.Outlined" Disabled="_sending" OnClick="() => GoAsync(_current - 1)">Back</MudButton>
+                }
+                @if (OnReview)
+                {
+                    <MudButton Class="request-flow-forward" Variant="Variant.Filled" Color="Color.Success" Disabled="_sending" OnClick="SendAsync">
+                        @(_sending ? SendingText : SendText)
+                    </MudButton>
+                }
+                else
+                {
+                    <MudButton Class="request-flow-forward" Variant="Variant.Filled" Color="Color.Primary" OnClick="() => GoAsync(_current + 1)">Next</MudButton>
+                }
+            </div>
+        </MudPaper>
+    </div>
+    <aside aria-label="About this request">
+        <MudPaper Outlined="true">
+            @if (Fields.Count > 0 && !OnReview)
+            {
+                <section class="request-aside-section request-answers-panel" aria-labelledby="request-answers-heading">
+                    <h2 id="request-answers-heading">Your answers</h2>
+                    <dl class="request-review request-answers">
+                        @for (var i = 0; i < Fields.Count; i++)
+                        {
+                            var index = i;
+                            var f = Fields[i];
+                            var current = index == _current;
+                            <dt class="@(current ? "is-current" : null)">
+                                @f.Prompt
+                                @if (!current && index <= _furthest)
+                                {
+                                    <button type="button" class="request-change" aria-label="@($"Change: {f.Prompt}")" @onclick="() => GoAsync(index)">Change</button>
+                                }
+                            </dt>
+                            @if (current)
+                            {
+                                <dd class="request-no-answer is-current">Answering now</dd>
+                            }
+                            else if (index > _furthest)
+                            {
+                                <dd class="request-no-answer">Still to come</dd>
+                            }
+                            else
+                            {
+                                @AnswerText(f)
+                            }
+                        }
+                    </dl>
+                </section>
+            }
+            @Aside
+        </MudPaper>
+    </aside>
+</div>
+
+@code {
+    /// <summary>The questions, in order.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<RequestFormField> Fields { get; set; } = [];
+    /// <summary>What each Asset type question offers.</summary>
+    [Parameter] public IReadOnlyDictionary<Guid, IReadOnlyList<RequestAssetTypeChoice>> AssetTypes { get; set; } = new Dictionary<Guid, IReadOnlyList<RequestAssetTypeChoice>>();
+    /// <summary>The assets an Asset question lists as buttons; a question that isn't here searches.</summary>
+    [Parameter] public IReadOnlyDictionary<Guid, IReadOnlyList<RequestLookupItem>> AssetChoices { get; set; } = new Dictionary<Guid, IReadOnlyList<RequestLookupItem>>();
+    /// <summary>The request step being filled in, which the searches name; null while the request is being logged.</summary>
+    [Parameter] public Guid? RequestStepId { get; set; }
+    /// <summary>Said in place of a question scoped to the requester's department when the requester has none; null when they have one.</summary>
+    [Parameter] public string? NoDepartmentNote { get; set; }
+    [Parameter, EditorRequired] public AttachmentOptions Limits { get; set; } = null!;
+    /// <summary>The three steps of logging a request above the form.</summary>
+    [Parameter] public bool ShowSteps { get; set; }
+    [Parameter] public string ReviewHeading { get; set; } = "Check your answers";
+    [Parameter] public RenderFragment? ReviewIntro { get; set; }
+    /// <summary>Shown on the review when the form asks nothing.</summary>
+    [Parameter] public RenderFragment? NoQuestions { get; set; }
+    [Parameter] public string SendText { get; set; } = "Save answers";
+    [Parameter] public string SendingText { get; set; } = "Saving...";
+    /// <summary>Below the answers beside the form: what happens next, or the request the form is for.</summary>
+    [Parameter] public RenderFragment? Aside { get; set; }
+    /// <summary>Sends the answers and files; returns the message to show and where to go. A refusal throws, as the service does.</summary>
+    [Parameter, EditorRequired]
+    public Func<IServiceProvider, IReadOnlyDictionary<Guid, RequestAnswerInput>, IReadOnlyDictionary<Guid, IReadOnlyList<AttachmentUpload>>, Task<(string Message, string Url)>> Send { get; set; } = null!;
+
+    /// <summary>A file chosen for an Attachment question, held until the form is sent.</summary>
+    private sealed record PendingFile(string Name, string ContentType, byte[] Content);
+
+    /// <summary>One question's answer: its text (text, number, date, choice, urgency), or the id picked and its label, or its files.</summary>
+    private sealed class Answer
+    {
+        public string? Value { get; set; }
+        public Guid? Id { get; set; }
+        public string? Label { get; set; }
+        public List<PendingFile> Files { get; } = [];
+    }
+
+    private readonly Dictionary<Guid, Answer> _answers = new();
+    private readonly Dictionary<Guid, string> _errors = new();
+    private readonly Dictionary<int, ElementReference> _headings = new();
+    private readonly Dictionary<Guid, MudFileUpload<IReadOnlyList<IBrowserFile>>?> _uploads = new();
+    private ElementReference _reviewHeading;
+    private IReadOnlyList<RequestFormField>? _shownFields;
+    private int _current, _furthest, _serverErrors;
+    private string? _generalError;
+    private bool _sending, _focusPending;
+
+    private bool OnReview => _current == Fields.Count;
+    private double Percent => Fields.Count == 0 ? 100 : Math.Round(100.0 * _current / Fields.Count);
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(Fields, _shownFields)) return;
+        _shownFields = Fields;
+        _answers.Clear();
+        _errors.Clear();
+        foreach (var f in Fields) _answers[f.Id] = new Answer();
+        // A form that asks nothing opens on its review.
+        _current = _furthest = 0;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_focusPending) return;
+        _focusPending = false;
+        try
+        {
+            await (OnReview ? _reviewHeading : _headings[_current]).FocusAsync();
+        }
+        catch (Exception ex) when (ex is JSException or InvalidOperationException or KeyNotFoundException)
+        {
+            // Nothing to focus: the page moved on.
+        }
+    }
+
+    /// <summary>Moves to a step: forward only once the step on show is fine (saying why not beside it), back freely.</summary>
+    private Task GoAsync(int index)
+    {
+        if (index > _current && !OnReview && !Check(Fields[_current])) return Task.CompletedTask;
+        Show(index);
+        return Task.CompletedTask;
+    }
+
+    private void Show(int index)
+    {
+        _current = Math.Clamp(index, 0, Fields.Count);
+        _furthest = Math.Max(_furthest, _current);
+        _focusPending = true;
+    }
+
+    /// <summary>
+    /// Whether a question can be left, saying why not beside it: a required answer missing, a number that isn't one, or too many
+    /// or too large files. The server checks every answer again when the form is sent.
+    /// </summary>
+    private bool Check(RequestFormField f)
+    {
+        var a = _answers[f.Id];
+        string? message = null;
+        var blank = string.IsNullOrWhiteSpace(a.Value);
+        switch (f.FieldType)
+        {
+            case var _ when Unavailable(f):
+                break;
+            case RequestFieldType.Attachment:
+                if (f.IsRequired && a.Files.Count == 0) message = "Attach at least one file.";
+                break;
+            case RequestFieldType.Asset or RequestFieldType.AssetType or RequestFieldType.Project or RequestFieldType.User:
+                if (f.IsRequired && a.Id is null) message = Listed(f) is null && f.FieldType != RequestFieldType.AssetType ? "Choose one from the list." : "Choose one.";
+                break;
+            case RequestFieldType.Choice or RequestFieldType.Urgency:
+                if (f.IsRequired && blank) message = "Choose one.";
+                break;
+            case RequestFieldType.Number:
+                if (f.IsRequired && blank) message = "Answer this question.";
+                else if (!blank && !decimal.TryParse(a.Value, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out _))
+                    message = "Enter a number.";
+                break;
+            default:
+                if (f.IsRequired && blank) message = "Answer this question.";
+                break;
+        }
+        if (message is null) _errors.Remove(f.Id);
+        else _errors[f.Id] = message;
+        return message is null;
+    }
+
+    /// <summary>Once a question shows why it can't be left, answering it clears the message (and a still-wrong answer says so again).</summary>
+    private void Changed(RequestFormField f)
+    {
+        if (_errors.ContainsKey(f.Id)) Check(f);
+    }
+
+    /// <summary>A question scoped to the requester's department when the requester has none: nothing can be offered, so it says so.</summary>
+    private bool Unavailable(RequestFormField f) => f.PickerScope == RequestPickerScope.RequestersDepartment && NoDepartmentNote is not null;
+
+    /// <summary>The assets an Asset question lists as buttons, or null when it searches instead.</summary>
+    private IReadOnlyList<RequestLookupItem>? Listed(RequestFormField f) =>
+        f.FieldType == RequestFieldType.Asset ? AssetChoices.GetValueOrDefault(f.Id) : null;
+
+    private void SetValue(RequestFormField f, string? value)
+    {
+        _answers[f.Id].Value = value;
+        Changed(f);
+    }
+
+    private void Pick(RequestFormField f, Guid? id, string? label)
+    {
+        var a = _answers[f.Id];
+        (a.Id, a.Label) = (id, id is null ? null : label);
+        Changed(f);
+    }
+
+    /// <summary>Reads the files chosen for an Attachment question now, while they can be read, and holds them until the form is sent.</summary>
+    private async Task AddFilesAsync(RequestFormField f, IReadOnlyList<IBrowserFile>? files)
+    {
+        if (files is null || files.Count == 0) return;
+        var a = _answers[f.Id];
+        foreach (var file in files)
+        {
+            if (a.Files.Count >= Limits.MaxFilesPerUpload)
+            {
+                Error($"At most {Limits.MaxFilesPerUpload} files.");
+                break;
+            }
+            if (file.Size > Limits.MaxFileSizeBytes)
+            {
+                Error($"\"{file.Name}\" is larger than {Limits.MaxFileSizeMb} MB.");
+                continue;
+            }
+            await using var stream = file.OpenReadStream(maxAllowedSize: Math.Max(file.Size, 1));
+            using var copy = new MemoryStream();
+            await stream.CopyToAsync(copy);
+            a.Files.Add(new PendingFile(file.Name, string.IsNullOrEmpty(file.ContentType) ? "application/octet-stream" : file.ContentType, copy.ToArray()));
+        }
+        // The upload lists what was picked itself; the files are held here now, and listed with × beneath it.
+        if (_uploads.GetValueOrDefault(f.Id) is { } upload) await upload.ClearAsync();
+        Changed(f);
+    }
+
+    private void RemoveFile(RequestFormField f, PendingFile file)
+    {
+        _answers[f.Id].Files.Remove(file);
+        Changed(f);
+    }
+
+    /// <summary>Sends the form: every question checked again first, then the service's own checks, whose refusals open the first one marked.</summary>
+    private async Task SendAsync()
+    {
+        for (var i = 0; i < Fields.Count; i++)
+        {
+            if (!Check(Fields[i]))
+            {
+                Show(i);
+                return;
+            }
+        }
+        _sending = true;
+        _generalError = null;
+        _serverErrors = 0;
+        var answers = Fields.ToDictionary(f => f.Id, f =>
+        {
+            var a = _answers[f.Id];
+            return new RequestAnswerInput(a.Value, a.Id, a.Files.Count);
+        });
+        var files = Fields.Where(f => f.FieldType == RequestFieldType.Attachment).ToDictionary(f => f.Id, f =>
+            (IReadOnlyList<AttachmentUpload>)_answers[f.Id].Files
+                .Select(x => new AttachmentUpload(x.Name, x.ContentType, x.Content.LongLength, new MemoryStream(x.Content, writable: false))).ToList());
+        try
+        {
+            var (message, url) = await Runner.RunAsync(s => Send(s, answers, files));
+            Success(message);
+            Nav.NavigateTo(url);
+            return;
+        }
+        catch (RequestAnswersException ex)
+        {
+            foreach (var (id, error) in ex.Errors) _errors[id] = error;
+            _serverErrors = ex.Errors.Count;
+            var first = Fields.Select((f, i) => (f, i)).FirstOrDefault(x => ex.Errors.ContainsKey(x.f.Id));
+            _furthest = Fields.Count;
+            Show(first.f is null ? Fields.Count : first.i);
+        }
+        catch (OrbitException ex)
+        {
+            _generalError = ex.Message;
+        }
+        finally
+        {
+            foreach (var list in files.Values)
+                foreach (var upload in list) await upload.Content.DisposeAsync();
+        }
+        _sending = false;
+    }
+
+    /// <summary>What the review and the panel show for a question's answer.</summary>
+    private RenderFragment AnswerText(RequestFormField f) => __builder =>
+    {
+        var a = _answers[f.Id];
+        string? text = f.FieldType switch
+        {
+            RequestFieldType.Attachment => a.Files.Count == 0 ? null : string.Join("\n", a.Files.Select(x => x.Name)),
+            RequestFieldType.Asset or RequestFieldType.AssetType or RequestFieldType.Project or RequestFieldType.User => a.Id is null ? null : a.Label,
+            RequestFieldType.Urgency when RequestEngineRules.ParseUrgency(a.Value) is TaskPriority p => $"{p} - {RequestEngineRules.UrgencyMeaning(f, p)}",
+            _ => string.IsNullOrWhiteSpace(a.Value) ? null : a.Value
+        };
+        if (text is null)
+        {
+            <dd class="request-no-answer">@(f.FieldType == RequestFieldType.Attachment ? "No files" : "No answer")</dd>
+        }
+        else
+        {
+            <dd>@text</dd>
+        }
+    };
+
+    /// <summary>A question's input, by its type.</summary>
+    private RenderFragment Question(RequestFormField f, Answer a, bool invalid) => __builder =>
+    {
+        var listed = Listed(f);
+        if (Unavailable(f))
+        {
+            <div class="request-question-error">@NoDepartmentNote</div>
+            return;
+        }
+        switch (f.FieldType)
+        {
+            case RequestFieldType.Number:
+                <MudTextField T="string" Value="a.Value" ValueChanged="v => SetValue(f, v)" InputType="InputType.Number" Variant="Variant.Outlined"
+                              Immediate="true" Error="invalid" Class="request-field-narrow" step="any" aria-label="@f.Prompt"
+                              OnKeyDown="e => EnterAsync(e)" />
+                break;
+            case RequestFieldType.Date:
+                <MudDatePicker Date="PickerDate.Parse(a.Value)" DateChanged="d => SetValue(f, PickerDate.Write(d))" DateFormat="@PickerDate.Format" Editable="true"
+                               Clearable="true" AutoClose="true" Variant="Variant.Outlined" Error="invalid" Class="request-field-narrow" aria-label="@f.Prompt" />
+                break;
+            case RequestFieldType.Choice when f.Choices.Count <= RequestFlowRules.ChoiceButtonsUpTo:
+                <div class="request-choices" role="group" aria-label="@f.Prompt">
+                    @foreach (var choice in f.Choices)
+                    {
+                        var c = choice;
+                        var chosen = string.Equals(a.Value, c, StringComparison.OrdinalIgnoreCase);
+                        <button type="button" class="@($"request-choice{(chosen ? " is-chosen" : "")}")" aria-pressed="@(chosen ? "true" : "false")"
+                                @onclick="() => SetValue(f, chosen && !f.IsRequired ? null : c)">
+                            <span class="request-choice-label">@c</span>
+                        </button>
+                    }
+                </div>
+                break;
+            case RequestFieldType.Choice:
+                <MudSelect T="string" Value="a.Value ?? string.Empty" ValueChanged="v => SetValue(f, string.IsNullOrEmpty(v) ? null : v)" Variant="Variant.Outlined"
+                           Error="invalid" Class="request-field-medium" aria-label="@f.Prompt" ToStringFunc="@(v => string.IsNullOrEmpty(v) ? "Choose..." : v)">
+                    <MudSelectItem T="string" Value="string.Empty">Choose...</MudSelectItem>
+                    @foreach (var choice in f.Choices)
+                    {
+                        <MudSelectItem T="string" Value="choice">@choice</MudSelectItem>
+                    }
+                </MudSelect>
+                break;
+            case RequestFieldType.Urgency:
+                <div class="request-choices request-choices-urgency" role="group" aria-label="@f.Prompt">
+                    @foreach (var priority in Enum.GetValues<TaskPriority>())
+                    {
+                        var p = priority;
+                        var chosen = string.Equals(a.Value, p.ToString(), StringComparison.OrdinalIgnoreCase);
+                        <button type="button" class="@($"request-choice request-urgency-{p.ToString().ToLowerInvariant()}{(chosen ? " is-chosen" : "")}")"
+                                aria-pressed="@(chosen ? "true" : "false")" @onclick="() => SetValue(f, chosen && !f.IsRequired ? null : p.ToString())">
+                            <span class="request-choice-label">@p</span>
+                            <span class="request-choice-detail">@RequestEngineRules.UrgencyMeaning(f, p)</span>
+                        </button>
+                    }
+                </div>
+                break;
+            case RequestFieldType.AssetType:
+                var types = AssetTypes.GetValueOrDefault(f.Id) ?? [];
+                if (types.Count == 0)
+                {
+                    <div class="request-question-error">No asset types are offered here yet.</div>
+                }
+                else
+                {
+                    <MudSelect T="Guid" Value="a.Id ?? Guid.Empty" Variant="Variant.Outlined" Error="invalid" Class="request-field-medium" aria-label="@f.Prompt"
+                               ValueChanged="id => Pick(f, id == Guid.Empty ? null : id, TypeName(types, id))" ToStringFunc="@(id => id == Guid.Empty ? "Choose..." : TypeName(types, id))">
+                        <MudSelectItem T="Guid" Value="Guid.Empty">Choose...</MudSelectItem>
+                        @foreach (var t in types.OrderBy(t => t.Group).ThenBy(t => t.Name))
+                        {
+                            <MudSelectItem T="Guid" Value="t.Id">@TypeName(types, t.Id)</MudSelectItem>
+                        }
+                    </MudSelect>
+                }
+                break;
+            case RequestFieldType.Attachment:
+                <MudFileUpload @ref="_uploads[f.Id]" T="IReadOnlyList<IBrowserFile>" FilesChanged="files => AddFilesAsync(f, files)" MaximumFileCount="100"
+                               Disabled="_sending" Class="request-upload">
+                    <CustomContent>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.AttachFile" OnClick="@context.OpenFilePickerAsync">Choose files</MudButton>
+                    </CustomContent>
+                </MudFileUpload>
+                @if (a.Files.Count > 0)
+                {
+                    <div class="orbit-chips">
+                        @foreach (var file in a.Files)
+                        {
+                            var x = file;
+                            <MudChip T="string" Variant="Variant.Outlined" OnClose="@(_ => RemoveFile(f, x))">@x.Name</MudChip>
+                        }
+                    </div>
+                }
+                <div class="orbit-help">Up to @Limits.MaxFilesPerUpload files, @Limits.MaxFileSizeMb MB each.</div>
+                break;
+            case RequestFieldType.Asset when listed is not null:
+                if (listed.Count == 0)
+                {
+                    <div class="request-question-error">@(f.PickerScope == RequestPickerScope.Held ? "No assets are assigned to you." : "No assets are offered here yet.")</div>
+                }
+                else
+                {
+                    <div class="request-choices" role="group" aria-label="@f.Prompt">
+                        @foreach (var asset in listed)
+                        {
+                            var item = asset;
+                            var chosen = a.Id == item.Id;
+                            var detail = string.Join(" · ", new[] { item.Tag, item.Detail }.Where(s => !string.IsNullOrEmpty(s)));
+                            <button type="button" class="@($"request-choice{(chosen ? " is-chosen" : "")}")" aria-pressed="@(chosen ? "true" : "false")"
+                                    @onclick="() => Pick(f, item.Id, item.Name)">
+                                <span class="request-choice-label">@item.Name</span>
+                                @if (detail.Length > 0) { <span class="request-choice-detail">@detail</span> }
+                            </button>
+                        }
+                        @if (!f.IsRequired)
+                        {
+                            <button type="button" class="@($"request-choice request-choice-none{(a.Id is null ? " is-chosen" : "")}")" aria-pressed="@(a.Id is null ? "true" : "false")"
+                                    @onclick="() => Pick(f, null, null)">
+                                <span class="request-choice-label">None of these</span>
+                            </button>
+                        }
+                    </div>
+                }
+                break;
+            case RequestFieldType.Asset or RequestFieldType.Project or RequestFieldType.User:
+                var what = f.FieldType switch { RequestFieldType.Asset => "asset", RequestFieldType.Project => "project", _ => "person" };
+                <RequestLookupPicker FieldId="f.Id" RequestStepId="RequestStepId" SelectedId="a.Id" SelectedLabel="@a.Label" Invalid="invalid"
+                                     Label="@($"Search for a {what}")" Picked="item => Pick(f, item?.Id, item?.Name)"
+                                     Placeholder="@(f.FieldType switch
+                                     {
+                                         RequestFieldType.Asset => "Search by name, number or serial...",
+                                         RequestFieldType.Project => "Search by name or number...",
+                                         _ => "Search by name or email..."
+                                     })" />
+                break;
+            default:
+                <MudTextField T="string" Value="a.Value" ValueChanged="v => SetValue(f, v)" Lines="4" MaxLength="RequestFlowRules.MaxTextAnswerLength"
+                              Variant="Variant.Outlined" Immediate="true" Error="invalid" aria-label="@f.Prompt" />
+                break;
+        }
+    };
+
+    private static string TypeName(IReadOnlyList<RequestAssetTypeChoice> types, Guid id) =>
+        types.FirstOrDefault(t => t.Id == id) is { } t ? (t.Group.Length > 0 ? $"{t.Group} / {t.Name}" : t.Name) : "";
+
+    /// <summary>Enter moves on from a one-line answer, as it would submit a one-question form.</summary>
+    private Task EnterAsync(KeyboardEventArgs e) => e.Key == "Enter" && !OnReview ? GoAsync(_current + 1) : Task.CompletedTask;
+}

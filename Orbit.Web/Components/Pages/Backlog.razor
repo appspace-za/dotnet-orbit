@@ -1,0 +1,214 @@
+@page "/Backlog"
+@page "/Backlog/Index"
+@inherits OrbitListPage
+@* The backlog (spec §6.3): open tasks in no sprint, filtered and paged, 100 a page. Select tasks and choose a sprint to plan
+   them into it. The filters live in the address, in the Razor page's keys, and are remembered for the browser session
+   (OrbitListPage). *@
+
+<PageTitle>Backlog - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_result is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">Backlog <span class="orbit-subtitle">@_result.TotalCount</span></MudText>
+            <div class="orbit-subtitle">Open tasks not yet planned into a sprint. Select tasks and choose a sprint to plan them.</div>
+        </div>
+        @if (_actor!.Has(Permission.TasksCreate))
+        {
+            <MudButton Href="/Tasks/Create" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">New task</MudButton>
+        }
+    </div>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        <div class="orbit-filters">
+            <MudTextField T="string" Value="Search" ValueChanged="v => GoAsync(nameof(Search), v)" Label="Search" DebounceInterval="500"
+                          Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-filter orbit-filter-wide" />
+            @if (_canSeeAll)
+            {
+                <FilterSelect Label="Department" Value="@DepartmentId" ValueChanged="v => GoAsync(nameof(DepartmentId), v)" Options="_departments" />
+            }
+            <FilterSelect Label="Project" Value="@ProjectChoice" ValueChanged="v => GoAsync(ProjectKey, v)" Options="_projects"
+                          Title="An open project, or None for the tasks on no project" />
+            <FilterSelect Label="Priority" Value="@PriorityChoice" ValueChanged="v => GoAsync(PriorityKey, v)" Options="PriorityOptions" />
+            <FilterSelect Label="Type" Value="@TypeChoice" ValueChanged="v => GoAsync(TypeKey, v)" Options="TypeOptions" />
+            <FilterSelect Label="Source" Value="@SourceChoice" ValueChanged="v => GoAsync(SourceKey, v)" Options="SourceOptions" />
+            <FilterSelect Label="Assignee" Value="@AssigneeChoice" ValueChanged="v => GoAsync(AssigneeKey, v)" Options="_assignees"
+                          Title="One of the people the task is assigned to, or None for the tasks nobody is assigned to" />
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="ResetAsync"
+                       title="Clear the filters - they are remembered for this browser session until you reset them">Reset</MudButton>
+        </div>
+    </MudPaper>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        <div class="orbit-card-header">
+            <div class="orbit-gap-row">
+                <b>Plan selected into</b>
+                <MudSelect T="Guid" @bind-Value="_sprintId" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Class="orbit-field-lg"
+                           ToStringFunc="SprintLabel" Placeholder="- choose a sprint -" Disabled="_openSprints.Count == 0" aria-label="Sprint">
+                    @foreach (var s in _openSprints)
+                    {
+                        <MudSelectItem T="Guid" Value="s.Id">@SprintLabel(s.Id)</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" Disabled="@(_busy || _openSprints.Count == 0)" OnClick="PlanAsync">
+                    Plan into sprint@(_selected.Count > 0 ? $" ({_selected.Count})" : "")
+                </MudButton>
+                @if (_openSprints.Count == 0)
+                {
+                    <span class="orbit-muted orbit-small">No planned or active sprint exists yet.</span>
+                }
+                @if (!_actor.CanAnywhere(Permission.TasksPlan))
+                {
+                    <span class="orbit-muted orbit-small">You can plan the tasks your role may plan.</span>
+                }
+            </div>
+        </div>
+        <TaskTable Tasks="_result.Items" Actor="_actor" Today="_today" ShowDepartment="TaskLook.MixesDepartments(_actor, _result.Items)"
+                   ShowPlanToday="true" Selectable="true" Selected="_selected" SelectionChanged="StateHasChanged" Waiting="_waiting"
+                   EmptyMessage="The backlog is empty." Changed="ReloadAsync" />
+        @if (_result.TotalPages > 1)
+        {
+            <div class="orbit-card-footer orbit-list-row">
+                <span>Page @_result.Page of @_result.TotalPages <span class="orbit-muted">· select all picks this page's tasks</span></span>
+                <MudStack Row="true" Spacing="1">
+                    @if (_result.HasPrevious) { <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@PageUrl(_result.Page - 1)">Previous</MudButton> }
+                    @if (_result.HasNext) { <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@PageUrl(_result.Page + 1)">Next</MudButton> }
+                </MudStack>
+            </div>
+        }
+    </MudPaper>
+}
+
+@code {
+    private const string ProjectKey = "ProjectId", AssigneeKey = "AssigneeId", PriorityKey = "Priority", TypeKey = "Type", SourceKey = "Source";
+
+    /// <summary>The filter fields remembered for the session (§6.2, §6.3), in the Razor page's keys.</summary>
+    private static readonly string[] RememberedFilters =
+        [nameof(Search), nameof(DepartmentId), ProjectKey, PriorityKey, AssigneeKey, TypeKey, SourceKey];
+
+    protected override string MemoryKey => "backlog";
+    protected override IReadOnlyList<string> FilterKeys => RememberedFilters;
+
+    [SupplyParameterFromQuery] public string? Search { get; set; }
+    [SupplyParameterFromQuery] public string? DepartmentId { get; set; }
+    /// <summary>Project and Assignee: empty for all, "none" for the tasks with none (<see cref="FilterChoice"/>), or an id.</summary>
+    [SupplyParameterFromQuery(Name = ProjectKey)] public string? ProjectChoice { get; set; }
+    [SupplyParameterFromQuery(Name = AssigneeKey)] public string? AssigneeChoice { get; set; }
+    [SupplyParameterFromQuery(Name = PriorityKey)] public string? PriorityChoice { get; set; }
+    [SupplyParameterFromQuery(Name = TypeKey)] public string? TypeChoice { get; set; }
+    [SupplyParameterFromQuery(Name = SourceKey)] public string? SourceChoice { get; set; }
+    [SupplyParameterFromQuery] public string? PageNumber { get; set; }
+    /// <summary>"Reset": forget the remembered filter and show the plain backlog.</summary>
+    [SupplyParameterFromQuery] public string? Reset { get; set; }
+
+    private static readonly IReadOnlyList<(string Value, string Text)> PriorityOptions = FilterSelect.EnumOptions<TaskPriority>();
+    private static readonly IReadOnlyList<(string Value, string Text)> TypeOptions = FilterSelect.EnumOptions<TaskType>();
+    private static readonly IReadOnlyList<(string Value, string Text)> SourceOptions = FilterSelect.EnumOptions<TaskSource>(Ui.SourceLabel);
+
+    private Actor? _actor;
+    private DateOnly _today;
+    private PagedResult<TaskItem>? _result;
+    private IReadOnlyDictionary<Guid, WaitingSummary> _waiting = new Dictionary<Guid, WaitingSummary>();
+    private IReadOnlyList<Sprint> _openSprints = [];
+    private IReadOnlyList<(string Value, string Text)> _departments = [], _projects = [], _assignees = [];
+    private readonly HashSet<Guid> _selected = [];
+    private Guid _sprintId;
+    private bool _canSeeAll, _busy;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (await GoToRememberedAsync(FilterQuery.Flag(Reset))) return;
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        await Load(async s =>
+        {
+            var actor = await s.Get<IActorProvider>().GetAsync();
+            var tasks = s.Get<TaskService>();
+            var users = s.Get<UserDirectoryService>();
+            var canSeeAll = actor.CanAnywhere(Permission.TasksView);
+            var departmentId = FilterChoice.Id(DepartmentId);
+            var filter = new TaskFilter
+            {
+                BacklogOnly = true,
+                OpenOnly = true,
+                Search = Search,
+                DepartmentId = departmentId,
+                NoProject = FilterChoice.IsNone(ProjectChoice),
+                ProjectId = FilterChoice.Id(ProjectChoice),
+                Unassigned = FilterChoice.IsNone(AssigneeChoice),
+                AssigneeId = FilterChoice.Id(AssigneeChoice),
+                Priority = FilterQuery.Enum<TaskPriority>(PriorityChoice),
+                Type = FilterQuery.Enum<TaskType>(TypeChoice),
+                Source = FilterQuery.Enum<TaskSource>(SourceChoice),
+                Page = int.TryParse(PageNumber, out var page) && page > 0 ? page : 1,
+                PageSize = 100
+            };
+            var result = await tasks.ListAsync(filter);
+            // Planning the last tasks off a page leaves it empty: show the last page that still has tasks instead.
+            if (result.Items.Count == 0 && result.TotalCount > 0 && result.Page > 1)
+            {
+                filter.Page = result.TotalPages;
+                result = await tasks.ListAsync(filter);
+            }
+            _waiting = await s.Get<TaskStructureService>().GetWaitingAsync(result.Items);
+            _openSprints = await s.Get<SprintService>().ListOpenAsync();
+            _departments = canSeeAll
+                ? [("", "All"), .. (await s.Get<DepartmentService>().ListAsync(false)).Select(d => (d.Id.ToString(), d.Name))]
+                : [];
+            _projects =
+            [
+                ("", "All"), (FilterChoice.None, "None"),
+                .. (await s.Get<ProjectService>().ListOpenForPickerAsync(departmentId))
+                    .Select(p => (p.Id.ToString(), canSeeAll ? $"{p.Department.Name} / {p.Name}" : p.Name))
+            ];
+            var people = canSeeAll
+                ? await users.ListAsync(null, departmentId, false)
+                : actor.DepartmentId is Guid ownDept ? await users.GetAssignableAsync(ownDept) : [];
+            _assignees = [("", "All"), (FilterChoice.None, "None"), .. people.Select(u => (u.Id.ToString(), u.DisplayName))];
+
+            _selected.IntersectWith(result.Items.Select(t => t.Id));
+            _canSeeAll = canSeeAll;
+            _today = DateOnly.FromDateTime(DateTime.UtcNow);
+            _actor = actor;
+            _result = result;
+        });
+    }
+
+    private string SprintLabel(Guid id) =>
+        _openSprints.FirstOrDefault(s => s.Id == id) is { } s ? $"{s.Name} ({s.Status}, {Ui.Day(s.StartDate)} - {Ui.Day(s.EndDate)})" : "";
+
+    private async Task PlanAsync()
+    {
+        if (_selected.Count == 0)
+        {
+            Error("Select at least one task.");
+            return;
+        }
+        if (_sprintId == Guid.Empty)
+        {
+            Error("Choose a sprint to plan the selected tasks into.");
+            return;
+        }
+        _busy = true;
+        var moved = 0;
+        if (await Act(async s => moved = await s.Get<TaskService>().MoveToSprintAsync(_selected.ToList(), _sprintId)))
+        {
+            Success($"{moved} task(s) planned into the sprint.");
+            _selected.Clear();
+            await ReloadAsync();
+        }
+        _busy = false;
+    }
+}

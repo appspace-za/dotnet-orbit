@@ -1,0 +1,182 @@
+@page "/Admin/Departments/Create"
+@page "/Admin/Departments/Edit/{Id:guid}"
+@inherits OrbitComponentBase
+@* Creating or editing a department (spec §6.6): its name, description and optional manager - any active person, of this department
+   or another, found with the manager search (UserDirectoryService.SearchManagerCandidatesAsync, which the Razor pages reached
+   through /Admin/Departments/Managers). The edit page also archives and restores it; archiving cascades nothing. *@
+
+<PageTitle>@Title - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (Id is not null && _department?.Id != Id)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else if (_department is null)
+{
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Admin/Departments">Departments</a><span class="orbit-crumb-sep">/</span><span aria-current="page">New</span>
+    </nav>
+    <MudText Typo="Typo.h5" HtmlTag="h1" Class="mb-3">New department</MudText>
+
+    <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-form orbit-max-42">
+        @Fields(create: true)
+        <div class="orbit-gap-row">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="CreateAsync">Create</MudButton>
+            <MudButton Variant="Variant.Outlined" Href="/Admin/Departments">Cancel</MudButton>
+        </div>
+    </MudPaper>
+}
+else
+{
+    var d = _department;
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Admin/Departments">Departments</a><span class="orbit-crumb-sep">/</span><a href="@($"/Admin/Departments/Details/{d.Id}")">@d.Name</a><span class="orbit-crumb-sep">/</span><span aria-current="page">Edit</span>
+    </nav>
+    <MudText Typo="Typo.h5" HtmlTag="h1" Class="mb-3">Edit department</MudText>
+
+    <MudPaper Outlined="true" Class="orbit-card orbit-max-42">
+        <div class="orbit-card-body orbit-form">
+            @Fields(create: false)
+            <div class="orbit-gap-row">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="SaveAsync">Save</MudButton>
+                <MudButton Variant="Variant.Outlined" Href="@($"/Admin/Departments/Details/{d.Id}")">Cancel</MudButton>
+            </div>
+        </div>
+        <MudDivider />
+        <div class="orbit-card-body">
+            @if (d.IsArchived)
+            {
+                <div class="orbit-gap-row">
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Success" Disabled="_busy" OnClick="() => SetArchivedAsync(false)">Restore department</MudButton>
+                    <span class="orbit-small orbit-muted">Archived @Ui.When(d.ArchivedAt)</span>
+                </div>
+            }
+            else
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="() => SetArchivedAsync(true)">Archive department</MudButton>
+            }
+        </div>
+    </MudPaper>
+}
+
+@code {
+    /// <summary>The department to edit; null for a new one.</summary>
+    [Parameter] public Guid? Id { get; set; }
+
+    /// <summary>The longest description the form takes (the Razor form's StringLength); the service checks the name itself.</summary>
+    private const int MaxDescriptionLength = 2000;
+
+    /// <summary>Who may run a department: anyone active, as /Admin/Departments/Managers searched (up to 20).</summary>
+    private static readonly Func<IServiceProvider, string?, CancellationToken, Task<IReadOnlyList<UserSummary>>> SearchManagers =
+        (sp, q, ct) => sp.Get<UserDirectoryService>().SearchManagerCandidatesAsync(q, null, 20, ct);
+
+    private Department? _department;
+    private string? _name, _description;
+    /// <summary>The manager chosen, as the picker's chip: none or one.</summary>
+    private List<UserSummary> _manager = [];
+    private bool _busy;
+
+    private string Title => Id is null ? "New department" : _department is null ? "Department" : $"Edit {_department.Name}";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _department = null;
+        if (Id is Guid id)
+        {
+            await LoadDepartmentAsync(id, resetForm: true);
+            return;
+        }
+        _name = _description = null;
+        _manager = [];
+    }
+
+    /// <summary>
+    /// The department, and on opening the page its stored fields and its manager's chip (marked when deactivated). Archiving and
+    /// restoring reload it but leave what is typed alone.
+    /// </summary>
+    private async Task LoadDepartmentAsync(Guid id, bool resetForm) => await Load(async s =>
+    {
+        var dept = await s.Get<DepartmentService>().GetAsync(id);
+        if (resetForm)
+        {
+            _name = dept.Name;
+            _description = dept.Description;
+            _manager = dept.ManagerId is Guid m ? (await s.Get<UserDirectoryService>().FindManyAsync([m])).ToList() : [];
+        }
+        _department = dept;
+    });
+
+    private RenderFragment Fields(bool create) => __builder =>
+    {
+        <MudTextField T="string" @bind-Value="_name" Label="Name" Placeholder="@(create ? "e.g. IT, Warehouse Ops" : null)" MaxLength="200" Required="true"
+                      RequiredError="Name is required." Variant="Variant.Outlined" Immediate="true" />
+        <MudTextField T="string" @bind-Value="_description" Label="@(create ? "Description (optional)" : "Description")" Lines="3" MaxLength="MaxDescriptionLength"
+                      Variant="Variant.Outlined" />
+        <div>
+            <div class="orbit-section-title mt-0 mb-1">Manager (optional)</div>
+            <div class="orbit-people-field-box">
+                <PeopleField Selected="_manager" SelectedChanged="StateHasChanged" Single="true" Placeholder="Search for the department's manager" Search="SearchManagers" />
+            </div>
+            @if (_manager.Count == 0)
+            {
+                <div class="orbit-small orbit-muted">No manager</div>
+            }
+            <div class="orbit-help">Whoever runs the department, in it or not. A request flow can ask them to approve.</div>
+        </div>
+    };
+
+    private Guid? ManagerId => _manager.FirstOrDefault()?.Id;
+
+    /// <summary>The Razor form's length limit on the description; DepartmentService checks the name (required, 200 characters).</summary>
+    private bool DescriptionFits()
+    {
+        if ((_description?.Trim().Length ?? 0) <= MaxDescriptionLength) return true;
+        Error($"The description must be {MaxDescriptionLength} characters or fewer.");
+        return false;
+    }
+
+    private async Task CreateAsync()
+    {
+        if (!DescriptionFits()) return;
+        var (name, description, managerId) = (_name ?? string.Empty, _description, ManagerId);
+        _busy = true;
+        Department? created = null;
+        if (await Act(async s => created = await s.Get<DepartmentService>().CreateAsync(name, description, managerId)))
+        {
+            Success($"Department \"{created!.Name}\" created.");
+            Nav.NavigateTo($"/Admin/Departments/Details/{created.Id}");
+        }
+        _busy = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (!DescriptionFits()) return;
+        var id = _department!.Id;
+        var (name, description, managerId) = (_name ?? string.Empty, _description, ManagerId);
+        _busy = true;
+        Department? saved = null;
+        if (await Act(async s => saved = await s.Get<DepartmentService>().UpdateAsync(id, name, description, managerId)))
+        {
+            Success($"Department \"{saved!.Name}\" saved.");
+            Nav.NavigateTo($"/Admin/Departments/Details/{id}");
+        }
+        _busy = false;
+    }
+
+    /// <summary>Archive: no longer offered for new users, projects and tasks; nothing cascades. Restoring doesn't ask.</summary>
+    private async Task SetArchivedAsync(bool archived)
+    {
+        var id = _department!.Id;
+        if (archived && !await Confirm("Archive department", "Archive this department? It stops being offered for new users, projects and tasks; nothing is deleted.", "Archive")) return;
+        _busy = true;
+        if (await Act(s => s.Get<DepartmentService>().SetArchivedAsync(id, archived)))
+            Success(archived ? "Department archived. Existing users, projects and tasks are untouched." : "Department restored.");
+        await LoadDepartmentAsync(id, resetForm: false);
+        _busy = false;
+    }
+}

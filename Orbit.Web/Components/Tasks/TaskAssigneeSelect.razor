@@ -1,0 +1,52 @@
+@inherits OrbitComponentBase
+@* The inline assignee control (spec §6.2, §6.2.3), for a task with one assignee or none: picking someone makes them its one
+   assignee, Unassigned leaves it with nobody. A task with several is shown by name instead, by the caller. *@
+<MudSelect @key="_version" T="Guid" Value="Sole?.Id ?? Guid.Empty" ValueChanged="PickedAsync" ToStringFunc="Name"
+           Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Disabled="_busy" Class="orbit-inline" aria-label="Assignee">
+    <MudSelectItem T="Guid" Value="Guid.Empty">Unassigned</MudSelectItem>
+    @if (Sole is { } sole && Candidates.All(u => u.Id != sole.Id))
+    {
+        @* Someone who could no longer be picked - deactivated, or moved to another department - stays on show. *@
+        <MudSelectItem T="Guid" Value="sole.Id">@Name(sole.Id)</MudSelectItem>
+    }
+    @foreach (var u in Candidates)
+    {
+        <MudSelectItem T="Guid" Value="u.Id">@u.DisplayName</MudSelectItem>
+    }
+</MudSelect>
+
+@code {
+    [Parameter, EditorRequired] public TaskItem Task { get; set; } = null!;
+    /// <summary>Who may be picked: the task's department, plus anyone who sees every department's tasks.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<UserSummary> Candidates { get; set; } = [];
+    [Parameter] public EventCallback Changed { get; set; }
+
+    private int _version;
+    private bool _busy;
+
+    private ApplicationUser? Sole => Task.Assignees.FirstOrDefault();
+
+    private string Name(Guid id)
+    {
+        if (id == Guid.Empty) return "Unassigned";
+        if (Candidates.FirstOrDefault(u => u.Id == id) is { } candidate) return candidate.DisplayName;
+        return Sole is { } sole && sole.Id == id ? sole.DisplayName + (sole.IsActive ? "" : " (deactivated)") : "";
+    }
+
+    private async Task PickedAsync(Guid id)
+    {
+        if (id == (Sole?.Id ?? Guid.Empty)) return;
+        _busy = true;
+        TaskItem? changed = null;
+        if (await Act(async s => changed = await s.Get<TaskService>().SetSoleAssigneeAsync(Task.Id, id == Guid.Empty ? null : id)))
+        {
+            Success(TaskMessages.AssigneeSet(changed!));
+            await Changed.InvokeAsync();
+        }
+        else
+        {
+            _version++;
+        }
+        _busy = false;
+    }
+}

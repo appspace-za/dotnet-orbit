@@ -59,11 +59,13 @@ public static class RequestIcons
     public static bool IsChoice(string? name) => name is not null && Choices.Any(c => c.Name == name);
 
     /// <summary>The icon as an inline, decorative SVG in the current text colour; an unknown name draws <see cref="Default"/>.</summary>
-    public static IHtmlContent Svg(string? name, int size = 16, string? cssClass = null)
+    public static IHtmlContent Svg(string? name, int size = 16, string? cssClass = null) => new HtmlString(SvgText(name, size, cssClass));
+
+    /// <summary>The same SVG as markup text, for a Blazor component (<c>RequestIcon</c>).</summary>
+    public static string SvgText(string? name, int size = 16, string? cssClass = null)
     {
         var body = name is not null && Bodies.TryGetValue(name, out var b) ? b : Bodies[Default];
         var cls = cssClass is null ? "" : $" class=\"{cssClass}\"";
-        return new HtmlString(
-            $"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{size}\" height=\"{size}\" viewBox=\"0 0 16 16\" fill=\"currentColor\" aria-hidden=\"true\" focusable=\"false\"{cls}>{body}</svg>");
+        return $"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{size}\" height=\"{size}\" viewBox=\"0 0 16 16\" fill=\"currentColor\" aria-hidden=\"true\" focusable=\"false\"{cls}>{body}</svg>";
     }
 }

@@ -1,7 +1,7 @@
 namespace Orbit.Application;
 
-/// <summary>One link in the navbar: its label, the Razor page it opens, and who sees it.</summary>
-public sealed record NavItem(string Label, string Page, Func<Actor, bool> Shows);
+/// <summary>One link in the menu: its label, the URL it opens (where its page answers), and who sees it.</summary>
+public sealed record NavItem(string Label, string Href, Func<Actor, bool> Shows);
 
 /// <summary>
 /// The navbar (spec §6.5, §6.9): which menu items a person sees, from their grants. A link shows only to someone who can use the page
@@ -36,35 +36,35 @@ public static class Navigation
     /// <summary>The main menu, in order. Configuring request flows is in the Admin menu.</summary>
     public static readonly IReadOnlyList<NavItem> Main =
     [
-        new("Dashboard", "/Index", _ => true),
-        new("Today", "/Today/Index", ShowsMyWork),
+        new("Dashboard", "/", _ => true),
+        new("Today", "/Today", ShowsMyWork),
         new("My Tasks", "/Tasks/My", ShowsMyWork),
-        new("Tasks", "/Tasks/Index", ShowsTasks),
-        new("Projects", "/Projects/Index", ShowsProjects),
-        new("Backlog", "/Backlog/Index", ShowsPlanning),
-        new("Sprints", "/Sprints/Index", ShowsPlanning),
-        new("Recurring", "/Recurring/Index", ShowsRecurring),
+        new("Tasks", "/Tasks", ShowsTasks),
+        new("Projects", "/Projects", ShowsProjects),
+        new("Backlog", "/Backlog", ShowsPlanning),
+        new("Sprints", "/Sprints", ShowsPlanning),
+        new("Recurring", "/Recurring", ShowsRecurring),
         new("My Time", "/Time/My", ShowsMyTime),
-        new("Assets", "/Assets/Index", ShowsAssets),
-        new("Requests", "/Requests/Index", AccessPolicy.CanSubmitRequests),
-        new("Reports", "/Reports/Index", AccessPolicy.CanViewReports)
+        new("Assets", "/Assets", ShowsAssets),
+        new("Requests", "/Requests", AccessPolicy.CanSubmitRequests),
+        new("Reports", "/Reports", AccessPolicy.CanViewReports)
     ];
 
     /// <summary>The Admin dropdown, in order: each item on its own permission (<see cref="PermissionCatalog.AdminPermissions"/>).</summary>
     public static readonly IReadOnlyList<NavItem> Admin =
     [
-        new("Users", "/Admin/Users/Index", a => a.Has(Permission.UsersManage)),
-        new("Roles", "/Admin/Roles/Index", a => a.Has(Permission.RolesManage)),
-        new("Departments", "/Admin/Departments/Index", a => a.Has(Permission.DepartmentsManage)),
-        new("API Keys", "/Admin/ApiKeys/Index", a => a.Has(Permission.ApiKeysManage)),
-        new("Directory (LDAP)", "/Admin/Directory/Index", a => a.Has(Permission.DirectoryManage)),
-        new("Agents", "/Admin/Agents/Index", a => a.Has(Permission.AgentsManage)),
-        new("Nagios", "/Admin/Nagios/Index", a => a.Has(Permission.NagiosManage)),
-        new("Working Calendar", "/Admin/Calendar/Index", a => a.Has(Permission.CalendarManage)),
-        new("Request flows", "/RequestCatalogue/Index", a => a.Has(Permission.RequestsConfigure)),
-        new("Actions", "/Actions/Index", a => a.Has(Permission.ActionsCreate)),
-        new("Messages", "/Admin/Messages/Index", a => a.Has(Permission.MessagesManage)),
-        new("Activity Log", "/Admin/Activity/Index", a => a.Has(Permission.AuditView))
+        new("Users", "/Admin/Users", a => a.Has(Permission.UsersManage)),
+        new("Roles", "/Admin/Roles", a => a.Has(Permission.RolesManage)),
+        new("Departments", "/Admin/Departments", a => a.Has(Permission.DepartmentsManage)),
+        new("API Keys", "/Admin/ApiKeys", a => a.Has(Permission.ApiKeysManage)),
+        new("Directory (LDAP)", "/Admin/Directory", a => a.Has(Permission.DirectoryManage)),
+        new("Agents", "/Admin/Agents", a => a.Has(Permission.AgentsManage)),
+        new("Nagios", "/Admin/Nagios", a => a.Has(Permission.NagiosManage)),
+        new("Working Calendar", "/Admin/Calendar", a => a.Has(Permission.CalendarManage)),
+        new("Request flows", "/RequestCatalogue", AccessPolicy.CanConfigureRequests),
+        new("Actions", "/Actions", a => a.Has(Permission.ActionsCreate)),
+        new("Messages", "/Admin/Messages", a => a.Has(Permission.MessagesManage)),
+        new("Activity Log", "/Admin/Activity", a => a.Has(Permission.AuditView))
     ];
 
     public static IReadOnlyList<NavItem> Visible(Actor a) => Main.Where(i => i.Shows(a)).ToList();

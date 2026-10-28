@@ -1,0 +1,156 @@
+@page "/Sprints/Details/{Id:guid}"
+@inherits SprintPageBase
+@* A sprint's page (spec §6.3): its dates, goal and progress, and its tasks across departments with the rows' live controls.
+   Ticked tasks can be moved back to the backlog while the sprint isn't completed. *@
+
+<PageTitle>@(_sprint?.Name ?? "Sprint") - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_sprint is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var s = _sprint;
+    var canManage = AccessPolicy.CanManageSprints(_actor!);
+    var done = _tasks.Count(t => t.Status == TaskItemStatus.Done);
+    var percent = _tasks.Count == 0 ? 0 : (int)Math.Round(done * 100.0 / _tasks.Count);
+
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Sprints">Sprints</a><span class="orbit-crumb-sep">/</span><span aria-current="page">@s.Name</span>
+    </nav>
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">@s.Name <MudChip T="string" Size="Size.Small" Color="StatusLook.Sprint(s.Status)">@s.Status</MudChip></MudText>
+            <div class="orbit-subtitle">@Ui.Day(s.StartDate) to @Ui.Day(s.EndDate)</div>
+            @if (!string.IsNullOrWhiteSpace(s.Goal))
+            {
+                <div class="mt-1"><b>Goal:</b> @s.Goal</div>
+            }
+        </div>
+        <div class="orbit-actions">
+            @if (s.Status == SprintStatus.Active)
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Href="@($"/Sprints/Board/{s.Id}")">Board</MudButton>
+            }
+            @if (s.Status != SprintStatus.Completed)
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="/Backlog">Plan from backlog</MudButton>
+            }
+            @if (canManage)
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@($"/Sprints/Edit/{s.Id}")">Edit</MudButton>
+                @if (s.Status == SprintStatus.Planned)
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Success" Disabled="_busy" OnClick="StartAsync">Start sprint</MudButton>
+                }
+                @if (s.Status == SprintStatus.Active)
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="_busy" OnClick="CompleteAsync">Complete sprint</MudButton>
+                }
+            }
+        </div>
+    </div>
+
+    <div class="orbit-two-tiles">
+        <MudPaper Outlined="true" Class="orbit-stat">
+            <div class="orbit-list-row"><span class="orbit-stat-label">Progress</span><span class="orbit-small">@done / @_tasks.Count done</span></div>
+            <MudProgressLinear Value="percent" Color="Color.Success" Rounded="true" Size="Size.Medium" Class="mt-2" />
+        </MudPaper>
+        <MudPaper Outlined="true" Class="orbit-stat">
+            <div class="orbit-stat-label mb-1">By department</div>
+            @if (_tasks.Count == 0)
+            {
+                <span class="orbit-muted orbit-small">-</span>
+            }
+            @foreach (var d in _tasks.GroupBy(t => t.Department.Name).OrderBy(g => g.Key))
+            {
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@d.Key: @d.Count(t => t.IsOpen) open / @d.Count()</MudChip>
+            }
+        </MudPaper>
+    </div>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        <div class="orbit-card-header">
+            <span><b>Tasks</b> <span class="orbit-muted">(@_tasks.Count)</span></span>
+            @if (s.Status != SprintStatus.Completed)
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="_busy" OnClick="RemoveAsync">
+                    Move selected back to backlog@(_selected.Count > 0 ? $" ({_selected.Count})" : "")
+                </MudButton>
+            }
+        </div>
+        <TaskTable Tasks="_tasks" Actor="_actor!" Today="_today" ShowDepartment="true" ShowPlanToday="true" QuickEditAssignees="_quickEditAssignees"
+                   Waiting="_waiting" Selectable="@(s.Status != SprintStatus.Completed)" Selected="_selected" SelectionChanged="StateHasChanged"
+                   EmptyMessage="No tasks in this sprint. Plan some from the backlog." Changed="ReloadAsync" />
+    </MudPaper>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private Actor? _actor;
+    private Sprint? _sprint;
+    private DateOnly _today;
+    private IReadOnlyList<TaskItem> _tasks = [];
+    private IReadOnlyDictionary<Guid, WaitingSummary> _waiting = new Dictionary<Guid, WaitingSummary>();
+    /// <summary>Candidates for the inline assignee control (a sprint spans departments).</summary>
+    private IReadOnlyList<UserSummary> _quickEditAssignees = [];
+    private readonly HashSet<Guid> _selected = [];
+    private bool _busy;
+
+    protected override Task OnParametersSetAsync() => ReloadAsync();
+
+    private async Task ReloadAsync() => await Load(async s =>
+    {
+        var sprint = await s.Get<SprintService>().GetAsync(Id);
+        foreach (var t in sprint.Tasks) t.Sprint = sprint;
+        var tasks = sprint.Tasks
+            .OrderBy(t => t.Status.IsClosed()).ThenBy(t => t.Department.Name).ThenByDescending(t => t.Priority)
+            .ThenBy(t => t.DueDate == null).ThenBy(t => t.DueDate)
+            .ToList();
+        _quickEditAssignees = await s.Get<UserDirectoryService>().GetQuickEditCandidatesAsync();
+        _waiting = await s.Get<TaskStructureService>().GetWaitingAsync(tasks);
+        _actor = await s.Get<IActorProvider>().GetAsync();
+        _selected.IntersectWith(tasks.Select(t => t.Id));
+        _today = DateOnly.FromDateTime(DateTime.UtcNow);
+        _tasks = tasks;
+        _sprint = sprint;
+    });
+
+    private async Task RemoveAsync()
+    {
+        if (_selected.Count == 0)
+        {
+            Error("Select at least one task.");
+            return;
+        }
+        _busy = true;
+        var moved = 0;
+        if (await Act(async s => moved = await s.Get<TaskService>().MoveToSprintAsync(_selected.ToList(), null)))
+        {
+            Success($"{moved} task(s) moved back to the backlog.");
+            _selected.Clear();
+            await ReloadAsync();
+        }
+        _busy = false;
+    }
+
+    private async Task StartAsync()
+    {
+        _busy = true;
+        if (await StartSprintAsync(_sprint!)) await ReloadAsync();
+        _busy = false;
+    }
+
+    private async Task CompleteAsync()
+    {
+        _busy = true;
+        if (await CompleteSprintAsync(_sprint!)) await ReloadAsync();
+        _busy = false;
+    }
+}

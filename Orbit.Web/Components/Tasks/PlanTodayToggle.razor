@@ -1,0 +1,35 @@
+@inherits OrbitComponentBase
+@* The "Today" checkbox (spec §6.12): ticking plans the task for today, unticking takes it off the day plan. *@
+<MudCheckBox @key="_version" T="bool" Value="PlannedToday" ValueChanged="ToggledAsync" Size="Size.Small" Dense="true"
+             Disabled="_busy" Color="Color.Primary" aria-label="Planned for today" title="@Hint" />
+
+@code {
+    [Parameter, EditorRequired] public TaskItem Task { get; set; } = null!;
+    [Parameter, EditorRequired] public DateOnly Today { get; set; }
+    [Parameter] public EventCallback Changed { get; set; }
+
+    private int _version;
+    private bool _busy;
+
+    private bool PlannedToday => Task.PlannedFor == Today;
+
+    private string Hint => PlannedToday ? "On today's plan - untick to remove"
+        : Task.PlannedFor is DateOnly other ? $"Planned for {Ui.Day(other)} - tick to move to today"
+        : "Tick to plan for today";
+
+    private async Task ToggledAsync(bool planned)
+    {
+        _busy = true;
+        TaskItem? changed = null;
+        if (await Act(async s => changed = await s.Get<TaskService>().SetPlannedForAsync(Task.Id, planned ? DateOnly.FromDateTime(DateTime.UtcNow) : null)))
+        {
+            Success(TaskMessages.PlannedToday(changed!, planned));
+            await Changed.InvokeAsync();
+        }
+        else
+        {
+            _version++;
+        }
+        _busy = false;
+    }
+}

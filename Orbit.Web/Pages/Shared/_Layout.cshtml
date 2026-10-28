@@ -1,13 +1,25 @@
-@inject IActorProvider Actors
+@using Microsoft.AspNetCore.Identity
+@inject SignInManager<ApplicationUser> SignInManager
+@* The layout of the Razor pages that remain (spec §6): sign-in and the account pages (Identity), and the error page. Everything
+   else is a Blazor page in the MudBlazor shell (Components/Layout/MainLayout.razor). It is Bootstrap 5.3, which the Identity
+   pages are written for, in Orbit's colours (site.css): Orbit's bar, a theme toggle, and for someone signed in a way back into
+   the app, their account and Sign out. The theme is the one the Blazor pages use (localStorage, plus the orbit-theme cookie
+   they read). A page's flash message (TempData Success / Error) shows above it. orbit-user says who this browser is signed in
+   as, so a Blazor tab opened as someone else reloads (orbit-interop.js, §8). *@
+@{
+    var signedIn = SignInManager.IsSignedIn(User);
+    var displayName = User.FindFirst(OrbitClaims.DisplayName)?.Value ?? User.Identity?.Name;
+    var userId = signedIn ? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "" : "";
+}
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="light">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="orbit-user" content="@userId" />
     <title>@ViewData["Title"] - Orbit</title>
     <script>
-        // Apply the theme before first paint so there is no light/dark flash on page load.
-        // Precedence: the user's saved choice, then the OS preference, then light.
+        // Apply the theme before first paint so there is no light/dark flash: the saved choice, then the OS preference, then light.
         (function () {
             var theme = null;
             try { theme = localStorage.getItem('orbit-theme'); } catch (e) { }
@@ -17,90 +29,80 @@
             document.documentElement.setAttribute('data-bs-theme', theme);
         })();
     </script>
-    <script type="importmap"></script>
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
-    <link rel="stylesheet" href="~/Orbit.Web.styles.css" asp-append-version="true" />
 </head>
 <body>
-    @{
-        var signedIn = User.Identity?.IsAuthenticated == true;
-        // The navbar follows the actor's grants (Navigation, spec §6.5), read from the database per request - never the cookie's
-        // role claim, which can lag a role edit. A deactivated account gets no menu at all.
-        Actor? actor = null;
-        if (signedIn)
-        {
-            try { actor = await Actors.GetAsync(); } catch (ForbiddenException) { }
-        }
-        var menu = actor is null ? [] : Navigation.Visible(actor);
-        var adminMenu = actor is null ? [] : Navigation.AdminVisible(actor);
-    }
-    <header class="sticky-top mb-3">
-        <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-            <div class="container-fluid px-3 px-lg-4">
-                <a class="navbar-brand fw-semibold" asp-area="" asp-page="/Index">Orbit</a>
-                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse" aria-controls="navbarSupportedContent"
-                        aria-expanded="false" aria-label="Toggle navigation">
-                    <span class="navbar-toggler-icon"></span>
+    <header class="orbit-navbar mb-4">
+        <div class="container-fluid px-3 px-lg-4 d-flex align-items-center gap-3">
+            <a class="orbit-brand" href="/">Orbit</a>
+            @if (signedIn)
+            {
+                <a class="orbit-bar-link" href="/">&larr; Back to Orbit</a>
+            }
+            <div class="ms-auto d-flex align-items-center gap-3">
+                <button type="button" class="orbit-bar-link js-theme-toggle" title="Switch theme" aria-label="Switch theme">
+                    <svg class="theme-icon theme-icon-moon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                        <path d="M6 .278a.768.768 0 0 1 .08.858 7.208 7.208 0 0 0-.878 3.46c0 4.021 3.278 7.277 7.318 7.277.527 0 1.04-.055 1.533-.16a.787.787 0 0 1 .81.316.733.733 0 0 1-.031.893A8.349 8.349 0 0 1 8.344 16C3.734 16 0 12.286 0 7.71 0 4.266 2.114 1.312 5.124.06A.752.752 0 0 1 6 .278zM4.858 1.311A7.269 7.269 0 0 0 1.025 7.71c0 4.02 3.279 7.276 7.319 7.276a7.316 7.316 0 0 0 5.205-2.162c-.337.042-.68.063-1.029.063-4.61 0-8.343-3.714-8.343-8.29 0-1.167.242-2.278.681-3.286z"/>
+                    </svg>
+                    <svg class="theme-icon theme-icon-sun" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                        <path d="M8 11a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm0 1a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM8 0a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-1 0v-2A.5.5 0 0 1 8 0zm0 13a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-1 0v-2A.5.5 0 0 1 8 13zm8-5a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1 0-1h2a.5.5 0 0 1 .5.5zM3 8a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1 0-1h2A.5.5 0 0 1 3 8zm10.657-5.657a.5.5 0 0 1 0 .707l-1.414 1.415a.5.5 0 1 1-.707-.708l1.414-1.414a.5.5 0 0 1 .707 0zm-9.193 9.193a.5.5 0 0 1 0 .707L3.05 13.657a.5.5 0 0 1-.707-.707l1.414-1.414a.5.5 0 0 1 .707 0zm9.193 2.121a.5.5 0 0 1-.707 0l-1.414-1.414a.5.5 0 0 1 .707-.707l1.414 1.414a.5.5 0 0 1 0 .707zM4.464 4.465a.5.5 0 0 1-.707 0L2.343 3.05a.5.5 0 1 1 .707-.707l1.414 1.414a.5.5 0 0 1 0 .708z"/>
+                    </svg>
                 </button>
-                <div class="navbar-collapse collapse d-lg-inline-flex justify-content-between">
-                    <ul class="navbar-nav flex-grow-1">
-                        @foreach (var item in menu)
-                        {
-                            <li class="nav-item"><a class="nav-link" asp-area="" asp-page="@item.Page">@item.Label</a></li>
-                        }
-                        @if (adminMenu.Count > 0)
-                        {
-                            <li class="nav-item dropdown">
-                                <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Admin</a>
-                                <ul class="dropdown-menu">
-                                    @foreach (var item in adminMenu)
-                                    {
-                                        <li><a class="dropdown-item" asp-area="" asp-page="@item.Page">@item.Label</a></li>
-                                    }
-                                </ul>
-                            </li>
-                        }
-                    </ul>
-                    <partial name="_LoginPartial" />
-                </div>
+                @if (signedIn)
+                {
+                    <a class="orbit-bar-link" asp-area="Identity" asp-page="/Account/Manage/Index" title="Manage account">@displayName</a>
+                    <form asp-area="Identity" asp-page="/Account/Logout" asp-route-returnUrl="/" class="m-0">
+                        <button type="submit" class="orbit-bar-link">Sign out</button>
+                    </form>
+                }
             </div>
-        </nav>
+        </div>
     </header>
     <div class="container-fluid px-3 px-lg-4">
         <main role="main" class="pb-4">
             @if (TempData["Success"] is string success)
             {
-                <div class="alert alert-success alert-dismissible fade show js-flash" role="alert">
-                    @success
-                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                </div>
+                <div class="alert alert-success" role="status">@success</div>
             }
             @if (TempData["Error"] is string error)
             {
-                <div class="alert alert-danger alert-dismissible fade show js-flash" role="alert">
-                    @error
-                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                </div>
+                <div class="alert alert-danger" role="alert">@error</div>
             }
             @RenderBody()
         </main>
     </div>
-    @if (signedIn)
-    {
-        <partial name="_SolutionNotesDialog" />
-    }
 
-    <footer class="border-top footer text-muted">
-        <div class="container-fluid px-3 px-lg-4">
-            &copy; @DateTime.Now.Year - Orbit - <a asp-area="" asp-page="/Privacy">Privacy</a>
-        </div>
-    </footer>
-
+    <script>
+        // The theme toggle: flips the theme, remembers it for this browser (and in the cookie the Blazor pages read before they
+        // connect, App.razor), and keeps the button's label current.
+        (function () {
+            var key = 'orbit-theme';
+            function current() { return document.documentElement.getAttribute('data-bs-theme') === 'dark' ? 'dark' : 'light'; }
+            function remember(theme) {
+                try { localStorage.setItem(key, theme); } catch (e) { /* storage unavailable: the theme lasts for this page */ }
+                var secure = location.protocol === 'https:' ? '; secure' : '';
+                document.cookie = key + '=' + theme + '; path=/; max-age=31536000; samesite=lax' + secure;
+            }
+            function apply(theme) {
+                document.documentElement.setAttribute('data-bs-theme', theme);
+                var label = theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme';
+                document.querySelectorAll('.js-theme-toggle').forEach(function (b) { b.title = label; b.setAttribute('aria-label', label); });
+            }
+            apply(current());
+            if (document.cookie.indexOf(key + '=') < 0) remember(current());
+            // Say who this browser is signed in as now (nobody, after signing out): a Blazor tab opened as anyone else reloads.
+            try { new BroadcastChannel('orbit-session').postMessage(document.querySelector('meta[name="orbit-user"]').content); } catch (e) { }
+            document.addEventListener('click', function (e) {
+                if (!e.target.closest || !e.target.closest('.js-theme-toggle')) return;
+                var next = current() === 'dark' ? 'light' : 'dark';
+                apply(next);
+                remember(next);
+            });
+        })();
+    </script>
+    @* The account pages' client-side validation (_ValidationScriptsPartial) needs jQuery. *@
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
-    <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="~/js/site.js" asp-append-version="true"></script>
-
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>

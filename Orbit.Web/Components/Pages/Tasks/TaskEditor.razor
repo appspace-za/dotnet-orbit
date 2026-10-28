@@ -1,0 +1,497 @@
+@inherits OrbitComponentBase
+@using Orbit.Application.Assets
+@* The task form (spec §6.2), for a new task (TaskCreate: blank, on a project or sprint, or a subtask, §6.15) or an existing one
+   (TaskEdit). The department follows the task form's rule (§6.2.1): picking a project fills it with the project's, and only
+   whoever creates tasks everywhere chooses it. The Assignees picker offers the people of the department in force and drops
+   those who don't belong when it changes (§6.2.3); the Parent task picker offers the project's tasks, or for a standalone task
+   its department's (§6.15). The Requestee is offered with tasks.create_for above Own (§6.2.2), the asset with assets.view
+   (§6.19). Editing adds Status and the Solution notes box (§6.2.4), and asks before you set your own task Done with no time
+   logged on it (§6.10). *@
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (!Loaded)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Tasks">Tasks</a>
+        @if (_task is not null)
+        {
+            <span class="orbit-crumb-sep">/</span><a href="@($"/Tasks/Details/{_task.Id}")">@Ui.Truncate(_task.Title, 50)</a>
+            <span class="orbit-crumb-sep">/</span><span aria-current="page">Edit</span>
+        }
+        else
+        {
+            <span class="orbit-crumb-sep">/</span><span aria-current="page">New</span>
+        }
+    </nav>
+    <MudText Typo="Typo.h5" HtmlTag="h1" Class="mb-3">@(_task is null ? "New task" : "Edit task")</MudText>
+
+    <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-form orbit-form-full">
+        <MudTextField T="string" @bind-Value="_form.Title" Label="Title" MaxLength="300" Required="true" RequiredError="Title is required."
+                      Variant="Variant.Outlined" Immediate="true" />
+        <MudTextField T="string" @bind-Value="_form.Description" Label="Description (markdown-friendly)" Lines="5" Variant="Variant.Outlined" />
+
+        @* Project, then the department (for whoever may choose it), then the asset: side by side on a wide screen. *@
+        <MudGrid Spacing="3">
+            <MudItem xs="12" md="@FirstRowWidth">
+                <MudSelect T="Guid" Value="ProjectChoice" ValueChanged="ProjectChanged" Label="Project" Variant="Variant.Outlined"
+                           ToStringFunc="@(id => _projects.FirstOrDefault(p => p.Id == id).Text ?? "")">
+                    @foreach (var p in _projects)
+                    {
+                        <MudSelectItem T="Guid" Value="p.Id">@p.Text</MudSelectItem>
+                    }
+                </MudSelect>
+                <div class="orbit-help">
+                    @(_canChooseDepartment
+                        ? "Choosing a project sets the department to the project's own; change it below to file the task for another department."
+                        : "A task on a project belongs to that project's department.")
+                </div>
+            </MudItem>
+            @if (_canChooseDepartment)
+            {
+                <MudItem xs="12" md="@FirstRowWidth">
+                    <MudSelect T="Guid" Value="DepartmentChoice" ValueChanged="DepartmentChanged" Label="Department" Variant="Variant.Outlined"
+                               ToStringFunc="@(id => _departments.FirstOrDefault(d => d.Id == id).Text ?? "")">
+                        @foreach (var d in _departments)
+                        {
+                            <MudSelectItem T="Guid" Value="d.Id">@d.Text</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <div class="orbit-help">
+                        The department that owns and works this task. Default: the project's department, or your own for a standalone task.
+                        A project can hold tasks for several departments; each department sees and works its own.
+                    </div>
+                </MudItem>
+            }
+            @if (ShowAsset)
+            {
+                <MudItem xs="12" md="@FirstRowWidth">
+                    @if (!_canPickAsset)
+                    {
+                        @* No asset picker without assets.view (§6.19): the link is shown and kept as it is. *@
+                        <MudTextField T="string" Value="_assetLabel" Label="Asset" ReadOnly="true" Disabled="true" Variant="Variant.Outlined" />
+                    }
+                    else
+                    {
+                        @if (_form.AssetId is not null)
+                        {
+                            <span class="orbit-gap-row">
+                                <span class="orbit-muted orbit-small">Asset:</span>
+                                <MudChip T="string" Variant="Variant.Outlined" OnClose="@(_ => ClearAsset())" title="The asset this task is about">@_assetLabel</MudChip>
+                            </span>
+                        }
+                        else
+                        {
+                            <AssetPicker Label="Asset (optional)" Picked="AssetPicked" />
+                        }
+                        <div class="orbit-help">The asset this task is about; the task joins the asset's history. Search by name, ERP number, serial, make, model, holder or location, or scan its label.</div>
+                    }
+                </MudItem>
+            }
+        </MudGrid>
+
+        @* Three stacked pairs: what kind and how urgent, when, and who - the assignees who do it over the requestee it is for (§6.2.2, §6.2.3). *@
+        <MudGrid Spacing="3">
+            <MudItem xs="12" md="4">
+                <MudSelect T="TaskType" @bind-Value="_form.Type" Label="Type" Variant="Variant.Outlined" ToStringFunc="@(t => t.ToString())">
+                    @foreach (var t in Enum.GetValues<TaskType>())
+                    {
+                        <MudSelectItem T="TaskType" Value="t">@t</MudSelectItem>
+                    }
+                </MudSelect>
+                <div class="mt-3">
+                    <MudSelect T="TaskPriority" @bind-Value="_form.Priority" Label="Priority" Variant="Variant.Outlined" ToStringFunc="@(p => p.ToString())">
+                        @foreach (var p in Enum.GetValues<TaskPriority>())
+                        {
+                            <MudSelectItem T="TaskPriority" Value="p">@p</MudSelectItem>
+                        }
+                    </MudSelect>
+                </div>
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudDatePicker @bind-Date="StartDate" Label="Start date" DateFormat="yyyy-MM-dd" Editable="true" Clearable="true" AutoClose="true"
+                               HelperText="Planned start; not after the due date" Variant="Variant.Outlined" />
+                <div class="mt-3">
+                    <MudDatePicker @bind-Date="DueDate" Label="Due date" DateFormat="yyyy-MM-dd" Editable="true" Clearable="true" AutoClose="true"
+                                   Variant="Variant.Outlined" />
+                </div>
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <div class="orbit-section-title mt-0 mb-1">Assignees</div>
+                @if (_assignees.Count == 0)
+                {
+                    <div class="orbit-muted orbit-small mb-1">Nobody - unassigned</div>
+                }
+                <PeopleField Selected="_assignees" SelectedChanged="AssigneesChanged" DepartmentId="DepartmentInForce"
+                             Placeholder="Type a name, or click to choose..." />
+                <div class="orbit-help">
+                    @(_canChooseDepartment
+                        ? "One person, several who share the task, or nobody. They must belong to the task's department (people whose role sees every department can be assigned anywhere)."
+                        : "One person, several who share the task, or nobody.")
+                </div>
+                @if (_canChooseRequestee)
+                {
+                    <div class="mt-3">
+                        <MudSelect T="Guid" @bind-Value="RequesteeChoice" Label="Requestee (optional)" Variant="Variant.Outlined"
+                                   ToStringFunc="@(id => _requestees.FirstOrDefault(r => r.Id == id).Text ?? "")">
+                            @foreach (var r in _requestees)
+                            {
+                                <MudSelectItem T="Guid" Value="r.Id">@r.Text</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <div class="orbit-help">Create the task on someone's behalf. They can open, edit and plan it as their own, and are emailed.</div>
+                    </div>
+                }
+                else if (_offerRequestee && _requesteeLabel is not null)
+                {
+                    @* Set by someone with a wider reach: shown and kept as it is (§6.2.2). *@
+                    <div class="mt-3">
+                        <MudTextField T="string" Value="_requesteeLabel" Label="Requestee" ReadOnly="true" Disabled="true" Variant="Variant.Outlined" />
+                    </div>
+                }
+            </MudItem>
+        </MudGrid>
+
+        <MudGrid Spacing="3">
+            @if (_task is not null)
+            {
+                <MudItem xs="12" md="3">
+                    <MudSelect T="TaskItemStatus" Value="_form.Status" ValueChanged="StatusChanged" Label="Status" Variant="Variant.Outlined"
+                               ToStringFunc="@(st => st.Label())">
+                        @foreach (var st in Enum.GetValues<TaskItemStatus>())
+                        {
+                            <MudSelectItem T="TaskItemStatus" Value="st">@st.Label()</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+            }
+            <MudItem xs="12" md="3">
+                <MudSelect T="Guid" @bind-Value="SprintChoice" Label="Sprint" Variant="Variant.Outlined"
+                           ToStringFunc="@(id => _sprints.FirstOrDefault(x => x.Id == id).Text ?? "")">
+                    @foreach (var sp in _sprints)
+                    {
+                        <MudSelectItem T="Guid" Value="sp.Id">@sp.Text</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudSelect T="Guid" @bind-Value="ParentChoice" Label="Parent task" Variant="Variant.Outlined" ToStringFunc="ParentName">
+                    <MudSelectItem T="Guid" Value="Guid.Empty">@NoParent</MudSelectItem>
+                    @foreach (var pc in OfferedParents)
+                    {
+                        <MudSelectItem T="Guid" Value="pc.Id">@ParentText(pc)</MudSelectItem>
+                    }
+                </MudSelect>
+                <div class="orbit-help">Makes this a subtask. Only tasks on the same project are offered (for a standalone task, standalone tasks in its department).</div>
+            </MudItem>
+            <MudItem xs="12" md="2">
+                <MudNumericField T="int?" @bind-Value="_form.EstimateMinutes" Label="Estimate" Min="0" Max="525600" Step="5" Placeholder="e.g. 90"
+                                 Adornment="Adornment.End" AdornmentText="min" Variant="Variant.Outlined" />
+                <div class="orbit-help">Expected effort in minutes; blank for none.</div>
+            </MudItem>
+        </MudGrid>
+
+        @if (_task is not null && _showNotes)
+        {
+            @* Solution notes (§6.2.4): shown for a closed status, or while they hold anything (a reopened task keeps them); required for
+               Done - except on a task that was Done before solution notes existed and still has none. Hidden, they are kept. *@
+            <div>
+                <MudTextField T="string" @bind-Value="_form.SolutionNotes" Label="Solution notes" Lines="4" Variant="Variant.Outlined"
+                              Required="NotesRequired" RequiredError="@SolutionNoteRules.RequiredMessage" />
+                <div class="orbit-help">How the task was resolved: what was done, the fix, the outcome. Required to set it Done, optional when cancelling. Use a comment for discussion.</div>
+            </div>
+        }
+
+        <div class="orbit-gap-row mt-3">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="SaveAsync">@(_task is null ? "Create task" : "Save")</MudButton>
+            <MudButton Variant="Variant.Outlined" Href="@(_task is null ? "/Tasks" : $"/Tasks/Details/{_task.Id}")">Cancel</MudButton>
+        </div>
+    </MudPaper>
+}
+
+@code {
+    /// <summary>The task to edit; null for a new one.</summary>
+    [Parameter] public Guid? TaskId { get; set; }
+    /// <summary>A new task: the project to file it under (the project page's "New task").</summary>
+    [Parameter] public Guid? ProjectId { get; set; }
+    /// <summary>A new task: the sprint to plan it into.</summary>
+    [Parameter] public Guid? SprintId { get; set; }
+    /// <summary>A new task: the task to file it under (the task page's "Add subtask", §6.15).</summary>
+    [Parameter] public Guid? ParentTaskId { get; set; }
+
+    private const string NoParent = "(none - top-level task)";
+
+    private TaskForm _form = new();
+    private TaskItem? _task;
+    private bool _canChooseDepartment, _canPickAsset, _offerRequestee, _canChooseRequestee, _busy;
+    /// <summary>Whether the Solution notes box shows: worked out on opening and when the status changes, not while typing (§6.2.4).</summary>
+    private bool _showNotes;
+    /// <summary>Notes are required for Done, except on a task that was Done before solution notes existed and still has none (§6.2.4).</summary>
+    private bool _requiredForDone;
+    /// <summary>The caller's own department: the one in force while the form names neither a department nor a project.</summary>
+    private Guid? _defaultDepartmentId;
+    /// <summary>Guid.Empty is "(default)".</summary>
+    private IReadOnlyList<(Guid Id, string Text)> _departments = [];
+    /// <summary>Guid.Empty is "(standalone task)"; each project carries its department, which the department follows.</summary>
+    private IReadOnlyList<(Guid Id, string Text, Guid? DepartmentId)> _projects = [];
+    /// <summary>Guid.Empty is "(backlog)".</summary>
+    private IReadOnlyList<(Guid Id, string Text)> _sprints = [];
+    /// <summary>Guid.Empty is "(nobody else)".</summary>
+    private IReadOnlyList<(Guid Id, string Text)> _requestees = [];
+    /// <summary>Every parent the caller may pick, each with its project and department; <see cref="OfferedParents"/> filters them.</summary>
+    private IReadOnlyList<ParentCandidate> _parents = [];
+    /// <summary>The chosen assignees, shown as chips; saved as the form's AssigneeIds.</summary>
+    private List<UserSummary> _assignees = [];
+    private string? _assetLabel, _requesteeLabel;
+
+    private Guid ProjectChoice => _form.ProjectId ?? Guid.Empty;
+    private Guid DepartmentChoice => _form.DepartmentId ?? Guid.Empty;
+    private Guid SprintChoice { get => _form.SprintId ?? Guid.Empty; set => _form.SprintId = value == Guid.Empty ? null : value; }
+    private Guid ParentChoice { get => _form.ParentTaskId ?? Guid.Empty; set => _form.ParentTaskId = value == Guid.Empty ? null : value; }
+    private Guid RequesteeChoice { get => _form.RequesteeId ?? Guid.Empty; set => _form.RequesteeId = value == Guid.Empty ? null : value; }
+    private DateTime? StartDate { get => PickerDate.Of(_form.StartDate); set => _form.StartDate = PickerDate.Day(value); }
+    private DateTime? DueDate { get => PickerDate.Of(_form.DueDate); set => _form.DueDate = PickerDate.Day(value); }
+
+    private static Guid IdOf(string? value) => Guid.TryParse(value, out var id) ? id : Guid.Empty;
+
+    /// <summary>The asset field shows for whoever can pick an asset, or while the task is about one (named, read-only, to anyone else).</summary>
+    private bool ShowAsset => _canPickAsset || _form.AssetId is not null;
+    /// <summary>Project, Department and Asset share the first row: three to a row, or two.</summary>
+    private int FirstRowWidth => _canChooseDepartment && ShowAsset ? 4 : 6;
+    private bool NotesRequired => _requiredForDone && _form.Status == TaskItemStatus.Done;
+
+    /// <summary>
+    /// The department the task would belong to, as the Razor form's script worked it out (§6.2.1): the department chosen (or kept,
+    /// for whoever can't choose it), else the chosen project's, else the task's own or the caller's. The Assignees picker searches
+    /// it, and for a standalone task the Parent task picker offers its tasks.
+    /// </summary>
+    private Guid? DepartmentInForce =>
+        _form.DepartmentId
+        ?? _projects.FirstOrDefault(p => p.Id == ProjectChoice && p.Id != Guid.Empty).DepartmentId
+        ?? _task?.DepartmentId
+        ?? _defaultDepartmentId;
+
+    /// <summary>
+    /// The Parent task options (§6.15), as the Razor form's script filtered them: the tasks on the chosen project, or for a
+    /// standalone task the standalone tasks in its department. The parent chosen is always among them, so opening never drops it.
+    /// </summary>
+    private IEnumerable<ParentCandidate> OfferedParents => _parents.Where(p => p.Id == _form.ParentTaskId || ParentFits(p));
+
+    private bool ParentFits(ParentCandidate p) => _form.ProjectId is Guid project
+        ? p.ProjectId == project
+        : p.ProjectId is null && (DepartmentInForce is not Guid department || p.DepartmentId == department);
+
+    private static string ParentText(ParentCandidate p) =>
+        p.ProjectName is null ? $"{p.Title} ({p.DepartmentName})" : $"{p.ProjectName} / {p.Title}";
+
+    private string ParentName(Guid id) =>
+        id == Guid.Empty ? NoParent : _parents.FirstOrDefault(p => p.Id == id) is { } parent ? ParentText(parent) : "";
+
+    protected override async Task OnParametersSetAsync() => await Load(async s =>
+    {
+        var actor = await s.Get<IActorProvider>().GetAsync();
+        var projects = s.Get<ProjectService>();
+        var structure = s.Get<TaskStructureService>();
+        var form = new TaskForm();
+        TaskItem? task = null;
+        if (TaskId is Guid id)
+        {
+            task = await s.Get<TaskService>().GetAsync(id);
+            AccessPolicy.Require(AccessPolicy.CanEditTask(actor, task), "You don't have permission to edit this task.");
+            form = TaskForm.From(task);
+        }
+        else
+        {
+            var projectId = ProjectId;
+            // "Add subtask" (§6.15): the new task starts on the parent's project, in the parent's department.
+            if (ParentTaskId is Guid parentId && (await structure.LoadAncestorsAsync(parentId)).LastOrDefault() is { } parent)
+            {
+                form.ParentTaskId = parent.Id;
+                projectId = parent.ProjectId;
+                form.DepartmentId = parent.DepartmentId;
+            }
+            form.ProjectId = projectId;
+            form.SprintId = SprintId;
+            // A task defaults to its project's department; someone with tasks.create everywhere can change that on the form (§6.2.1).
+            form.DepartmentId ??= projectId is Guid pid ? await projects.GetDepartmentIdAsync(pid) ?? actor.DepartmentId : actor.DepartmentId;
+        }
+
+        var lookups = await TaskFormLookups.BuildAsync(actor, s.Get<DepartmentService>(), projects, s.Get<UserDirectoryService>(),
+            s.Get<SprintService>(), structure, s.Get<AssetService>(), form, task?.Id, TaskFormLookups.RefOf(task?.Asset), true, task?.Requestee, default);
+        _canChooseDepartment = lookups.CanChooseDepartment;
+        _canPickAsset = lookups.CanPickAsset;
+        _offerRequestee = lookups.OfferRequestee;
+        _canChooseRequestee = lookups.CanChooseRequestee;
+        _defaultDepartmentId = lookups.DefaultDepartmentId;
+        _departments = lookups.Departments.Select(i => (IdOf(i.Value), i.Text)).ToList();
+        _projects = lookups.Projects.Select(o => (IdOf(o.Value), o.Text, o.DepartmentId)).ToList();
+        _sprints = lookups.Sprints.Select(i => (IdOf(i.Value), i.Text)).ToList();
+        _requestees = lookups.Requestees.Select(i => (IdOf(i.Value), i.Text)).ToList();
+        _parents = lookups.Parents;
+        _assignees = lookups.SelectedAssignees.ToList();
+        _assetLabel = lookups.SelectedAssetLabel;
+        _requesteeLabel = lookups.RequesteeLabel;
+
+        // A task still in a sprint that has since been completed keeps it: the select offers it with its status, so a save doesn't
+        // move the task to the backlog (the Razor select fell back to "(backlog)").
+        if (task?.Sprint is { } currentSprint && _sprints.All(x => x.Id != currentSprint.Id))
+            _sprints = [.. _sprints, (currentSprint.Id, $"{currentSprint.Name} ({currentSprint.Status})")];
+        // Any other choice a select doesn't offer falls back to its first option, as the Razor selects did: a project to
+        // "(standalone task)", an archived department to "(default)", which the service resolves (§6.2.1), a sprint to the backlog.
+        if (form.ProjectId is Guid chosenProject && _projects.All(p => p.Id != chosenProject)) form.ProjectId = null;
+        if (_canChooseDepartment && form.DepartmentId is Guid chosenDepartment && _departments.All(d => d.Id != chosenDepartment)) form.DepartmentId = null;
+        if (form.SprintId is Guid chosenSprint && _sprints.All(x => x.Id != chosenSprint)) form.SprintId = null;
+        if (form.ParentTaskId is Guid chosenParent && _parents.All(p => p.Id != chosenParent)) form.ParentTaskId = null;
+        if (_canChooseRequestee && form.RequesteeId is Guid chosenRequestee && _requestees.All(r => r.Id != chosenRequestee)) form.RequesteeId = null;
+
+        _form = form;
+        _task = task;
+        _requiredForDone = !(task is { Status: TaskItemStatus.Done } && string.IsNullOrWhiteSpace(task.SolutionNotes));
+        _showNotes = form.Status.IsClosed() || !string.IsNullOrWhiteSpace(form.SolutionNotes);
+    });
+
+    /// <summary>Picking a project fills the department with the project's (for whoever may choose it), as the Razor form did.</summary>
+    private void ProjectChanged(Guid id)
+    {
+        _form.ProjectId = id == Guid.Empty ? null : id;
+        if (_canChooseDepartment)
+        {
+            var department = _projects.FirstOrDefault(p => p.Id == id && id != Guid.Empty).DepartmentId;
+            _form.DepartmentId = department is Guid d && _departments.Any(x => x.Id == d) ? d : null;
+        }
+        FollowDepartment();
+    }
+
+    private void DepartmentChanged(Guid id)
+    {
+        _form.DepartmentId = id == Guid.Empty ? null : id;
+        FollowDepartment();
+    }
+
+    /// <summary>After a change of project or department: a parent that no longer fits is cleared, and assignees who don't belong are dropped.</summary>
+    private void FollowDepartment()
+    {
+        if (_form.ParentTaskId is Guid parentId && _parents.FirstOrDefault(p => p.Id == parentId) is { } parent && !ParentFits(parent))
+            _form.ParentTaskId = null;
+        PruneAssignees();
+    }
+
+    /// <summary>
+    /// Drops the chosen people who don't belong to the department now in force (§6.2.3): someone who can be assigned anywhere
+    /// (tasks.view at All), or who has no department, stays. Only a change on the form prunes; opening it never drops anyone.
+    /// </summary>
+    private void PruneAssignees()
+    {
+        if (DepartmentInForce is not Guid department) return;
+        var dropped = _assignees.Where(u => !u.CanViewAllTasks && u.DepartmentId is Guid own && own != department).ToList();
+        if (dropped.Count == 0) return;
+        _assignees.RemoveAll(u => dropped.Any(x => x.Id == u.Id));
+        Snackbar.Add($"{string.Join(", ", dropped.Select(u => u.DisplayName))} removed: not in this department.", Severity.Info);
+    }
+
+    /// <summary>Re-renders the form for the "Nobody - unassigned" line.</summary>
+    private void AssigneesChanged() { }
+
+    private void StatusChanged(TaskItemStatus status)
+    {
+        _form.Status = status;
+        _showNotes = status.IsClosed() || !string.IsNullOrWhiteSpace(_form.SolutionNotes);
+    }
+
+    private void AssetPicked(AssetPickerItem asset)
+    {
+        _form.AssetId = asset.Id;
+        _assetLabel = AssetRules.Label(asset.AssetNumber, asset.Name);
+    }
+
+    private void ClearAsset()
+    {
+        _form.AssetId = null;
+        _assetLabel = null;
+    }
+
+    /// <summary>
+    /// Whether to go on setting the task Done (§6.10): asks first when it is yours and you've logged no time on it, as the Razor
+    /// form did on submit. The server is asked now, so time just logged in another tab counts; a failed check goes on without it.
+    /// </summary>
+    private async Task<bool> ConfirmDoneAsync(Guid taskId)
+    {
+        var ask = false;
+        try
+        {
+            ask = await Runner.RunAsync<bool>(s => s.Get<TimeEntryService>().AskBeforeDoneWithoutTimeAsync(taskId));
+        }
+        catch (OrbitException)
+        {
+        }
+        return !ask || await Confirm("Mark Done", TaskMessages.DoneWithoutTime, "Mark Done anyway");
+    }
+
+    private async Task SaveAsync()
+    {
+        // TaskForm's own rules ([Required], [StringLength], [Range]) and the notes box's required flag, in the service's words; the
+        // service checks them again.
+        if (string.IsNullOrWhiteSpace(_form.Title)) { Error("Title is required."); return; }
+        if (_form.Title.Length > 300) { Error("Title must be 300 characters or fewer."); return; }
+        if (_form.EstimateMinutes < 0) { Error("The estimate can't be negative."); return; }
+        if (_form.EstimateMinutes > 525_600) { Error("The estimate must be at most a year (525,600 minutes)."); return; }
+        if (_task is not null && NotesRequired && string.IsNullOrWhiteSpace(_form.SolutionNotes))
+        {
+            Error(_task.Status == TaskItemStatus.Done ? SolutionNoteRules.CantClearMessage : SolutionNoteRules.RequiredMessage);
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            // Cancel puts the status back and saves nothing (§6.10).
+            if (_task is { } current && _form.Status == TaskItemStatus.Done && current.Status != TaskItemStatus.Done
+                && !await ConfirmDoneAsync(current.Id))
+            {
+                _form.Status = current.Status;
+                return;
+            }
+
+            _form.AssigneeIds = _assignees.Select(u => u.Id).ToList();
+            var input = _form.ToInput(includeStatus: _task is not null);
+            var editing = _task?.Id;
+            TaskItem? saved = null;
+            if (await Act(async s =>
+                {
+                    var actor = await s.Get<IActorProvider>().GetAsync();
+                    var tasks = s.Get<TaskService>();
+                    if (editing is Guid id)
+                    {
+                        var existing = await tasks.GetAsync(id);
+                        // Only whoever creates tasks everywhere chooses the department (§6.2.1); anyone else keeps the task's.
+                        if (!actor.CanAnywhere(Permission.TasksCreate)) input.DepartmentId = existing.DepartmentId;
+                        // The requestee stays as it is unless the editor may change it (§6.2.2); the service checks a change regardless.
+                        if (!TaskFormLookups.CanChangeRequestee(actor, existing.Requestee)) input.RequesteeId = existing.RequesteeId;
+                        saved = await tasks.UpdateAsync(id, input);
+                    }
+                    else
+                    {
+                        // ... and anyone else files it in their own.
+                        if (!actor.CanAnywhere(Permission.TasksCreate)) input.DepartmentId = actor.DepartmentId;
+                        // Without tasks.create_for above Own the Requestee field isn't offered, so none is sent (§6.2.2).
+                        if (!AccessPolicy.CanCreateTasksForOthers(actor)) input.RequesteeId = null;
+                        saved = await tasks.CreateAsync(input, TaskSource.Manual);
+                    }
+                }))
+            {
+                Success(editing is null ? $"Task \"{saved!.Title}\" created." : $"Task \"{saved!.Title}\" saved.");
+                Nav.NavigateTo($"/Tasks/Details/{saved.Id}");
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

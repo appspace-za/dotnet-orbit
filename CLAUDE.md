@@ -2,7 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Orbit is a task/project tracker and asset register: ASP.NET Core Razor Pages on .NET 10, EF Core + PostgreSQL,
+Orbit is a task/project tracker and asset register: ASP.NET Core on .NET 10 (Blazor Server + MudBlazor; Razor Pages
+only for sign-in and the account pages, and the error page), EF Core + PostgreSQL,
 ASP.NET Core Identity, an MCP server for Claude, Quartz.NET jobs and QuestPDF reports. `README.md` covers the
 feature set, the permission table and configuration. `orbit-spec.md` is the full specification and the source of truth.
 
@@ -30,14 +31,14 @@ dotnet run --project Orbit.Agent -- help              # the on-premises agent's 
 ## Solution layout and namespaces
 
 `Orbit.Web` is one project whose folders stand in for layers (`Data/`, `Application/`, `Auth/`, `Mcp/`, `Jobs/`,
-`Agents/`, `Pages/`). `RootNamespace` is `Orbit`, so namespaces are `Orbit.Application.Services`, `Orbit.Data.Entities`
-and so on, **not** `Orbit.Web.*`. Match this in new files. `Orbit.Agents.Contracts` is deliberately plural: a
+`Agents/`, `Components/` for Blazor, `Pages/` for Razor Pages). `RootNamespace` is `Orbit`, so namespaces are
+`Orbit.Application.Services`, `Orbit.Data.Entities`, `Orbit.Components.Tasks` and so on, **not** `Orbit.Web.*`. Match this in new files. `Orbit.Agents.Contracts` is deliberately plural: a
 namespace `Orbit.Agent` visible to the web app would shadow the `Agent` entity.
 
 ## How a request is handled
 
-Razor Pages and MCP tools are thin. Both call the same scoped services in `Orbit.Web/Application/Services/`, and
-**all authorization lives in the services**:
+Blazor components, Razor Pages and MCP tools are thin. All call the same scoped services in
+`Orbit.Web/Application/Services/`, and **all authorization lives in the services**:
 
 - Each service gets the caller from `IActorProvider.GetAsync()`, which returns an `Actor` (user, API key or system)
   holding a role's permissions, each granted at a `PermissionScope` (None < Own < Department < All). `HttpActorProvider`
@@ -47,9 +48,16 @@ Razor Pages and MCP tools are thin. Both call the same scoped services in `Orbit
 - The page-door policies in `Program.cs` (`Policies.Permission(...)` on folders/pages) only check that the permission
   is granted at *any* scope. They are not a substitute for the service check.
 - Services throw `NotFoundException`, `ForbiddenException` or `ValidationException` (all `OrbitException`).
-  `OrbitExceptionPageFilter` turns these into a 404, a Forbid, or a TempData flash plus redirect. `OrbitTools.Run`
-  turns them into `McpException` so Claude sees the message. Pages derive from `OrbitPageModel` and use
-  `Success(...)`/`Error(...)` for flash messages.
+  A file endpoint answers `NotFoundException` with a 404 and `ForbiddenException` with `AccessDeniedReason.Forbid`
+  (the access-denied page, showing the message). `OrbitTools.Run` turns them into `McpException` so Claude sees the
+  message.
+- **Blazor components never inject a service.** A circuit's DI scope lives as long as the browser tab, so a shared
+  DbContext would carry a refused change's queued audit row into the next save. Components derive from
+  `OrbitComponentBase` and call services inside `Load(async s => ...)` / `Act(async s => ...)`, which `OrbitRunner`
+  runs in a fresh scope acting for the circuit's user (`s.Get<TaskService>()`). `Load` maps NotFound to the not-found
+  page and Forbidden to `Refusal`; `Act` shows any `OrbitException` as an error snackbar. `ApplicationDbContext`
+  can't be created in a circuit's own scope (`AddOrbitDbContext`), so a directly injected service fails loudly. Page
+  doors are `[Authorize]` (folder `_Imports.razor`) and `[RequirePermission(Permission.X)]`.
 - Every write is audited in the same unit of work: `audit.Add(actor, AuditEntity.X, id, AuditAction.Y, departmentId,
   summary, details)` queues the row and the caller's `SaveChangesAsync` persists it. `ChangeSet` builds field-level
   `{from,to}` diffs for the details.
@@ -68,6 +76,22 @@ Razor Pages and MCP tools are thin. Both call the same scoped services in `Orbit
   pass `TaskSource.Api`, and `create_task`/`create_asset` take an `idempotencyKey`. API keys act as the synthetic Claude user
   (`WellKnownIds.ClaudeAgentUserId`). When the tool set changes, also update `ServerInstructions` in `Program.cs`
   and the tool list in `README.md`.
+- **A page** is a `.razor` under `Components/Pages/` (spec §6; the conversion from Razor Pages is §13 items 98 to 107).
+  Links are literal paths (menus use `NavItem.Href`); email links fix `/Tasks/Details/{id}`, `/Projects/Details/{id}`
+  and `/Requests/Request/{id}`. A file is a minimal API endpoint, not a page (`AttachmentDownloadEndpoint`, `ReportPdfEndpoint`, `TaskClockEndpoint`).
+  Only Identity's pages and the error page are Razor Pages, on `Pages/Shared/_Layout.cshtml` with Bootstrap; Bootstrap
+  must never be loaded on a Blazor page (it clashes with MudBlazor). The colours are in `OrbitTheme.cs`, mirrored for
+  the Identity pages in `site.css`. Blazor intercepts same-site links as navigation: a link that mustn't count as
+  leaving the page (the task clock stops on leave) opens in a new tab or, for a file, carries `download`. Blazor also
+  drops the whitespace between an element and a code block, so put inline pieces that sit beside an `@if` in a flex row
+  with a gap (`orbit-gap-row`). A list page's filters are query parameters read as strings
+  (`[SupplyParameterFromQuery]`, parsed with `FilterChoice` / `FilterQuery`), and remembered with `BrowserFilterMemory`
+  (a Blazor page has no HTTP response to set a cookie on): a page that remembers them inherits `OrbitListPage`, which
+  holds `GoAsync`/`PageUrl`/`ResetAsync`. A date picker converts with `PickerDate`, and a Copy button is `CopyButton`. An HTML attribute on a MudBlazor component whose name matches
+  a parameter binds the parameter (`inputmode` is `InputMode`), so pass it as C# (`InputMode="@(InputMode.@decimal)"`).
+  A picked file (`IBrowserFile`) can only be read while its input is on the page, so a form sent later reads it into
+  memory as it is picked (`RequestWizard`). Styles are in `css/app.css` (the `orbit-*` classes), `css/gantt.css` and
+  `css/requests.css`. Name a page component so it can't clash with a model type (`SprintBoardPage`, not `SprintBoard`).
 - **Entities/migrations:** every enum is stored as its name (a convention at the end of
   `ApplicationDbContext.OnModelCreating`), so raw SQL uses `'Todo'`, not `0`. Recent migrations were tested on an
   empty DB and on a DB at the previous migration, forward, back (`Down`) and forward again (spec §13 item 37).

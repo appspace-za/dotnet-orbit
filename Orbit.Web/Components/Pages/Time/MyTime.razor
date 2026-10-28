@@ -1,0 +1,100 @@
+@page "/Time/My"
+@inherits OrbitComponentBase
+@* My Time (spec §6.10): the time the viewer logged in a date range - the last seven days by default - as entries with a total,
+   and by day. The range lives in the address (From, To) and applies as soon as a date changes. *@
+
+<PageTitle>My Time - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_summary is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var s = _summary;
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">My Time</MudText>
+            <div class="orbit-subtitle">Time you logged between @Ui.Day(s.From) and @Ui.Day(s.To).</div>
+        </div>
+        <div class="orbit-actions">
+            <MudDatePicker Date="PickerDate.Of(s.From)" DateChanged="d => Go(d, PickerDate.Of(s.To))" Label="From" DateFormat="yyyy-MM-dd" Editable="true" AutoClose="true"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-field-sm" />
+            <MudDatePicker Date="PickerDate.Of(s.To)" DateChanged="d => Go(PickerDate.Of(s.From), d)" Label="To" DateFormat="yyyy-MM-dd" Editable="true" AutoClose="true"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-field-sm" />
+        </div>
+    </div>
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" lg="8">
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Entries</b><span>Total: <b>@TimeFormat.Minutes(s.TotalMinutes)</b></span></div>
+                @if (s.Entries.Count == 0)
+                {
+                    <p class="orbit-empty">No time logged in this range.</p>
+                }
+                else
+                {
+                    <div class="orbit-table-wrap">
+                        <MudSimpleTable Dense="true" Hover="true" Elevation="0" Class="orbit-tasks">
+                            <thead><tr><th>Date</th><th>Task</th><th>Project</th><th>Duration</th><th>Note</th><th></th></tr></thead>
+                            <tbody>
+                                @foreach (var e in s.Entries)
+                                {
+                                    <tr @key="e.Id">
+                                        <td class="text-nowrap">@Ui.Day(e.Date)</td>
+                                        <td><a href="@($"/Tasks/Details/{e.TaskId}")" class="orbit-title">@e.Task.Title</a></td>
+                                        <td>@(e.Task.Project?.Name ?? "-")</td>
+                                        <td class="text-nowrap">@TimeFormat.Minutes(e.DurationMinutes)</td>
+                                        <td>@e.Note</td>
+                                        <td class="text-right"><MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" Href="@($"/Time/Edit/{e.Id}")">Edit</MudButton></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    </div>
+                }
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" lg="4">
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>By day</b></div>
+                @if (s.ByDay.Count == 0)
+                {
+                    <div class="orbit-list-item orbit-muted"><i>-</i></div>
+                }
+                @foreach (var (date, minutes) in s.ByDay)
+                {
+                    <div class="orbit-list-item orbit-list-row" @key="date"><span>@date.ToString("ddd, d MMM")</span><span>@TimeFormat.Minutes(minutes)</span></div>
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [SupplyParameterFromQuery] public string? From { get; set; }
+    [SupplyParameterFromQuery] public string? To { get; set; }
+
+    private MyTimeSummary? _summary;
+
+    protected override async Task OnParametersSetAsync() => await Load(async s =>
+    {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var to = FilterQuery.Date(To) ?? today;
+        var from = FilterQuery.Date(From) ?? to.AddDays(-6);
+        _summary = await s.Get<TimeEntryService>().MyTimeAsync(from, to);
+    });
+
+    private void Go(DateTime? from, DateTime? to)
+    {
+        var query = new FilterQuery()
+            .Add(nameof(From), PickerDate.Day(from))
+            .Add(nameof(To), PickerDate.Day(to));
+        Nav.NavigateTo(query.At("/Time/My"));
+    }
+}

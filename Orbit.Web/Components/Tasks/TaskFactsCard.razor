@@ -1,0 +1,131 @@
+@* The task's details (spec §6.2): where it belongs, its dates and who made it, and for a Nagios task the problem it was raised
+   for (§6.21), as Nagios last reported it. *@
+<MudPaper Outlined="true" Class="orbit-card">
+    <div class="orbit-card-header"><b>Details</b></div>
+    <dl class="orbit-dl">
+        <dt>Project</dt>
+        <dd>
+            @if (Task.Project is not null)
+            {
+                <a href="@($"/Projects/Details/{Task.ProjectId}")">@Task.Project.Name</a>
+                @if (Task.Project.DepartmentId != Task.DepartmentId)
+                {
+                    <div class="orbit-muted">Owned by @Task.Project.Department.Name; this task is @Task.Department.Name's part of it.</div>
+                }
+            }
+            else
+            {
+                <span class="orbit-muted">Standalone</span>
+            }
+        </dd>
+        <dt>Asset</dt>
+        <dd>
+            @if (Task.Asset is not null)
+            {
+                @* Named to everyone who sees the task; a link only for those who can open the asset (§6.19). *@
+                @if (AccessPolicy.CanViewAsset(Actor, Task.Asset, AccessPolicy.IsAssigned(Actor, Task.Asset)))
+                {
+                    <a href="@($"/Assets/Details/{Task.AssetId}")">@Ui.AssetLabel(Task.Asset)</a>
+                }
+                else
+                {
+                    <span>@Ui.AssetLabel(Task.Asset)</span>
+                }
+                @if (Task.Asset.Status != AssetStatus.Active)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="StatusLook.Asset(Task.Asset.Status)">@Task.Asset.Status.Label()</MudChip>
+                }
+            }
+            else
+            {
+                <span class="orbit-muted">None</span>
+            }
+        </dd>
+        <dt>Parent task</dt>
+        <dd>
+            @if (Task.ParentTask is not null)
+            {
+                @if (AccessPolicy.CanViewTask(Actor, Task.ParentTask))
+                {
+                    <a href="@($"/Tasks/Details/{Task.ParentTaskId}")">@Task.ParentTask.Title</a>
+                }
+                else
+                {
+                    <span>@Task.ParentTask.Title</span>
+                }
+            }
+            else
+            {
+                <span class="orbit-muted">None (top-level)</span>
+            }
+        </dd>
+        <dt>Department</dt><dd>@Task.Department.Name</dd>
+        @if (Task.Requestee is not null)
+        {
+            <dt>Requestee</dt><dd>@Task.Requestee.DisplayName@(Task.Requestee.IsActive ? "" : " (deactivated)")</dd>
+        }
+        <dt>Start</dt><dd>@Ui.Day(Task.StartDate)</dd>
+        <dt>Due</dt><dd class="@(Task.IsOverdue(Today) ? "orbit-overdue" : null)">@Ui.Day(Task.DueDate)</dd>
+        <dt>Estimate</dt><dd>@(Task.EstimateMinutes is int estimate ? TimeFormat.Minutes(estimate) : "-")</dd>
+        <dt>Planned for</dt><dd>@Ui.Day(Task.PlannedFor)@(Task.PlannedFor == Today ? " (today)" : "")</dd>
+        <dt>Created by</dt><dd>@Ui.AuthorName(Task.CreatedBy) <span class="orbit-muted">@Ui.When(Task.CreatedAt)</span></dd>
+        <dt>Updated</dt><dd>@Ui.When(Task.UpdatedAt)</dd>
+        <dt>First responded</dt><dd>@Ui.When(Task.FirstRespondedAt)</dd>
+        <dt>Completed</dt><dd>@Ui.When(Task.CompletedAt)</dd>
+        @if (Task.RecurringTaskDefinition is not null)
+        {
+            <dt>Recurring</dt>
+            <dd><a href="@($"/Recurring/Details/{Task.RecurringTaskDefinitionId}")">@Task.RecurringTaskDefinition.Title</a></dd>
+        }
+        @if (Nagios is { } nagios)
+        {
+            @* Orbit notes a recovery; it never closes the task. *@
+            <dt>Nagios</dt>
+            <dd>
+                <div>@(nagios.Service.Length == 0 ? nagios.Host : $"{nagios.Service} on {nagios.Host}")</div>
+                <div>
+                    @if (nagios.ResolvedAt is null)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="StatusLook.Nagios(nagios.State)">@nagios.State.Label()</MudChip>
+                        <span class="orbit-muted">since @Ui.When(nagios.ProblemSince)</span>
+                    }
+                    else if (nagios.Resolution == NagiosResolution.Vanished)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Secondary">No longer in Nagios</MudChip>
+                    }
+                    else
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Success">Recovered</MudChip>
+                        <span class="orbit-muted">@Ui.When(nagios.ResolvedAt)</span>
+                    }
+                </div>
+                @if (!string.IsNullOrEmpty(nagios.Output))
+                {
+                    @* What the check says now, which may have moved on from the description's "when raised" text. *@
+                    <div class="orbit-small orbit-break">
+                        <span class="orbit-muted">@(nagios.ResolvedAt is null ? "Nagios says:" : "While down, Nagios last said:")</span>
+                        @nagios.Output
+                        @if (nagios.ResolvedAt is null) { <div class="orbit-muted">as of @Ui.When(nagios.LastSeenAt)</div> }
+                    </div>
+                }
+                <div class="orbit-muted">
+                    @nagios.InstanceName
+                    @if (nagios.Url is not null)
+                    {
+                        <text> · </text><a href="@nagios.Url" target="_blank" rel="noopener noreferrer">Open in Nagios</a>
+                    }
+                </div>
+            </dd>
+        }
+        <dt>Number</dt><dd class="orbit-key">@Task.Number</dd>
+        <dt>Id</dt><dd class="orbit-key orbit-muted">@Task.Id</dd>
+    </dl>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public TaskItem Task { get; set; } = null!;
+    [Parameter, EditorRequired] public Actor Actor { get; set; } = null!;
+    [Parameter] public DateOnly Today { get; set; }
+    /// <summary>The Nagios problem the task was raised for, when it was (§6.21).</summary>
+    [Parameter] public NagiosTaskLink? Nagios { get; set; }
+}

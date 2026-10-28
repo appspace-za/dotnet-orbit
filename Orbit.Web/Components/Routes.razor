@@ -1,0 +1,33 @@
+@* The interactive root. A link to a page that is still a Razor page matches no route here, so the router loads it from the
+   server. Page doors are [Authorize] / [RequirePermission] on each page, checked by AuthorizeRouteView on every navigation. *@
+<CascadingValue Value="_shell" IsFixed="true">
+    <Router AppAssembly="typeof(Routes).Assembly" NotFoundPage="typeof(NotFound)">
+        <Found Context="routeData">
+            <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)">
+                <NotAuthorized>
+                    @if (context.User.Identity?.IsAuthenticated != true)
+                    {
+                        <RedirectToLogin />
+                    }
+                    else
+                    {
+                        <AccessDenied />
+                    }
+                </NotAuthorized>
+                <Authorizing>
+                    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+                </Authorizing>
+            </AuthorizeRouteView>
+            <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        </Found>
+    </Router>
+</CascadingValue>
+
+@code {
+    [Parameter] public string? Theme { get; set; }
+    [Parameter] public string? RequestToken { get; set; }
+
+    private ShellContext _shell = null!;
+
+    protected override void OnInitialized() => _shell = new ShellContext(Theme, RequestToken);
+}

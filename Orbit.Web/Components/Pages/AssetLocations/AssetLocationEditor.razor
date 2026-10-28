@@ -1,0 +1,204 @@
+@page "/AssetLocations/Create"
+@page "/AssetLocations/Edit/{Id:guid}"
+@inherits OrbitComponentBase
+@* Creating or editing an asset location (spec §6.19): a place a department keeps its assets. A new location gets its department -
+   the creator's own, unless they configure every department - which can't be changed later, and its name and description. The
+   edit page also archives, restores and deletes it. *@
+
+<PageTitle>@Title - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (!Loaded || (Id is not null && _location?.Id != Id))
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var l = _location;
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Assets">Assets</a><span class="orbit-crumb-sep">/</span><a href="/AssetLocations">Locations</a><span class="orbit-crumb-sep">/</span><span aria-current="page">@(l?.Name ?? "New")</span>
+    </nav>
+    @if (l is null)
+    {
+        <MudText Typo="Typo.h5" HtmlTag="h1" Class="mb-3">New location</MudText>
+    }
+    else
+    {
+        <div class="orbit-page-header">
+            <div>
+                <div class="orbit-gap-row">
+                    <MudText Typo="Typo.h5" HtmlTag="h1">@l.Name</MudText>
+                    @if (l.IsArchived) { <MudChip T="string" Size="Size.Small">Archived</MudChip> }
+                </div>
+                <div class="orbit-subtitle">A location of <strong>@l.Department.Name</strong>.</div>
+            </div>
+        </div>
+    }
+
+    <MudPaper Outlined="true" Class="orbit-card orbit-max-42">
+        <div class="orbit-card-body orbit-form">
+            @if (l is null)
+            {
+                <div>
+                    @if (_canChooseDepartment)
+                    {
+                        <MudSelect T="Guid" @bind-Value="_departmentId" Label="Department" Required="true" RequiredError="Choose the department."
+                                   Variant="Variant.Outlined" Class="orbit-field-lg" ToStringFunc="@(id => _departments.FirstOrDefault(d => d.Id == id)?.Name ?? "- choose -")">
+                            <MudSelectItem T="Guid" Value="Guid.Empty">- choose -</MudSelectItem>
+                            @foreach (var d in _departments)
+                            {
+                                <MudSelectItem T="Guid" Value="d.Id">@d.Name</MudSelectItem>
+                            }
+                        </MudSelect>
+                    }
+                    else
+                    {
+                        <MudTextField T="string" Value="_departmentName" Label="Department" Disabled="true" Variant="Variant.Outlined" Class="orbit-field-lg" />
+                    }
+                    <div class="orbit-help">The department that keeps its assets here. It can't be changed later.</div>
+                </div>
+            }
+            <MudTextField T="string" @bind-Value="_name" Label="Name" Placeholder="@(l is null ? "e.g. Head office - Server room" : null)" MaxLength="200"
+                          Required="true" RequiredError="A name is required." Variant="Variant.Outlined" Immediate="true" />
+            <MudTextField T="string" @bind-Value="_description" Label="Description" Lines="2" MaxLength="1000" Variant="Variant.Outlined" />
+            <div class="orbit-gap-row mt-3">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="SaveAsync">@(l is null ? "Create location" : "Save")</MudButton>
+                <MudButton Variant="Variant.Outlined" Href="/AssetLocations">Cancel</MudButton>
+            </div>
+        </div>
+        @if (l is not null)
+        {
+            <MudDivider />
+            <div class="orbit-card-body orbit-actions">
+                @if (l.IsArchived)
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Success" Disabled="_busy" OnClick="() => SetArchivedAsync(false)">Restore location</MudButton>
+                }
+                else
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="_busy" OnClick="() => SetArchivedAsync(true)">Archive location</MudButton>
+                }
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="DeleteAsync">Delete location</MudButton>
+            </div>
+        }
+    </MudPaper>
+}
+
+@code {
+    /// <summary>The location to edit; null for a new one.</summary>
+    [Parameter] public Guid? Id { get; set; }
+
+    private AssetLocation? _location;
+    private IReadOnlyList<Department> _departments = [];
+    private bool _canChooseDepartment, _busy;
+    private string? _departmentName;
+    private Guid _departmentId;
+    private string? _name, _description;
+
+    private string Title => Id is null ? "New location" : _location is null ? "Location" : $"Edit {_location.Name}";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _location = null;
+        if (Id is Guid id)
+        {
+            if (await LoadLocationAsync(id)) ResetForm();
+            return;
+        }
+        _name = _description = null;
+        await Load(async s =>
+        {
+            var actor = await s.Get<IActorProvider>().GetAsync();
+            _canChooseDepartment = actor.CanAnywhere(Permission.AssetsConfigure);
+            _departments = await s.Get<DepartmentService>().ListAsync(false);
+            _departmentId = actor.DepartmentId ?? Guid.Empty;
+            _departmentName = _departments.FirstOrDefault(d => d.Id == _departmentId)?.Name;
+        });
+    }
+
+    private async Task<bool> LoadLocationAsync(Guid id) => await Load(async s =>
+        _location = await s.Get<AssetLocationService>().GetForConfigureAsync(id));
+
+    /// <summary>The form shows the location as stored when the page opens. Archiving reloads it but leaves what is typed alone.</summary>
+    private void ResetForm()
+    {
+        var l = _location!;
+        _departmentId = l.DepartmentId;
+        _name = l.Name;
+        _description = l.Description;
+    }
+
+    private async Task SaveAsync()
+    {
+        var editing = _location?.Id;
+        // The Razor form's department select was required: "- choose -" mustn't quietly fall back to the creator's own department.
+        if (editing is null && _canChooseDepartment && _departmentId == Guid.Empty)
+        {
+            Error("Choose the department.");
+            return;
+        }
+        var input = new AssetLocationInput
+        {
+            DepartmentId = _departmentId == Guid.Empty ? null : _departmentId,
+            Name = _name ?? string.Empty,
+            Description = _description
+        };
+        _busy = true;
+        AssetLocation? saved = null;
+        if (await Act(async s =>
+            {
+                var locations = s.Get<AssetLocationService>();
+                if (editing is Guid id)
+                {
+                    saved = await locations.UpdateAsync(id, input);
+                    return;
+                }
+                // Only someone who configures every department names one; everyone else's location is their own department's.
+                var actor = await s.Get<IActorProvider>().GetAsync();
+                if (!actor.CanAnywhere(Permission.AssetsConfigure)) input.DepartmentId = actor.DepartmentId;
+                saved = await locations.CreateAsync(input);
+            }))
+        {
+            Success(editing is null ? $"Location \"{saved!.Name}\" created." : $"Location \"{saved!.Name}\" saved.");
+            Nav.NavigateTo("/AssetLocations");
+        }
+        _busy = false;
+    }
+
+    /// <summary>Archive: no longer offered for assets; the assets there keep it. Restoring doesn't ask.</summary>
+    private async Task SetArchivedAsync(bool archived)
+    {
+        var id = _location!.Id;
+        if (archived && !await Confirm("Archive location", "Archive this location? It stops being offered for assets; assets there keep it.", "Archive")) return;
+        _busy = true;
+        if (await Act(s => s.Get<AssetLocationService>().SetArchivedAsync(id, archived)))
+        {
+            Success(archived ? "Location archived: no longer offered for assets. Assets there keep it." : "Location restored.");
+            await LoadLocationAsync(id);
+        }
+        _busy = false;
+    }
+
+    /// <summary>Delete a location no asset refers to, disposed ones included; the service refuses otherwise and suggests archiving.</summary>
+    private async Task DeleteAsync()
+    {
+        var id = _location!.Id;
+        if (!await Confirm("Delete location", $"Delete the location \"{_location.Name}\"? Only possible while no asset refers to it.")) return;
+        _busy = true;
+        string? name = null;
+        if (await Act(async s =>
+            {
+                var locations = s.Get<AssetLocationService>();
+                name = (await locations.GetForConfigureAsync(id)).Name;
+                await locations.DeleteAsync(id);
+            }))
+        {
+            Success($"Location \"{name}\" deleted.");
+            Nav.NavigateTo("/AssetLocations");
+        }
+        _busy = false;
+    }
+}

@@ -1,0 +1,284 @@
+@* Asset status (spec §12): the assets in the register during the period, by type and by location, with the assets that have
+   linked-task work. A type opens its locations beneath it, a location its types and an asset its tasks (the Razor page's
+   Bootstrap collapse). *@
+
+@if (Report.Total.Total == 0)
+{
+    <p class="orbit-empty">No assets in the selected period.</p>
+}
+else
+{
+    <div class="orbit-list-item orbit-small">@ReportText.AssetStatusCounts(Report)</div>
+
+    <MudText Typo="Typo.subtitle2" HtmlTag="h2" Class="px-4 pt-4 pb-2">By type</MudText>
+    @Groups("type", "Type", "All types", "location", "locations", Report.ByType)
+
+    <MudText Typo="Typo.subtitle2" HtmlTag="h2" Class="px-4 pt-4 pb-2">By location</MudText>
+    @Groups("location", "Location", "All locations", "type", "types", Report.ByLocation)
+
+    @if (Report.Assets.Count > 0)
+    {
+        var t = Report.Total.Tasks;
+        <MudText Typo="Typo.subtitle2" HtmlTag="h2" Class="px-4 pt-4 pb-2">Assets with linked tasks</MudText>
+        <div class="orbit-table-wrap">
+            <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks orbit-report">
+                <thead>
+                    <tr>
+                        <th>Asset</th>
+                        <th title="The asset's status at the end of the period">Status</th>
+                        <th class="text-right" title="Linked tasks open now">Open tasks</th>
+                        <th class="text-right" title="Linked tasks created in the period">Created</th>
+                        <th class="text-right" title="Linked tasks set to Done in the period">Done</th>
+                        <th class="text-right" title="Time logged on linked tasks in the period, by anyone">Logged</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @for (var i = 0; i < Report.Assets.Count; i++)
+                    {
+                        var a = Report.Assets[i];
+                        var key = $"asset-{i}";
+                        var open = _open.Contains(key);
+                        <tr>
+                            <td>
+                                <a href="@($"/Assets/Details/{a.AssetId}")" class="orbit-title">@ReportText.AssetLabel(a)</a>
+                                <div class="orbit-sub">@a.TypeName · @(a.LocationName ?? AssetReportRules.NoLocation) · @a.DepartmentName</div>
+                                <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" OnClick="() => Toggle(key)"
+                                           EndIcon="@(open ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                                           aria-expanded="@(open ? "true" : "false")">@($"{a.TaskRows.Count} {(a.TaskRows.Count == 1 ? "task" : "tasks")}")</MudButton>
+                            </td>
+                            <td><MudChip T="string" Size="Size.Small" Color="StatusLook.Asset(a.Status)">@a.Status.Label()</MudChip></td>
+                            <td class="text-right @Num(a.Tasks.Open)">
+                                @a.Tasks.Open
+                                @if (a.Tasks.Overdue > 0)
+                                {
+                                    <div class="orbit-sub mud-error-text">@a.Tasks.Overdue overdue</div>
+                                }
+                            </td>
+                            <td class="text-right @Num(a.Tasks.Created)">@a.Tasks.Created</td>
+                            <td class="text-right @Num(a.Tasks.Done)">@a.Tasks.Done</td>
+                            <td class="text-right text-nowrap @Num(a.Tasks.LoggedMinutes)">@TimeFormat.Minutes(a.Tasks.LoggedMinutes)</td>
+                        </tr>
+                        @if (open)
+                        {
+                            <tr class="orbit-report-detail">
+                                <td colspan="6" class="pa-0">
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th class="orbit-muted ps-10">Task</th>
+                                                <th class="orbit-muted">Status</th>
+                                                <th class="orbit-muted">Assignee</th>
+                                                <th class="orbit-muted">Due</th>
+                                                <th class="orbit-muted">Completed</th>
+                                                <th class="orbit-muted text-right" title="Everyone's time on the task in the period">Logged in period</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var x in a.TaskRows)
+                                            {
+                                                <tr>
+                                                    <td class="ps-10"><span class="orbit-number">@x.Number</span><a href="@($"/Tasks/Details/{x.TaskId}")" class="orbit-title">@x.Title</a></td>
+                                                    <td><MudChip T="string" Size="Size.Small" Color="TaskLook.Status(x.Status)">@x.Status.Label()</MudChip></td>
+                                                    <td>@x.Assignee</td>
+                                                    <td class="@(x.IsOverdue ? "text-nowrap orbit-overdue" : "text-nowrap")" title="@(x.IsOverdue ? "Overdue" : null)">@ReportText.Date(x.DueDate)</td>
+                                                    <td class="text-nowrap">@ReportText.Day(x.CompletedAt)</td>
+                                                    <td class="text-right">@TimeFormat.Minutes(x.PeriodMinutes)</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td><b>All assets</b></td>
+                        <td></td>
+                        <td class="text-right">
+                            <b>@t.Open</b>
+                            @if (t.Overdue > 0)
+                            {
+                                <div class="orbit-sub mud-error-text">@t.Overdue overdue</div>
+                            }
+                        </td>
+                        <td class="text-right"><b>@t.Created</b></td>
+                        <td class="text-right"><b>@t.Done</b></td>
+                        <td class="text-right text-nowrap"><b>@TimeFormat.Minutes(t.LoggedMinutes)</b></td>
+                    </tr>
+                </tfoot>
+            </MudSimpleTable>
+        </div>
+    }
+
+    <div class="orbit-card-footer">
+        Every asset in the register during the period: registered before its end and not disposed of before its start,
+        plus any registered in it and any disposed of earlier with work on a linked task in it. Statuses are at the end of
+        the period (a disposal counts from its disposal date); type, location and managing department are as they are now.
+        Value is the purchase value of the assets held at the end, and of those disposed of. Checked counts the held assets
+        checked in the period; checks overdue and last checks not OK are as at @ReportText.Date(Report.AsAt). Open linked
+        tasks are as things stand now; created, done and logged count the period, whichever department the tasks are in.
+        Expand a type or a location for its breakdown by the other, and an asset for its tasks that are open or were worked
+        on in the period.
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public AssetStatusReport Report { get; set; } = null!;
+
+    /// <summary>The types, locations and assets whose breakdown is showing, by key ("type-2", "asset-5").</summary>
+    private readonly HashSet<string> _open = [];
+
+    private void Toggle(string key)
+    {
+        if (!_open.Remove(key)) _open.Add(key);
+    }
+
+    // Zero counts recede so the others stand out; damaged and lost assets are flagged.
+    private static string Num(int n, string flag = "") => n == 0 ? "orbit-muted" : flag;
+
+    private static string Detail(AssetGroupRow r) => string.Join(" · ", new[] { r.Category, r.DepartmentName }.Where(x => !string.IsNullOrEmpty(x)));
+
+    /// <summary>A group's figures: one cell for each column after its name.</summary>
+    private RenderFragment Figures(AssetGroupCounts c) => __builder =>
+    {
+        <td class="text-right @Num(c.Active)">@c.Active</td>
+        <td class="text-right @Num(c.InStorage)">@c.InStorage</td>
+        <td class="text-right @Num(c.Damaged, "orbit-warn")">
+            @if (c.Damaged > 0)
+            {
+                <b>@c.Damaged</b>
+            }
+            else
+            {
+                @c.Damaged
+            }
+        </td>
+        <td class="text-right @Num(c.Lost, "mud-error-text")">
+            @if (c.Lost > 0)
+            {
+                <b>@c.Lost</b>
+            }
+            else
+            {
+                @c.Lost
+            }
+        </td>
+        <td class="text-right @Num(c.Disposed)">@c.Disposed</td>
+        <td class="text-right"><b>@c.Total</b></td>
+        <td class="text-right @Num(c.Registered)">@c.Registered</td>
+        <td class="text-right text-nowrap">
+            @ReportText.HeldValue(c)
+            @if (c.HeldUnvalued > 0 && c.HeldUnvalued < c.Held)
+            {
+                <div class="orbit-sub">@c.HeldUnvalued unvalued</div>
+            }
+            @if (c.DisposedValue > 0)
+            {
+                <div class="orbit-sub">@Ui.Money(c.DisposedValue) disposed of</div>
+            }
+        </td>
+        <td class="text-right text-nowrap">
+            @ReportText.Checked(c)
+            @if (c.CheckOverdue > 0)
+            {
+                <div class="orbit-sub mud-error-text">@c.CheckOverdue overdue</div>
+            }
+            @if (c.CheckNotOk > 0)
+            {
+                <div class="orbit-sub mud-error-text">@c.CheckNotOk not OK</div>
+            }
+        </td>
+        <td class="text-right @Num(c.Tasks.Open)">
+            @c.Tasks.Open
+            @if (c.Tasks.Overdue > 0)
+            {
+                <div class="orbit-sub mud-error-text">@c.Tasks.Overdue overdue</div>
+            }
+        </td>
+        <td class="text-right @Num(c.Tasks.Created)">@c.Tasks.Created</td>
+        <td class="text-right @Num(c.Tasks.Done)">@c.Tasks.Done</td>
+        <td class="text-right text-nowrap @Num(c.Tasks.LoggedMinutes)">@TimeFormat.Minutes(c.Tasks.LoggedMinutes)</td>
+    };
+
+    /// <summary>One of the two summary tables: each row opens its breakdown by the other (a type's locations, a location's types).</summary>
+    private RenderFragment Groups(string id, string heading, string totalLabel, string one, string many, IReadOnlyList<AssetGroupRow> rows) => __builder =>
+    {
+        <div class="orbit-table-wrap">
+            <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks orbit-report">
+                <thead>
+                    <tr>
+                        <th>@heading</th>
+                        <th class="text-right" title="Status at the end of the period">Active</th>
+                        <th class="text-right" title="Status at the end of the period">In storage</th>
+                        <th class="text-right" title="Status at the end of the period">Damaged</th>
+                        <th class="text-right" title="Status at the end of the period">Lost</th>
+                        <th class="text-right" title="Disposed of by the end of the period">Disposed</th>
+                        <th class="text-right">Total</th>
+                        <th class="text-right" title="Registered in Orbit during the period">Registered</th>
+                        <th class="text-right" title="Purchase value of the assets held at the end of the period (not disposed of), and of the disposed ones">Value</th>
+                        <th class="text-right" title="@($"Assets held at the end of the period that were checked during it; checks overdue and last checks not OK as at {ReportText.Date(Report.AsAt)}")">Checked</th>
+                        <th class="text-right" title="Linked tasks open now">Open tasks</th>
+                        <th class="text-right" title="Linked tasks created in the period">Created</th>
+                        <th class="text-right" title="Linked tasks set to Done in the period">Done</th>
+                        <th class="text-right" title="Time logged on linked tasks in the period, by anyone">Logged</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @for (var i = 0; i < rows.Count; i++)
+                    {
+                        var r = rows[i];
+                        var key = $"{id}-{i}";
+                        var open = _open.Contains(key);
+                        <tr>
+                            <td>
+                                @if (r.Id is null)
+                                {
+                                    <i>@r.Name</i>
+                                }
+                                else
+                                {
+                                    @r.Name
+                                }
+                                <div class="orbit-sub">@Detail(r)</div>
+                                @if (r.Breakdown.Count > 0)
+                                {
+                                    <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" OnClick="() => Toggle(key)"
+                                               EndIcon="@(open ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                                               aria-expanded="@(open ? "true" : "false")">@($"{r.Breakdown.Count} {(r.Breakdown.Count == 1 ? one : many)}")</MudButton>
+                                }
+                            </td>
+                            @Figures(r.Counts)
+                        </tr>
+                        @if (open)
+                        {
+                            @foreach (var b in r.Breakdown)
+                            {
+                                <tr class="orbit-report-detail">
+                                    <td class="ps-10">
+                                        @if (b.Id is null)
+                                        {
+                                            <i>@b.Name</i>
+                                        }
+                                        else
+                                        {
+                                            @b.Name
+                                        }
+                                    </td>
+                                    @Figures(b.Counts)
+                                </tr>
+                            }
+                        }
+                    }
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td><b>@totalLabel</b></td>
+                        @Figures(Report.Total)
+                    </tr>
+                </tfoot>
+            </MudSimpleTable>
+        </div>
+    };
+}

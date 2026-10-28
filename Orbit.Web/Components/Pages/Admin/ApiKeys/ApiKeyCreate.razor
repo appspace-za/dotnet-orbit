@@ -1,0 +1,145 @@
+@page "/Admin/ApiKeys/Create"
+@inherits OrbitComponentBase
+@* Issuing an API key (spec §8, §6.5): its name, the role it acts with and its department, which a role with any grant at
+   Department scope requires (the "(none)" choice is withheld for such a role; ApiKeyService checks regardless). The new key is
+   shown here once, with a copy button and how to connect: only its hash is stored, so it can't be shown again. *@
+
+<PageTitle>New API key - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (!Loaded)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Admin/ApiKeys">API keys</a><span class="orbit-crumb-sep">/</span><span aria-current="page">New</span>
+    </nav>
+
+    @if (_created is { } created)
+    {
+        <MudText Typo="Typo.h5" HtmlTag="h1" Class="mb-3">API key created</MudText>
+        <MudAlert Severity="Severity.Warning" Class="mb-3 orbit-max-42"><b>Copy this key now. It is shown only once and cannot be recovered.</b></MudAlert>
+        <MudPaper Outlined="true" Class="orbit-card orbit-max-42">
+            <div class="orbit-card-body orbit-form-row">
+                <MudTextField T="string" Value="created.RawKey" Label="API key" ReadOnly="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-code orbit-field-grow" />
+                <CopyButton Text="@_created!.RawKey" What="key" StartIcon="@Icons.Material.Filled.ContentCopy" />
+            </div>
+            <MudDivider />
+            <dl class="orbit-dl">
+                <dt>Name</dt><dd>@created.Key.Name</dd>
+                <dt>Role</dt><dd>@created.Key.Role.Name</dd>
+                <dt>Department</dt><dd>@(created.Key.Department?.Name ?? "(none)")</dd>
+                <dt>MCP endpoint</dt><dd><code class="orbit-key">@McpUrl</code></dd>
+                <dt>Header</dt><dd><code class="orbit-key">Authorization: Bearer @created.RawKey</code></dd>
+            </dl>
+            <div class="orbit-card-body">
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="/Admin/ApiKeys">Done</MudButton>
+            </div>
+        </MudPaper>
+    }
+    else
+    {
+        var requires = RequiresDepartment;
+        <MudText Typo="Typo.h5" HtmlTag="h1" Class="mb-3">New API key</MudText>
+        <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-form orbit-max-42">
+            <div>
+                <MudTextField T="string" @bind-Value="_name" Label="Name" MaxLength="MaxNameLength" Required="true" RequiredError="Name is required."
+                              Variant="Variant.Outlined" Immediate="true" />
+                <div class="orbit-help">A label for the integration, e.g. "Claude Project - IT".</div>
+            </div>
+            <MudGrid Spacing="3">
+                <MudItem xs="12" md="5">
+                    <MudSelect T="Guid" @bind-Value="_roleId" Label="Role" Variant="Variant.Outlined" ToStringFunc="RoleName">
+                        @foreach (var r in _roles)
+                        {
+                            <MudSelectItem T="Guid" Value="r.Id">
+                                <div>@r.Name</div>
+                                @if (!string.IsNullOrWhiteSpace(r.Description))
+                                {
+                                    <div class="orbit-small orbit-muted">@r.Description</div>
+                                }
+                            </MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" md="7">
+                    <MudSelect T="Guid" @bind-Value="_departmentId" Label="Department" Variant="Variant.Outlined" ToStringFunc="DepartmentName">
+                        @if (!requires)
+                        {
+                            <MudSelectItem T="Guid" Value="Guid.Empty">(none)</MudSelectItem>
+                        }
+                        @foreach (var d in _departments)
+                        {
+                            <MudSelectItem T="Guid" Value="d.Id">@d.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <div class="orbit-help">
+                        @(requires ? "Required: this role has permissions scoped to a department." : "Optional for this role: a home department, used as the default for new work.")
+                    </div>
+                </MudItem>
+            </MudGrid>
+            <p class="orbit-small orbit-muted my-0">
+                The key is bound by exactly the same rules as a user in that role: each of the role's permissions applies at its scope to every tool call (see <a href="/Admin/Roles">Admin &gt; Roles</a>).
+            </p>
+            <div class="orbit-gap-row mt-2">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="CreateAsync">Create key</MudButton>
+                <MudButton Variant="Variant.Outlined" Href="/Admin/ApiKeys">Cancel</MudButton>
+            </div>
+        </MudPaper>
+    }
+}
+
+@code {
+    /// <summary>The longest name the form takes (the Razor form's StringLength); ApiKeyService checks that there is one.</summary>
+    private const int MaxNameLength = 200;
+
+    private IReadOnlyList<RolePickerItem> _roles = [];
+    private IReadOnlyList<Department> _departments = [];
+    private string? _name = "Claude Project";
+    private Guid _roleId;
+    /// <summary>The key's department; Guid.Empty for none.</summary>
+    private Guid _departmentId;
+    /// <summary>The key just issued, with its raw value: held only by this page, never stored.</summary>
+    private CreatedApiKey? _created;
+    private bool _busy;
+
+    /// <summary>The MCP server's address as the browser reaches Orbit (§7): the endpoint is mapped at /mcp.</summary>
+    private string McpUrl => $"{Nav.BaseUri}mcp";
+
+    /// <summary>The chosen role has a grant at Department scope, so the key needs a department (§6.5 rule 3).</summary>
+    private bool RequiresDepartment => _roles.FirstOrDefault(r => r.Id == _roleId)?.RequiresDepartment ?? false;
+
+    protected override async Task OnInitializedAsync() => await Load(async s =>
+    {
+        _roles = await s.Get<RoleService>().ListForPickerAsync();
+        _departments = await s.Get<DepartmentService>().ListAsync(false);
+        // The same default as for a new user: the shipped Member role while it still exists, else the first editable role.
+        _roleId = Orbit.Components.Pages.Admin.Users.UserForm.DefaultRole(_roles);
+    });
+
+
+    private string RoleName(Guid id) => _roles.FirstOrDefault(r => r.Id == id)?.Name ?? string.Empty;
+
+    /// <summary>"(none)" isn't a choice for a role that needs a department, so an unchosen department then reads "- choose -".</summary>
+    private string DepartmentName(Guid id) =>
+        id == Guid.Empty ? (RequiresDepartment ? "- choose -" : "(none)") : _departments.FirstOrDefault(d => d.Id == id)?.Name ?? string.Empty;
+
+    private async Task CreateAsync()
+    {
+        if ((_name?.Trim().Length ?? 0) > MaxNameLength)
+        {
+            Error($"Name must be {MaxNameLength} characters or fewer.");
+            return;
+        }
+        var input = new ApiKeyInput { Name = _name ?? string.Empty, RoleId = _roleId, DepartmentId = _departmentId == Guid.Empty ? null : _departmentId };
+        _busy = true;
+        CreatedApiKey? created = null;
+        if (await Act(async s => created = await s.Get<ApiKeyService>().CreateAsync(input))) _created = created;
+        _busy = false;
+    }
+}

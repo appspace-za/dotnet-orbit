@@ -1,0 +1,133 @@
+@inherits OrbitComponentBase
+@* The project form (spec §6.1), for a new project (ProjectCreate) or an existing one (ProjectEdit): name, description,
+   department, owner, status, target date and the required project buffer (§6.17). The department can be chosen by whoever
+   creates anywhere (new) or edits anywhere (moving a project); everyone else's stays their own, or the project's. *@
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (!Loaded)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Projects">Projects</a>
+        @if (_project is not null)
+        {
+            <span class="orbit-crumb-sep">/</span><a href="@($"/Projects/Details/{_project.Id}")">@_project.Name</a>
+            <span class="orbit-crumb-sep">/</span><span aria-current="page">Edit</span>
+        }
+    </nav>
+    <MudText Typo="Typo.h5" HtmlTag="h1" Class="mb-3">@(ProjectId is null ? "New project" : "Edit project")</MudText>
+
+    <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-form">
+        <MudTextField T="string" @bind-Value="_name" Label="Name" MaxLength="200" Required="true" RequiredError="Give the project a name."
+                      Variant="Variant.Outlined" Immediate="true" />
+        <MudTextField T="string" @bind-Value="_description" Label="Description" Lines="4" Variant="Variant.Outlined" />
+        <div class="orbit-form-row">
+            @if (_canChooseDepartment)
+            {
+                <MudSelect T="Guid" @bind-Value="_departmentId" Label="Department" Variant="Variant.Outlined" Class="orbit-field-sm"
+                           ToStringFunc="@(id => _departments.FirstOrDefault(d => d.Id == id)?.Name ?? "- choose -")">
+                    @foreach (var d in _departments)
+                    {
+                        <MudSelectItem T="Guid" Value="d.Id">@d.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            <MudSelect T="Guid" @bind-Value="_ownerId" Label="Owner" Variant="Variant.Outlined" Class="orbit-field-lg"
+                       ToStringFunc="@(id => _owners.FirstOrDefault(o => o.Value == id).Text ?? "")">
+                @foreach (var o in _owners)
+                {
+                    <MudSelectItem T="Guid" Value="o.Value">@o.Text</MudSelectItem>
+                }
+            </MudSelect>
+            <MudSelect T="ProjectStatus" @bind-Value="_status" Label="Status" Variant="Variant.Outlined" Class="orbit-field-sm" ToStringFunc="@(s => s.Label())">
+                @foreach (var s in Enum.GetValues<ProjectStatus>())
+                {
+                    <MudSelectItem T="ProjectStatus" Value="s">@s.Label()</MudSelectItem>
+                }
+            </MudSelect>
+            <MudDatePicker @bind-Date="_targetDate" Label="Target date" DateFormat="yyyy-MM-dd" Editable="true" Clearable="true" AutoClose="true"
+                           Variant="Variant.Outlined" Class="orbit-field-sm" />
+            <MudNumericField T="int?" @bind-Value="_buffer" Label="Project buffer (days)" Min="0" Max="260" Placeholder="e.g. 5"
+                             Variant="Variant.Outlined" Class="orbit-field-sm" />
+        </div>
+        <div class="orbit-help">Project buffer: working days of schedule protection to keep before the target date; blank for none.</div>
+        <div class="orbit-gap-row mt-3">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="SaveAsync">@(ProjectId is null ? "Create project" : "Save")</MudButton>
+            <MudButton Variant="Variant.Outlined" Href="@(_project is null ? "/Projects" : $"/Projects/Details/{_project.Id}")">Cancel</MudButton>
+        </div>
+    </MudPaper>
+}
+
+@code {
+    /// <summary>The project to edit; null for a new one.</summary>
+    [Parameter] public Guid? ProjectId { get; set; }
+
+    private Project? _project;
+    private bool _canChooseDepartment, _busy;
+    private IReadOnlyList<Department> _departments = [];
+    private IReadOnlyList<(Guid Value, string Text)> _owners = [];
+    private string? _name, _description;
+    private Guid _departmentId, _ownerId;
+    private ProjectStatus _status = ProjectStatus.Active;
+    private DateTime? _targetDate;
+    private int? _buffer;
+
+    protected override async Task OnParametersSetAsync() => await Load(async s =>
+    {
+        var actor = await s.Get<IActorProvider>().GetAsync();
+        if (ProjectId is Guid id)
+        {
+            _project = await s.Get<ProjectService>().GetAsync(id);
+            AccessPolicy.Require(AccessPolicy.CanEditProject(actor, _project), "You don't have permission to edit this project.");
+            (_name, _description, _departmentId, _ownerId, _status) = (_project.Name, _project.Description, _project.DepartmentId, _project.OwnerId, _project.Status);
+            _targetDate = _project.TargetDate?.ToDateTime(TimeOnly.MinValue);
+            _buffer = _project.RequiredBufferWorkingDays;
+            _canChooseDepartment = actor.CanAnywhere(Permission.ProjectsEdit);
+        }
+        else
+        {
+            _departmentId = actor.DepartmentId ?? Guid.Empty;
+            _ownerId = actor.UserId ?? Guid.Empty;
+            _canChooseDepartment = actor.CanAnywhere(Permission.ProjectsCreate);
+        }
+        _departments = _canChooseDepartment ? await s.Get<DepartmentService>().ListAsync(false) : [];
+        var users = s.Get<UserDirectoryService>();
+        var seesEverywhere = actor.CanAnywhere(Permission.TasksView);
+        var people = seesEverywhere
+            ? await users.ListAsync(null, null, false)
+            : actor.DepartmentId is Guid ownDept ? await users.GetAssignableAsync(ownDept) : [];
+        _owners = people.Select(u => (u.Id, seesEverywhere ? $"{u.DisplayName} ({u.DepartmentName ?? u.Role.Name})" : u.DisplayName)).ToList();
+    });
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_name)) { Error("Give the project a name."); return; }
+        if (_buffer is < 0 or > 260) { Error("The project buffer is between 0 and 260 working days."); return; }
+        var input = new ProjectInput
+        {
+            Name = _name.Trim(),
+            Description = _description,
+            DepartmentId = _departmentId == Guid.Empty ? null : _departmentId,
+            Status = _status,
+            OwnerId = _ownerId == Guid.Empty ? null : _ownerId,
+            TargetDate = _targetDate is DateTime t ? DateOnly.FromDateTime(t) : null,
+            RequiredBufferWorkingDays = _buffer
+        };
+        _busy = true;
+        Project? saved = null;
+        if (await Act(async s => saved = ProjectId is Guid id
+                ? await s.Get<ProjectService>().UpdateAsync(id, input)
+                : await s.Get<ProjectService>().CreateAsync(input)))
+        {
+            Success(ProjectId is null ? $"Project \"{saved!.Name}\" created." : $"Project \"{saved!.Name}\" saved.");
+            Nav.NavigateTo($"/Projects/Details/{saved.Id}");
+        }
+        _busy = false;
+    }
+}

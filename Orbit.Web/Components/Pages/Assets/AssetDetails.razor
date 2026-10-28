@@ -1,0 +1,495 @@
+@page "/Assets/Details/{Id:guid}"
+@inherits OrbitComponentBase
+@using Microsoft.Extensions.Options
+@using Orbit.Application.Assets
+@inject IOptions<AttachmentOptions> AttachmentOptions
+@* An asset's page (spec §6.19): its details, the type's properties, purchase and warranty, its checks (with the check form, or
+   the one-click "Confirm I have it" for someone who only checks what they hold), the tasks about it, comments and files, who
+   holds it and where it is - both changeable here without saving anything else - and its history. *@
+
+<PageTitle>@(_asset?.Name ?? "Asset") - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_asset is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var a = _asset;
+    var s = _schedule!;
+    var properties = a.AssetType.Properties.OrderBy(p => p.DisplayOrder).ThenBy(p => p.Name).ToList();
+    var heldByDeactivated = a.Assignments.Where(x => !x.User.IsActive).Select(x => x.User.DisplayName).ToList();
+    var history = _taskHistory;
+
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Assets">Assets</a><span class="orbit-crumb-sep">/</span><span aria-current="page">@a.Name</span>
+    </nav>
+
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">
+                @if (a.AssetNumber is not null) { <span class="orbit-number orbit-number-lg" title="ERP asset number">@a.AssetNumber</span> }@a.Name
+            </MudText>
+            <div class="orbit-chips">
+                <MudChip T="string" Size="Size.Small" Color="StatusLook.Asset(a.Status)">@a.Status.Label()</MudChip>
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@a.AssetType.Name</MudChip>
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" title="Managing department">@a.Department.Name</MudChip>
+                @if (s.CheckState == CheckDueState.Overdue) { <MudChip T="string" Size="Size.Small" Color="Color.Error">Check overdue</MudChip> }
+                else if (s.CheckState == CheckDueState.DueSoon) { <MudChip T="string" Size="Size.Small" Color="Color.Warning">Check due soon</MudChip> }
+                @if (AssetCheckSchedule.LastCheckNotOk(a)) { <MudChip T="string" Size="Size.Small" Color="Color.Error">Last check: @a.LastCheckOutcome!.Value.Label()</MudChip> }
+                @if (_warrantyExpired) { <MudChip T="string" Size="Size.Small" Color="Color.Secondary">Warranty expired</MudChip> }
+                else if (_warrantyExpiring) { <MudChip T="string" Size="Size.Small" Color="Color.Warning">Warranty expiring</MudChip> }
+                @if (_missingRequired.Count > 0)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" title="Required properties without a value; the next save must supply them">Missing required: @string.Join(", ", _missingRequired)</MudChip>
+                }
+                @if (heldByDeactivated.Count > 0)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" title="Recover the asset from a leaver">Held by a deactivated user: @string.Join(", ", heldByDeactivated)</MudChip>
+                }
+            </div>
+            @if (_duplicates.Count > 0)
+            {
+                <div class="orbit-small mt-1 orbit-gap-row">
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning">Possible duplicate</MudChip>
+                    <span>
+                        Same manufacturer and serial number as
+                        @for (var i = 0; i < _duplicates.Count; i++)
+                        {
+                            var d = _duplicates[i];
+                            <a href="@($"/Assets/Details/{d.Id}")">@AssetRules.Label(d.AssetNumber, d.Name)</a>@(i < _duplicates.Count - 1 ? ", " : ".")
+                        }
+                    </span>
+                </div>
+            }
+        </div>
+        <div class="orbit-actions">
+            @if (_canEdit)
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Href="@($"/Assets/Edit/{a.Id}")">Edit</MudButton>
+            }
+            @if (_canCopy)
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@($"/Assets/Create?copyFrom={a.Id}")"
+                           title="Register a new asset with these details; the ERP asset number and serial number are left blank">Copy</MudButton>
+            }
+        </div>
+    </div>
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" lg="8">
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Details</b></div>
+                <dl class="orbit-dl">
+                    <dt>Manufacturer</dt><dd>@(a.Manufacturer ?? "-")</dd>
+                    <dt>Model</dt><dd>@(a.Model ?? "-")</dd>
+                    <dt>Serial number</dt><dd class="orbit-key">@(a.SerialNumber ?? "-")</dd>
+                    @if (a.Status == AssetStatus.Disposed)
+                    {
+                        <dt>Disposed on</dt><dd>@Ui.Day(a.DisposedOn)</dd>
+                    }
+                    <dt>Registered</dt><dd>@Ui.When(a.CreatedAt) by @Ui.AuthorName(a.CreatedBy)</dd>
+                </dl>
+                @if (!string.IsNullOrWhiteSpace(a.Description))
+                {
+                    <div class="orbit-card-body orbit-text">@((MarkupString)Ui.LinkifyHtml(a.Description))</div>
+                }
+            </MudPaper>
+
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><span><b>Properties</b> <span class="orbit-muted orbit-small">(@a.AssetType.Name)</span></span></div>
+                @if (properties.Count == 0)
+                {
+                    <div class="orbit-list-item orbit-muted orbit-small"><i>This type has no extra properties.</i></div>
+                }
+                else
+                {
+                    <dl class="orbit-dl">
+                        @foreach (var p in properties)
+                        {
+                            <dt>@p.Name</dt>
+                            <dd>
+                                @if (_values.TryGetValue(p.Id, out var v)) { @AssetPropertyRules.Display(p.PropertyType, v) }
+                                else if (p.IsRequired) { <span class="orbit-warn">missing (required)</span> }
+                                else { <span class="orbit-muted">-</span> }
+                            </dd>
+                        }
+                    </dl>
+                }
+            </MudPaper>
+
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Purchase &amp; warranty</b></div>
+                <dl class="orbit-dl">
+                    <dt>Purchase date</dt><dd>@Ui.Day(a.PurchaseDate)</dd>
+                    <dt>Purchase value</dt><dd>@Ui.Money(a.PurchaseValue)</dd>
+                    <dt>Purchase order</dt><dd>@(a.PurchaseOrder ?? "-")</dd>
+                    <dt>Invoice number</dt><dd>@(a.InvoiceNumber ?? "-")</dd>
+                    <dt>Supplier</dt><dd>@(a.Supplier ?? "-")</dd>
+                    <dt>Warranty ends</dt>
+                    <dd>
+                        @Ui.Day(a.WarrantyExpiresOn)
+                        @if (_warrantyExpired) { <MudChip T="string" Size="Size.Small" Color="Color.Secondary">Expired</MudChip> }
+                        else if (_warrantyExpiring) { <MudChip T="string" Size="Size.Small" Color="Color.Warning">Expiring</MudChip> }
+                    </dd>
+                </dl>
+            </MudPaper>
+
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header">
+                    <span><b>Checks</b> <span class="orbit-muted">(@a.Checks.Count)</span></span>
+                    <span class="orbit-small orbit-gap-row">
+                        @if (s.NextCheckDue is DateOnly due)
+                        {
+                            <span>Next check due <b>@Ui.Day(due)</b></span>
+                            @if (s.CheckState == CheckDueState.Overdue) { <MudChip T="string" Size="Size.Small" Color="Color.Error">Overdue</MudChip> }
+                            else if (s.CheckState == CheckDueState.DueSoon) { <MudChip T="string" Size="Size.Small" Color="Color.Warning">Due soon</MudChip> }
+                        }
+                        else if (a.AssetType.CheckIntervalDays is null)
+                        {
+                            <span class="orbit-muted">No scheduled checks</span>
+                        }
+                        else
+                        {
+                            <span class="orbit-muted">No check due (@a.Status.Label())</span>
+                        }
+                    </span>
+                </div>
+                @if (a.Checks.Count == 0)
+                {
+                    <div class="orbit-list-item orbit-muted orbit-small"><i>Never checked.</i></div>
+                }
+                else
+                {
+                    <div class="orbit-table-wrap">
+                        <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks orbit-small">
+                            <thead><tr><th>Date</th><th>Outcome</th><th>Notes</th><th>Recorded by</th><th></th></tr></thead>
+                            <tbody>
+                                @foreach (var c in a.Checks)
+                                {
+                                    var check = c;
+                                    <tr @key="c.Id">
+                                        <td class="text-nowrap">@Ui.Day(c.CheckDate)</td>
+                                        <td><MudChip T="string" Size="Size.Small" Color="Outcome(c.Outcome)">@c.Outcome.Label()</MudChip></td>
+                                        <td>@c.Notes</td>
+                                        <td class="text-nowrap">@Ui.AuthorName(c.CheckedBy)</td>
+                                        <td class="text-right">
+                                            @if (AccessPolicy.CanRemoveCheck(_actor!, c, a))
+                                            {
+                                                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" title="Remove a check recorded by mistake"
+                                                           OnClick="() => RemoveCheckAsync(check)">Remove</MudButton>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    </div>
+                }
+                <div class="orbit-card-body">
+                    @if (_confirmOnly)
+                    {
+                        <div class="orbit-gap-row">
+                            <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Success" Disabled="_busy" OnClick="ConfirmHeldAsync">Confirm I have it</MudButton>
+                            <span class="orbit-help">Records today's check: you still have this asset and it's OK. Found a problem? Add a comment or a photo below.</span>
+                        </div>
+                    }
+                    else if (_canCheck)
+                    {
+                        <div class="orbit-form-row">
+                            <MudDatePicker @bind-Date="_checkDate" Label="Date" DateFormat="yyyy-MM-dd" MaxDate="DateTime.UtcNow.Date" Editable="true" AutoClose="true"
+                                           Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-field-sm" />
+                            <MudSelect T="AssetCheckOutcome" @bind-Value="_outcome" Label="Outcome" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true"
+                                       Class="orbit-field-sm" ToStringFunc="@(o => o.Label())">
+                                @foreach (var o in Enum.GetValues<AssetCheckOutcome>())
+                                {
+                                    <MudSelectItem T="AssetCheckOutcome" Value="o">@o.Label()</MudSelectItem>
+                                }
+                            </MudSelect>
+                            <MudTextField T="string" @bind-Value="_checkNotes" Label="Notes" Placeholder="Required when an issue is found" MaxLength="2000"
+                                          Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-field-grow" />
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="RecordCheckAsync">Record check</MudButton>
+                        </div>
+                    }
+                    else if (a.Status == AssetStatus.Disposed)
+                    {
+                        <p class="orbit-muted orbit-small ma-0">A disposed asset isn't checked.</p>
+                    }
+                </div>
+            </MudPaper>
+
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header">
+                    <span><b>Tasks</b> <span class="orbit-muted">(@(history.VisibleCount + history.HiddenCount))</span></span>
+                    @if (_canListTasks && history.VisibleCount > 0)
+                    {
+                        <a href="@($"/Tasks?AssetId={a.Id}")" class="orbit-small" title="Every task about this asset that you can see, on the Tasks list">All in the task list</a>
+                    }
+                </div>
+                @if (history.VisibleCount == 0)
+                {
+                    <div class="orbit-list-item orbit-muted orbit-small">
+                        <i>@(history.HiddenCount == 0
+                            ? "No tasks are about this asset yet. Choose it in a task's Asset field to start its history."
+                            : $"{history.HiddenCount} linked {(history.HiddenCount == 1 ? "task" : "tasks")}, none that you can see.")</i>
+                    </div>
+                }
+                else
+                {
+                    <div class="orbit-table-wrap">
+                        <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks orbit-small">
+                            <thead><tr><th>Task</th><th>Status</th><th>Assignee</th><th>Due / done</th></tr></thead>
+                            <tbody>
+                                @foreach (var t in history.Tasks)
+                                {
+                                    <tr @key="t.Id">
+                                        <td><span class="orbit-number">@t.Number</span><a href="@($"/Tasks/Details/{t.Id}")" class="orbit-title">@t.Title</a></td>
+                                        <td><MudChip T="string" Size="Size.Small" Color="TaskLook.Status(t.Status)">@t.Status.Label()</MudChip></td>
+                                        <td>@(t.AssigneeNames ?? "-")</td>
+                                        <td class="text-nowrap">@(t.CompletedAt is DateTime done && !t.IsOpen ? Ui.Day(DateOnly.FromDateTime(done)) : Ui.Day(t.DueDate))</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    </div>
+                    @if (history.VisibleCount > history.Tasks.Count)
+                    {
+                        <div class="orbit-card-footer">Showing @history.Tasks.Count of @history.VisibleCount, open ones first, then the newest.</div>
+                    }
+                }
+                @if (history.HiddenCount > 0 && history.VisibleCount > 0)
+                {
+                    <div class="orbit-card-footer">And @history.HiddenCount more linked @(history.HiddenCount == 1 ? "task" : "tasks") that you can't see.</div>
+                }
+            </MudPaper>
+
+            <CommentsCard Comments="_comments" Post="(sp, body) => sp.Get<CommentService>().AddToAssetAsync(Id, body)" Changed="ReloadAsync" />
+            <AttachmentsCard Attachments="_attachments" CanAttach="true" Limits="AttachmentOptions.Value" Changed="ReloadAsync"
+                             CanDelete="f => AccessPolicy.CanDeleteAttachment(_actor!, f, a)"
+                             Upload="(sp, upload) => sp.Get<AttachmentService>().AddToAssetAsync(Id, upload)" />
+        </MudItem>
+
+        <MudItem xs="12" lg="4">
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Assigned to</b></div>
+                @if (a.Assignments.Count == 0)
+                {
+                    <div class="orbit-list-item orbit-muted"><i>Unassigned</i></div>
+                }
+                @foreach (var x in a.Assignments.OrderBy(x => x.User.DisplayName))
+                {
+                    var user = x.User;
+                    <div class="orbit-list-item orbit-list-row orbit-small" @key="x.UserId">
+                        <div>
+                            <div>
+                                <b>@user.DisplayName</b>
+                                @if (!user.IsActive) { <MudChip T="string" Size="Size.Small" Color="Color.Warning">deactivated</MudChip> }
+                            </div>
+                            <div class="orbit-muted">@(user.Department?.Name ?? "No department") · since @Ui.When(x.AssignedAt)@(x.AssignedBy is null ? "" : $" by {Ui.AuthorName(x.AssignedBy)}")</div>
+                        </div>
+                        @if (_canEdit)
+                        {
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" title="@($"{user.DisplayName} no longer holds it")"
+                                       OnClick="() => UnassignAsync(user)">Remove</MudButton>
+                        }
+                    </div>
+                }
+                @if (_canAssign)
+                {
+                    <div class="orbit-list-item">
+                        <PersonPicker Placeholder="Assign someone: type a name, email or department..." Disabled="_busy" Picked="AssignAsync"
+                                      Search="@((sp, q, ct) => sp.Get<UserDirectoryService>().SearchAssetHolderCandidatesAsync(q, 20, ct))" />
+                    </div>
+                }
+            </MudPaper>
+
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Location</b></div>
+                <div class="orbit-list-item orbit-small">
+                    @if (a.AssetLocation is null)
+                    {
+                        <span class="orbit-muted"><i>No location</i></span>
+                    }
+                    else
+                    {
+                        <b>@a.AssetLocation.Name</b>
+                        @if (a.AssetLocation.IsArchived) { <MudChip T="string" Size="Size.Small" Color="Color.Secondary">archived</MudChip> }
+                    }
+                </div>
+                @if (_canMove)
+                {
+                    <div class="orbit-list-item">
+                        @if (_locations.Count == 0)
+                        {
+                            <span class="orbit-muted orbit-small">@a.Department.Name has no locations set up.</span>
+                        }
+                        else
+                        {
+                            <MudSelect @key="_locationVersion" T="Guid" Value="a.AssetLocationId ?? Guid.Empty" ValueChanged="MoveAsync" Label="Move this asset to"
+                                       Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Disabled="_busy" ToStringFunc="LocationName">
+                                <MudSelectItem T="Guid" Value="Guid.Empty">- No location -</MudSelectItem>
+                                @foreach (var l in _locations)
+                                {
+                                    <MudSelectItem T="Guid" Value="l.Id">@LocationName(l.Id)</MudSelectItem>
+                                }
+                            </MudSelect>
+                        }
+                    </div>
+                }
+            </MudPaper>
+
+            <HistoryCard Activity="_activity" />
+
+            <MudPaper Outlined="true" Class="orbit-card">
+                <dl class="orbit-dl">
+                    <dt>ERP asset number</dt><dd class="orbit-key">@(a.AssetNumber ?? "-")</dd>
+                    <dt>Id</dt><dd class="orbit-key orbit-muted">@a.Id</dd>
+                </dl>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    /// <summary>How many linked tasks the Tasks card lists before pointing to the Tasks list.</summary>
+    private const int TaskHistoryShown = 15;
+
+    [Parameter] public Guid Id { get; set; }
+
+    private Actor? _actor;
+    private Asset? _asset;
+    /// <summary>The next check due and where the asset stands against it (§6.19).</summary>
+    private AssetListItem? _schedule;
+    private IReadOnlyDictionary<Guid, string> _values = new Dictionary<Guid, string>();
+    /// <summary>Required properties without a value - an asset saved before they became required (§6.19).</summary>
+    private IReadOnlyList<string> _missingRequired = [];
+    /// <summary>Other assets with the same manufacturer and serial number that the viewer can see.</summary>
+    private IReadOnlyList<AssetRef> _duplicates = [];
+    private IReadOnlyList<Comment> _comments = [];
+    private IReadOnlyList<Attachment> _attachments = [];
+    private IReadOnlyList<AuditLog> _activity = [];
+    /// <summary>The tasks about this asset that the viewer can see, and how many others there are (§6.19).</summary>
+    private AssetTaskHistory _taskHistory = new([], 0, 0);
+    /// <summary>The department's active locations to move it to, plus its current one even when archived.</summary>
+    private IReadOnlyList<AssetLocation> _locations = [];
+    private bool _canListTasks, _canEdit, _canCopy, _canAssign, _canMove, _canCheck, _confirmOnly, _warrantyExpired, _warrantyExpiring, _busy;
+    private DateTime? _checkDate = DateTime.UtcNow.Date;
+    private AssetCheckOutcome _outcome = AssetCheckOutcome.Ok;
+    private string? _checkNotes;
+    private int _locationVersion;
+
+    protected override Task OnParametersSetAsync() => ReloadAsync();
+
+    private async Task ReloadAsync() => await Load(async sp =>
+    {
+        var actor = await sp.Get<IActorProvider>().GetAsync();
+        var assets = sp.Get<AssetService>();
+        var asset = await assets.GetAsync(Id);
+        var isAssigned = AccessPolicy.IsAssigned(actor, asset);
+        _schedule = assets.Item(asset);
+        _canEdit = AccessPolicy.CanEditAsset(actor, asset);
+        // Register a copy (§6.19): assets.create reaching the asset's department, whose types and locations the copy uses.
+        _canCopy = AccessPolicy.CanCreateAssetIn(actor, asset.DepartmentId);
+        // Change who holds it, or where it is, right here: assets.edit, and not disposed.
+        _canAssign = _canEdit && asset.Status != AssetStatus.Disposed;
+        _canMove = _canAssign;
+        _locations = _canMove ? await sp.Get<AssetLocationService>().ListForDepartmentAsync(asset.DepartmentId, asset.AssetLocationId) : [];
+        _canCheck = AccessPolicy.CanCheckAsset(actor, asset, isAssigned);
+        // assets.check at Own only, on an asset the viewer holds: the check form is the one-click "Confirm I have it".
+        _confirmOnly = _canCheck && isAssigned && actor.ScopeOf(Permission.AssetsCheck) == PermissionScope.Own;
+        _values = asset.PropertyValues.ToDictionary(v => v.AssetTypePropertyId, v => v.Value);
+        _missingRequired = AssetPropertyRules.MissingRequired(asset.AssetType.Properties, _values);
+        _duplicates = await assets.PossibleDuplicatesAsync(asset);
+        _taskHistory = await assets.TaskHistoryAsync(asset, TaskHistoryShown);
+        _canListTasks = actor.Has(Permission.TasksView);
+        _warrantyExpired = assets.WarrantyExpired(asset);
+        _warrantyExpiring = assets.WarrantyExpiring(asset);
+        _comments = await sp.Get<CommentService>().ListForAssetAsync(Id);
+        _attachments = await sp.Get<AttachmentService>().ListForAssetAsync(Id);
+        _activity = (await sp.Get<AuditService>().ListAsync(new AuditFilter
+        {
+            EntityId = Id, From = asset.CreatedAt.AddSeconds(-1), To = DateTime.UtcNow.AddMinutes(1), PageSize = 50
+        })).Items;
+        _actor = actor;
+        _asset = asset;
+    });
+
+    private static Color Outcome(AssetCheckOutcome o) => o switch
+    {
+        AssetCheckOutcome.Ok => Color.Success,
+        AssetCheckOutcome.IssueFound => Color.Warning,
+        _ => Color.Error
+    };
+
+    private string LocationName(Guid id) =>
+        id == Guid.Empty ? "- No location -"
+        : _locations.FirstOrDefault(l => l.Id == id) is { } l ? l.Name + (l.IsArchived ? " (archived)" : "")
+        : "";
+
+    /// <summary>Runs a change and shows its message; true when it was saved.</summary>
+    private async Task<bool> RunAsync(Func<IServiceProvider, Task<string?>> action)
+    {
+        _busy = true;
+        string? message = null;
+        var saved = await Act(async sp => message = await action(sp));
+        if (saved)
+        {
+            if (message is not null) Success(message);
+            await ReloadAsync();
+        }
+        _busy = false;
+        return saved;
+    }
+
+    /// <summary>Hand the asset to one more person, without saving anything else on the record.</summary>
+    private Task<bool> AssignAsync(UserSummary person) =>
+        RunAsync(async sp => $"Assigned to {await sp.Get<AssetService>().AssignAsync(Id, person.Id)}.");
+
+    private async Task UnassignAsync(ApplicationUser user)
+    {
+        if (!await Confirm("Remove holder", $"Take this asset off {user.DisplayName}?", "Remove")) return;
+        await RunAsync(async sp => await sp.Get<AssetService>().UnassignAsync(Id, user.Id) is { } name ? $"{name} no longer holds this asset." : null);
+    }
+
+    /// <summary>Move the asset to another location, or none, without saving anything else on the record.</summary>
+    private async Task MoveAsync(Guid locationId)
+    {
+        await RunAsync(async sp => await sp.Get<AssetService>().SetLocationAsync(Id, locationId == Guid.Empty ? null : locationId) is { } name
+            ? $"Location: {name}."
+            : "Location cleared.");
+        _locationVersion++;
+    }
+
+    private async Task RecordCheckAsync()
+    {
+        var outcome = _outcome;
+        var input = new AssetCheckInput { CheckDate = _checkDate is DateTime d ? DateOnly.FromDateTime(d) : null, Outcome = outcome, Notes = _checkNotes };
+        var saved = await RunAsync(async sp =>
+        {
+            await sp.Get<AssetService>().RecordCheckAsync(Id, input);
+            return $"Check recorded: {outcome.Label()}.";
+        });
+        // A refused check keeps what was entered, to correct.
+        if (saved) (_checkNotes, _outcome) = (null, AssetCheckOutcome.Ok);
+    }
+
+    private Task<bool> ConfirmHeldAsync() => RunAsync(async sp =>
+    {
+        await sp.Get<AssetService>().ConfirmHeldAsync(Id);
+        return "Thanks - recorded that you have it.";
+    });
+
+    private async Task RemoveCheckAsync(AssetCheck check)
+    {
+        if (!await Confirm("Remove check", $"Remove the check of {Ui.Day(check.CheckDate)}? Only for a check recorded by mistake.", "Remove")) return;
+        await RunAsync(async sp =>
+        {
+            await sp.Get<AssetService>().RemoveCheckAsync(Id, check.Id);
+            return "Check removed.";
+        });
+    }
+}

@@ -1,0 +1,56 @@
+@page "/Admin/Agents/Create"
+@inherits OrbitComponentBase
+@using Microsoft.Extensions.Options
+@inject IOptions<AppOptions> AppSettings
+@* New agent (spec §6.14): the admin names it, Orbit creates it as Pending and shows, once, the command that configures it with its
+   one-time registration token (AgentSetupPanel). The token is held only by this page until it is left. *@
+
+<PageTitle>New agent - Orbit</PageTitle>
+
+<nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+    <a href="/Admin/Agents/Index">Agents</a><span class="orbit-crumb-sep">/</span><span aria-current="page">New</span>
+</nav>
+
+@if (_created is not null)
+{
+    <MudText Typo="Typo.h5" HtmlTag="h1" Class="mb-3">Agent created</MudText>
+    <AgentSetupPanel Created="_created" BaseUrl="@AppSettings.Value.BaseUrl" />
+    <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="/Admin/Agents/Index">Done</MudButton>
+}
+else
+{
+    <MudText Typo="Typo.h5" HtmlTag="h1" Class="mb-3">New agent</MudText>
+    <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-form" Style="max-width: 40rem">
+        <div>
+            <MudTextField T="string" @bind-Value="_name" Label="Name" MaxLength="200" Required="true" RequiredError="Name is required." Variant="Variant.Outlined" />
+            <div class="orbit-help">Something that tells you where it runs, e.g. "Head office - DC01".</div>
+        </div>
+        <div class="orbit-small orbit-muted">
+            An Orbit Agent is a small service you run inside your own network. It connects <em>out</em> to Orbit and lets Orbit check sign-ins against your
+            directory (Active Directory / LDAP), run request actions and read your Nagios instances without opening any firewall ports. Creating one here
+            gives you a one-time command that configures it.
+        </div>
+        <div class="orbit-gap-row mt-2">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="CreateAsync">Create agent</MudButton>
+            <MudButton Variant="Variant.Outlined" Href="/Admin/Agents/Index">Cancel</MudButton>
+        </div>
+    </MudPaper>
+}
+
+@code {
+    private string? _name;
+    private CreatedAgent? _created;
+    private bool _busy;
+
+    /// <summary>The Razor form's [Required, StringLength(200)], in the service's words; the service checks them again.</summary>
+    private async Task CreateAsync()
+    {
+        var name = _name;
+        if (string.IsNullOrWhiteSpace(name)) { Error("Name is required."); return; }
+        if (name.Length > 200) { Error("Name must be 200 characters or fewer."); return; }
+        _busy = true;
+        CreatedAgent? created = null;
+        if (await Act(async s => created = await s.Get<AgentService>().CreateAsync(name))) _created = created;
+        _busy = false;
+    }
+}

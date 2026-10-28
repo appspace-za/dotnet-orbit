@@ -1,0 +1,248 @@
+@page "/Admin/Directory"
+@page "/Admin/Directory/Index"
+@inherits OrbitComponentBase
+@using Orbit.Agents
+@using Orbit.Agents.Contracts
+@* Directory sign-in settings (spec §6.13, Admin > Directory): on/off, server, port, SSL, certificate validation, the service account
+   (bind DN and password - write-only, stored encrypted and never shown; left blank keeps the stored one), search base and user filter.
+   The page says whether any Orbit Agent is connected to check sign-ins (the in-memory registry, §8.2). "Test connection" asks an
+   agent to bind, and optionally look up an email, with the values in the form, saved or not; nothing is saved. *@
+
+<PageTitle>Directory sign-in - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (!Loaded)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">Directory sign-in (LDAP)</MudText>
+            <div class="orbit-subtitle">
+                Lets users sign in with their company directory (Active Directory / LDAP) password. Orbit can't reach the directory itself, so the check is
+                carried out by an <a href="/Admin/Agents/Index">Orbit Agent</a> inside your network. These settings are sent to the agent with each request -
+                there is nothing to configure on the agent.
+            </div>
+        </div>
+    </div>
+
+    @if (_agentsAbleToSignIn == 0)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mb-3">
+            <b>No Orbit Agent is connected.</b>
+            Directory users can't sign in until one is - local accounts are unaffected. <a href="/Admin/Agents/Index">Manage agents</a>
+        </MudAlert>
+    }
+    else
+    {
+        <MudAlert Severity="Severity.Success" Dense="true" Class="mb-3">@_agentsAbleToSignIn Orbit Agent@(_agentsAbleToSignIn == 1 ? "" : "s") connected.</MudAlert>
+    }
+
+    @if (_test is { } test)
+    {
+        var ok = test.Result?.Success == true;
+        <MudAlert Severity="@(ok ? Severity.Success : Severity.Error)" Class="mb-3">
+            <div class="mb-1"><b>@(ok ? "Connection test passed" : "Connection test failed")@(test.AgentName is null ? "" : $" (agent \"{test.AgentName}\")")</b></div>
+            @if (test.Error is not null)
+            {
+                <div>@test.Error</div>
+            }
+            @if (test.Result is not null)
+            {
+                <ol class="mt-0 mb-0 pl-4 orbit-small">
+                    @foreach (var step in test.Result.Steps)
+                    {
+                        <li>@step</li>
+                    }
+                </ol>
+            }
+            <div class="orbit-small mt-1">Nothing was saved - this tested the values in the form below.</div>
+        </MudAlert>
+    }
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" lg="7">
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Directory server</b></div>
+                <div class="orbit-card-body">
+                    <MudSwitch T="bool" @bind-Value="_form.Enabled" Color="Color.Primary" Label="Enable directory sign-in" />
+                    <div class="orbit-help mt-0 mb-3">While off, nobody can sign in with a directory password and users can't be switched to it.</div>
+                    <MudGrid Spacing="2">
+                        <MudItem xs="12" md="8">
+                            <MudTextField T="string" @bind-Value="_form.Server" Label="Server" MaxLength="255" Placeholder="dc01.corp.example.com" Variant="Variant.Outlined" />
+                            <div class="orbit-help">As reachable from the agent's machine, not from Orbit. With SSL, use the name on the server's certificate.</div>
+                        </MudItem>
+                        <MudItem xs="12" md="4">
+                            <MudNumericField T="int" @bind-Value="_form.Port" Label="Port" Min="1" Max="65535" Variant="Variant.Outlined" />
+                            <div class="orbit-help">636 for LDAPS, 389 without.</div>
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudCheckBox T="bool" @bind-Value="_form.UseSsl" Label="Use SSL (LDAPS)" Dense="true" Color="Color.Primary" />
+                            <div class="orbit-help mt-0">Without it, passwords cross your network unencrypted.</div>
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudCheckBox T="bool" @bind-Value="_form.ValidateCertificate" Label="Validate the server certificate" Dense="true" Color="Color.Primary" />
+                            <div class="orbit-help mt-0">Untick only for a certificate the agent's machine can't be made to trust.</div>
+                        </MudItem>
+                    </MudGrid>
+                </div>
+            </MudPaper>
+
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Finding the user</b></div>
+                <div class="orbit-card-body orbit-form">
+                    <div>
+                        <MudTextField T="string" @bind-Value="_form.BindDn" Label="Bind DN (service account)" MaxLength="500"
+                                      Placeholder="CN=svc-orbit,OU=Service Accounts,DC=corp,DC=example,DC=com" Variant="Variant.Outlined" autocomplete="off" />
+                        <div class="orbit-help">A read-only account used to look the user up. Give it no more than read access to the users it needs to find.</div>
+                    </div>
+                    <div>
+                        @* Write-only: never filled in from the stored value. Blank keeps the stored password. *@
+                        <MudTextField T="string" @bind-Value="_form.BindPassword" Label="Bind password" InputType="InputType.Password"
+                                      Placeholder="@(_hasBindPassword ? "(stored - leave blank to keep it)" : null)" Variant="Variant.Outlined" autocomplete="new-password" />
+                        <div class="orbit-help">Stored encrypted and never shown again.</div>
+                    </div>
+                    <MudTextField T="string" @bind-Value="_form.SearchBase" Label="Search base" MaxLength="500" Placeholder="OU=Staff,DC=corp,DC=example,DC=com"
+                                  Variant="Variant.Outlined" />
+                    <div>
+                        <MudTextField T="string" @bind-Value="_form.UserFilter" Label="User filter" MaxLength="500" Variant="Variant.Outlined" Class="orbit-code" spellcheck="false" />
+                        <div class="orbit-help">
+                            <code>{0}</code> is the email the person signs in to Orbit with. It must match exactly one entry. Examples: <code>(mail={0})</code>,
+                            <code>(userPrincipalName={0})</code>, or to restrict to a group
+                            <code>(&amp;(mail={0})(memberOf=CN=Orbit Users,OU=Groups,DC=corp,DC=example,DC=com))</code>.
+                        </div>
+                    </div>
+                </div>
+            </MudPaper>
+
+            <div class="orbit-gap-row mb-3">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="SaveAsync">Save</MudButton>
+            </div>
+        </MudItem>
+
+        <MudItem xs="12" lg="5">
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Test connection</b></div>
+                <div class="orbit-card-body">
+                    <p class="orbit-small orbit-muted mt-0">
+                        Asks a connected agent to reach the server and bind as the service account using the values in this form, saved or not. Add an email to
+                        also prove the search base and filter find that person. No user password is involved.
+                    </p>
+                    <MudTextField T="string" @bind-Value="_sampleUsername" Label="Look up this email (optional)" Placeholder="someone@example.com"
+                                  Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2" />
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Disabled="_busy" OnClick="TestAsync">@(_testing ? "Testing..." : "Test connection")</MudButton>
+                </div>
+            </MudPaper>
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>How sign-in works</b></div>
+                <div class="orbit-card-body orbit-small orbit-muted">
+                    <p class="mt-0">
+                        Each user has a sign-in method, set under <a href="/Admin/Users/Index">Users</a>: a local Orbit password, or the directory. Users are still
+                        created in Orbit first - a directory account alone doesn't grant access - either one at a time or, for many people at once, with
+                        <a href="/Admin/Users/Import">Import from directory</a>.
+                    </p>
+                    <p class="mb-0">Keep at least one System Admin on a local password: it is your way in if the directory or the agent is down. Orbit enforces this.</p>
+                </div>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    private LdapDraft _form = new();
+    /// <summary>Only used by "Test connection": an email to look up, proving the search base and filter.</summary>
+    private string? _sampleUsername;
+    private bool _hasBindPassword;
+    private int _agentsAbleToSignIn;
+    private DirectoryTestOutcome? _test;
+    private bool _busy, _testing;
+
+    protected override async Task OnParametersSetAsync() => await LoadAsync(resetForm: true);
+
+    /// <summary>
+    /// Reads whether a bind password is stored and how many agents can check sign-ins, as each Razor request did; the form is filled
+    /// from the stored settings only on arrival and after a save, so a refused save or a test keeps what was typed.
+    /// </summary>
+    private async Task<bool> LoadAsync(bool resetForm) => await Load(async s =>
+    {
+        var view = await s.Get<LdapSettingsService>().GetAsync();
+        _hasBindPassword = view.HasBindPassword;
+        _agentsAbleToSignIn = s.Get<AgentConnectionRegistry>().WithCapability(AgentCapabilities.LdapAuthenticate).Count;
+        if (resetForm) _form = LdapDraft.From(view.Settings);
+    });
+
+    private async Task SaveAsync()
+    {
+        if (_form.Invalid() is { } why) { Error(why); return; }
+        var input = _form.ToInput();
+        _test = null;
+        _busy = true;
+        if (await Act(async s => await s.Get<LdapSettingsService>().UpdateAsync(input)))
+        {
+            Success(input.Enabled ? "Directory sign-in settings saved." : "Settings saved. Directory sign-in is switched off.");
+            // As the Razor page's redirect did: the form shows the settings as stored, and the test box starts empty.
+            _sampleUsername = null;
+            await LoadAsync(resetForm: true);
+        }
+        else
+        {
+            await LoadAsync(resetForm: false);
+        }
+        _busy = false;
+    }
+
+    /// <summary>Tests what is in the form - nothing is saved - so settings can be proven before they go live.</summary>
+    private async Task TestAsync()
+    {
+        if (_form.Invalid() is { } why) { Error(why); return; }
+        var input = _form.ToInput();
+        var sample = _sampleUsername;
+        _test = null;
+        _busy = _testing = true;
+        DirectoryTestOutcome? outcome = null;
+        if (await Act(async s => outcome = await s.Get<DirectoryAuthService>().TestAsync(input, sample))) _test = outcome;
+        await LoadAsync(resetForm: false);
+        _busy = _testing = false;
+    }
+
+    /// <summary>The form as typed (the Razor page's LdapForm). The bind password is write-only: it is never filled in from the settings.</summary>
+    private sealed class LdapDraft
+    {
+        public bool Enabled { get; set; }
+        public bool UseSsl { get; set; }
+        public bool ValidateCertificate { get; set; }
+        public string? Server { get; set; }
+        public int Port { get; set; } = 636;
+        public string? BindDn { get; set; }
+        /// <summary>Blank keeps the stored password.</summary>
+        public string? BindPassword { get; set; }
+        public string? SearchBase { get; set; }
+        public string? UserFilter { get; set; }
+
+        /// <summary>The Razor form's [StringLength] and [Range] rules; null when they hold. The service checks the rest.</summary>
+        public string? Invalid() =>
+            (Server?.Length ?? 0) > 255 ? "Server must be 255 characters or fewer."
+            : (Port < 1 || Port > 65535) ? "Port must be between 1 and 65535."
+            : (BindDn?.Length ?? 0) > 500 ? "Bind DN must be 500 characters or fewer."
+            : (SearchBase?.Length ?? 0) > 500 ? "Search base must be 500 characters or fewer."
+            : (UserFilter?.Length ?? 0) > 500 ? "User filter must be 500 characters or fewer."
+            : null;
+
+        public LdapSettingsInput ToInput() => new()
+        {
+            Enabled = Enabled, Server = Server, Port = Port, UseSsl = UseSsl, ValidateCertificate = ValidateCertificate,
+            BindDn = BindDn, NewBindPassword = BindPassword, SearchBase = SearchBase, UserFilter = UserFilter
+        };
+
+        public static LdapDraft From(LdapSettings s) => new()
+        {
+            Enabled = s.Enabled, Server = s.Server, Port = s.Port, UseSsl = s.UseSsl, ValidateCertificate = s.ValidateCertificate,
+            BindDn = s.BindDn, SearchBase = s.SearchBase, UserFilter = s.UserFilter
+        };
+    }
+}

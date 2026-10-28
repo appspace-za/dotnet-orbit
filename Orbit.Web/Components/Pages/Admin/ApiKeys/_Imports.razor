@@ -1,0 +1,3 @@
+@* API keys (spec §8): every page here needs the ApiKeys admin permission at some scope, as AuthorizeFolder("/Admin/ApiKeys") did for the
+   Razor pages. The services apply the rest. *@
+@attribute [RequirePermission(Permission.ApiKeysManage)]

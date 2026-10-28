@@ -1,0 +1,197 @@
+@page "/Reports/View"
+@inherits OrbitComponentBase
+@* One report (spec §12): its filters, its result on screen and a link to the same report as a PDF (ReportPdfEndpoint). The
+   filters are in the address under the Razor page's keys, so links and bookmarks keep working, and a change applies at once.
+   They aren't remembered. Under a Department-scoped reports.view the department is the viewer's own and has no picker (§6.5). *@
+
+<PageTitle>@(_run?.Definition.Title ?? "Report") - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_run is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var run = _run;
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Reports">Reports</a><span class="orbit-crumb-sep">/</span><span aria-current="page">@run.Definition.Title</span>
+    </nav>
+
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">@run.Definition.Title</MudText>
+            <div class="orbit-subtitle">@run.Definition.Description</div>
+        </div>
+        <div class="orbit-actions">
+            @* download: a file, so Blazor mustn't take the link as a navigation. *@
+            <MudButton Href="@($"{ReportPdfEndpoint.Path}?{run.Query()}")" download="@run.FileName" Size="Size.Small" Variant="Variant.Outlined"
+                       Color="Color.Primary" StartIcon="@Icons.Material.Filled.PictureAsPdf">Download PDF</MudButton>
+        </div>
+    </div>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        <div class="orbit-filters">
+            <MudDatePicker Label="From" Date="@PickerDate.Of(run.From)" DateChanged="d => Go(ReportRun.FromKey, PickerDate.Write(d))" DateFormat="yyyy-MM-dd"
+                           Editable="true" AutoClose="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-filter" />
+            <MudDatePicker Label="To" Date="@PickerDate.Of(run.To)" DateChanged="d => Go(ReportRun.ToKey, PickerDate.Write(d))" DateFormat="yyyy-MM-dd"
+                           Editable="true" AutoClose="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-filter" />
+            @if (run.CanChooseDepartment)
+            {
+                <FilterSelect Label="Department" Value="@(run.DepartmentId?.ToString())" ValueChanged="v => Go(ReportRun.DepartmentKey, v)" Options="_departments" />
+            }
+            @if (run.Definition.ByProject)
+            {
+                <FilterSelect Label="Project" Value="@(run.ProjectId?.ToString())" ValueChanged="v => Go(ReportRun.ProjectKey, v)" Options="_projects"
+                              Class="orbit-filter orbit-filter-wide" />
+            }
+            @if (run.Definition.ByOwnerAndAssignee)
+            {
+                <FilterSelect Label="Owner" Value="@(run.OwnerId?.ToString())" ValueChanged="v => Go(ReportRun.OwnerKey, v)" Options="_owners"
+                              Title="The projects this person owns" />
+                <FilterSelect Label="Assignee" Value="@(run.AssigneeId?.ToString())" ValueChanged="v => Go(ReportRun.AssigneeKey, v)" Options="_assignees"
+                              Title="The projects with a task assigned to this person (cancelled tasks aside)" />
+            }
+        </div>
+    </MudPaper>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" Size="Size.Small" Class="mb-1" />
+    }
+    <MudPaper Outlined="true" Class="orbit-card">
+        <div class="orbit-card-header orbit-muted orbit-small">@run.FilterSummary</div>
+        @if (run.Counts is { } counts)
+        {
+            @if (counts.Rows.Count == 0)
+            {
+                <p class="orbit-empty">No data for the selected filters.</p>
+            }
+            else
+            {
+                var max = counts.Rows.Max(r => r.Count);
+                var shared = counts.Rows.Sum(r => r.Count) != counts.Total;
+                <div class="orbit-table-wrap">
+                    <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks orbit-report">
+                        <thead>
+                            <tr><th style="width:30%">Person</th><th style="width:10%" class="text-right">Count</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var r in counts.Rows)
+                            {
+                                <tr>
+                                    <td>@r.Name</td>
+                                    <td class="text-right"><b>@r.Count</b></td>
+                                    <td><MudProgressLinear Value="@ReportText.Share(r.Count, max)" Color="Color.Primary" Rounded="true" Size="Size.Medium" /></td>
+                                </tr>
+                            }
+                        </tbody>
+                        <tfoot>
+                            <tr>
+                                <td><b>Total</b></td>
+                                <td class="text-right"><b>@counts.Total</b></td>
+                                <td class="orbit-muted">@(shared ? "A task with several assignees counts under each of them, and once here." : "")</td>
+                            </tr>
+                        </tfoot>
+                    </MudSimpleTable>
+                </div>
+            }
+        }
+        else if (run.MeanTime is { } m)
+        {
+            @if (m.OverallCount == 0)
+            {
+                <p class="orbit-empty">No data for the selected filters.</p>
+            }
+            else
+            {
+                var max = m.Rows.Count == 0 ? 0 : m.Rows.Max(r => r.AverageHours);
+                <div class="orbit-table-wrap">
+                    <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks orbit-report">
+                        <thead>
+                            <tr>
+                                <th style="width:30%">Assignee</th><th style="width:10%" class="text-right">Tasks</th>
+                                <th style="width:15%" class="text-right">Average</th><th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var r in m.Rows)
+                            {
+                                <tr>
+                                    <td>@r.Name</td>
+                                    <td class="text-right">@r.Count</td>
+                                    <td class="text-right"><b>@DurationFormat.Hours(r.AverageHours)</b></td>
+                                    <td><MudProgressLinear Value="@ReportText.Share(r.AverageHours, max)" Color="Color.Info" Rounded="true" Size="Size.Medium" /></td>
+                                </tr>
+                            }
+                        </tbody>
+                        <tfoot>
+                            <tr>
+                                <td><b>Overall</b></td>
+                                <td class="text-right"><b>@m.OverallCount</b></td>
+                                <td class="text-right"><b>@DurationFormat.Hours(m.OverallAverageHours)</b></td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </MudSimpleTable>
+                </div>
+            }
+        }
+        else if (run.TimeByPerson is { } time)
+        {
+            <ReportTimeByPerson @key="run" Report="time" />
+        }
+        else if (run.EstimateAccuracy is { } accuracy)
+        {
+            <ReportEstimateAccuracy @key="run" Report="accuracy" />
+        }
+        else if (run.ProjectReport is { } projects)
+        {
+            <ReportProjectStatus @key="run" Report="projects" />
+        }
+        else if (run.AssetReport is { } assets)
+        {
+            <ReportAssetStatus @key="run" Report="assets" />
+        }
+    </MudPaper>
+}
+
+@code {
+    // Every filter is read from the address as text and parsed leniently (ReportAddress): a bad value is no filter.
+    [SupplyParameterFromQuery(Name = ReportRun.KindKey)] public string? Kind { get; set; }
+    [SupplyParameterFromQuery(Name = ReportRun.FromKey)] public string? From { get; set; }
+    [SupplyParameterFromQuery(Name = ReportRun.ToKey)] public string? To { get; set; }
+    [SupplyParameterFromQuery(Name = ReportRun.ProjectKey)] public string? ProjectId { get; set; }
+    [SupplyParameterFromQuery(Name = ReportRun.DepartmentKey)] public string? DepartmentId { get; set; }
+    [SupplyParameterFromQuery(Name = ReportRun.OwnerKey)] public string? OwnerId { get; set; }
+    [SupplyParameterFromQuery(Name = ReportRun.AssigneeKey)] public string? AssigneeId { get; set; }
+
+    private ReportRun? _run;
+    private IReadOnlyList<(string Value, string Text)> _departments = [], _projects = [], _owners = [], _assignees = [];
+    private bool _loading;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var address = ReportAddress.Parse(Kind, From, To, ProjectId, DepartmentId, OwnerId, AssigneeId);
+        _loading = true;
+        await Load(async s =>
+        {
+            var run = await ReportRun.RunAsync(s, address, withOptions: true);
+            _departments = WithAll(run.DepartmentOptions);
+            _projects = WithAll(run.ProjectOptions);
+            _owners = WithAll(run.OwnerOptions);
+            _assignees = WithAll(run.AssigneeOptions);
+            _run = run;
+        });
+        _loading = false;
+    }
+
+    /// <summary>Applies a changed filter: the report reloads at its new address, as the Razor page's Run button did.</summary>
+    private void Go(string key, string? value) => Nav.NavigateTo($"/Reports/View?{_run!.Query(key, value)}");
+
+    private static IReadOnlyList<(string Value, string Text)> WithAll(IReadOnlyList<(string Value, string Text)> options) => [("", "All"), .. options];
+
+}

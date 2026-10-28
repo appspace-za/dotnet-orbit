@@ -1,0 +1,315 @@
+@page "/RequestCatalogue/Flow/{Id:guid}"
+@inherits OrbitComponentBase
+@* One request flow (spec §6.20): its fields, archive/restore and delete, its badges, Switch on / Switch off (not while archived),
+   Try it once it is offered; its steps in order - number, title, kind, key, what each waits for, the Start form and Not set up
+   badges and a line of its settings - each moved up or down or opened to set it up (its own page); a form to add a step; and a
+   warning while requests are in progress. The flow's fields show it as stored on opening and after saving; the other changes
+   reload the page and leave them, and the new step's, as typed. *@
+
+<PageTitle>@(_flow is null ? "Request flow" : $"Configure {_flow.Title}") - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (!Loaded || _flow is null || _flow.Id != Id)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var f = _flow;
+    var c = f.Category;
+    var steps = f.Steps.ToList();
+    var byId = steps.ToDictionary(s => s.Id);
+    var live = RequestFlowRules.IsLive(f);
+    var start = RequestFlowRules.StartForm(f);
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/RequestCatalogue">Request flows</a><span class="orbit-crumb-sep">/</span><a href="@($"/RequestCatalogue/Category/{c.Id}")">@c.Title</a><span class="orbit-crumb-sep">/</span><span aria-current="page">@f.Title</span>
+    </nav>
+    <div class="orbit-page-header">
+        <div>
+            <div class="orbit-gap-row">
+                <MudText Typo="Typo.h5" HtmlTag="h1">@f.Title</MudText>
+                <RequestFlowBadges Flow="f" Large="true" />
+            </div>
+            <div class="orbit-subtitle">A flow of <strong>@c.Title</strong> (@c.Department.Name).</div>
+        </div>
+        <div class="orbit-actions">
+            @if (live && _canSubmit)
+            {
+                <MudButton Href="@($"/Requests/Start/{f.Id}")" Variant="Variant.Outlined" Size="Size.Small">Try it (logs a real request)</MudButton>
+            }
+            @if (!f.IsArchived)
+            {
+                if (f.IsEnabled)
+                {
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="_busy" OnClick="() => SetEnabledAsync(false)">Switch off</MudButton>
+                }
+                else
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Small" Disabled="_busy" OnClick="() => SetEnabledAsync(true)">Switch on</MudButton>
+                }
+            }
+        </div>
+    </div>
+
+    @if (!f.IsArchived && !f.IsEnabled && RequestFlowRules.IsReady(f))
+    {
+        <MudAlert Severity="Severity.Normal" Dense="true" Class="mb-3">Set up but switched off: nobody can log it until you switch it on.</MudAlert>
+    }
+    @if (_inProgress > 0)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+            @($"{_inProgress} {(_inProgress == 1 ? "request is" : "requests are")} in progress through this flow.") Titles, help text, templates, assignees
+            and approvers may change and apply to the steps they haven't reached; steps, keys, dependencies and fields can't change until they finish.
+        </MudAlert>
+    }
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" lg="5">
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Flow</b></div>
+                <div class="orbit-card-body orbit-form">
+                    <MudTextField T="string" @bind-Value="_form.Title" Label="Title" MaxLength="RequestFlowRules.MaxFlowTitleLength" Required="true"
+                                  RequiredError="A title is required." Variant="Variant.Outlined" Immediate="true" />
+                    <MudTextField T="string" @bind-Value="_form.Description" Label="Description (optional)" MaxLength="RequestFlowRules.MaxDescriptionLength"
+                                  Variant="Variant.Outlined" />
+                    <div><MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="SaveAsync">Save</MudButton></div>
+                </div>
+                <MudDivider />
+                <div class="orbit-card-body orbit-actions">
+                    @if (f.IsArchived)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Success" Disabled="_busy" OnClick="() => SetArchivedAsync(false)">Restore flow</MudButton>
+                    }
+                    else
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="_busy" OnClick="() => SetArchivedAsync(true)">Archive flow</MudButton>
+                    }
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="DeleteAsync">Delete flow</MudButton>
+                </div>
+            </MudPaper>
+
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Add a step</b></div>
+                <div class="orbit-card-body orbit-form">
+                    <div>
+                        <MudSelect T="RequestStepKind" @bind-Value="_newStep.Kind" Label="Kind" ToStringFunc="@(k => k.Label())" Variant="Variant.Outlined" Class="orbit-field-sm">
+                            @foreach (var k in Enum.GetValues<RequestStepKind>())
+                            {
+                                <MudSelectItem T="RequestStepKind" Value="k">@k.Label()</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <div class="orbit-help">The kind can't change afterwards; delete the step and add another instead.</div>
+                    </div>
+                    <MudTextField T="string" @bind-Value="_newStep.Title" Label="Title" Placeholder="e.g. Product details" MaxLength="RequestFlowRules.MaxStepTitleLength"
+                                  Required="true" RequiredError="A title is required." Variant="Variant.Outlined" Immediate="true" />
+                    <div>
+                        <MudTextField T="string" @bind-Value="_newStep.Key" Label="Key (optional)" Placeholder="from the title, e.g. product-details"
+                                      MaxLength="RequestFlowRules.MaxKeyLength" Variant="Variant.Outlined" Class="orbit-key" />
+                        <div class="orbit-help">How later steps refer to this one: <code>{{product-details.description}}</code>. Letters, digits and hyphens.</div>
+                    </div>
+                    <div><MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="AddStepAsync">Add step</MudButton></div>
+                </div>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" lg="7">
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><span><b>Steps</b> <span class="orbit-muted">(@steps.Count)</span></span></div>
+                @if (steps.Count == 0)
+                {
+                    <p class="orbit-empty">No steps yet. A flow usually starts with a form for the person asking.</p>
+                }
+                else
+                {
+                    for (var i = 0; i < steps.Count; i++)
+                    {
+                        var s = steps[i];
+                        var number = i + 1;
+                        var first = i == 0;
+                        var last = i == steps.Count - 1;
+                        var problems = string.Join("; ", RequestFlowRules.Problems(s));
+                        <div class="orbit-list-item orbit-gap-row" @key="s.Id">
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" aria-label="@($"Step {number}")">@number</MudChip>
+                            <div class="orbit-grow" style="min-width: 12rem">
+                                <span class="orbit-gap-row">
+                                    <a href="@($"/RequestCatalogue/Step/{s.Id}")"><b>@s.Title</b></a>
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@s.Kind.Label()</MudChip>
+                                    <code class="orbit-small orbit-muted">@s.Key</code>
+                                    @if (s.Id == start?.Id)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info" title="The form shown when the request is logged">Start form</MudChip>
+                                    }
+                                    @if (problems.Length > 0)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Warning" title="@problems">Not set up: @problems</MudChip>
+                                    }
+                                </span>
+                                <div class="orbit-small orbit-muted">@Settings(s, byId)</div>
+                            </div>
+                            <div class="orbit-gap-row">
+                                <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small" Variant="Variant.Outlined" Disabled="@(_busy || first)"
+                                               OnClick="() => MoveStepAsync(s.Id, -1)" title="Move up" aria-label="@($"Move {s.Title} up")" />
+                                <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small" Variant="Variant.Outlined" Disabled="@(_busy || last)"
+                                               OnClick="() => MoveStepAsync(s.Id, 1)" title="Move down" aria-label="@($"Move {s.Title} down")" />
+                                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Href="@($"/RequestCatalogue/Step/{s.Id}")">Set up</MudButton>
+                            </div>
+                        </div>
+                    }
+                    <div class="orbit-card-footer">
+                        The order is how steps are shown; what waits for what is set on each step. The start form is the first form with nothing to wait for,
+                        performed by the person asking.
+                    </div>
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private RequestFlow? _flow;
+    /// <summary>Requests in progress through the flow: the page warns, and the service refuses structural changes (§6.20).</summary>
+    private int _inProgress;
+    /// <summary>Whether Try it (the Requests page's start, requests.submit) would open.</summary>
+    private bool _canSubmit;
+    private bool _busy;
+    private FlowForm _form = new();
+    private StepAddForm _newStep = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Another flow's page is this component with a new Id, so each starts afresh.
+        _flow = null;
+        _newStep = new StepAddForm();
+        if (await LoadFlowAsync()) _form = FlowForm.From(_flow!);
+    }
+
+    /// <summary>The flow with its category, department and steps in order, and how many requests are in progress through it.</summary>
+    private async Task<bool> LoadFlowAsync()
+    {
+        var id = Id;
+        return await Load(async s =>
+        {
+            var actor = await s.Get<IActorProvider>().GetAsync();
+            var catalogue = s.Get<RequestCatalogueService>();
+            // GetFlowAsync checks the caller configures the flow's department before the count is read.
+            var flow = await catalogue.GetFlowAsync(id);
+            _inProgress = await catalogue.InProgressRequestCountAsync(id);
+            _canSubmit = AccessPolicy.CanSubmitRequests(actor);
+            _flow = flow;
+        });
+    }
+
+    /// <summary>The line under a step: what it waits for (and on which outcome of an approval), then its settings by kind.</summary>
+    private static string Settings(RequestFlowStep s, IReadOnlyDictionary<Guid, RequestFlowStep> byId)
+    {
+        var dependsOn = s.Dependencies
+            .Select(d => byId.TryGetValue(d.DependsOnStepId, out var on)
+                ? on.Title + (d.RequiredOutcome is null ? "" : $" ({d.RequiredOutcome.ToString()!.ToLowerInvariant()})")
+                : "?")
+            .ToList();
+        var text = dependsOn.Count == 0 ? "Starts straight away" : $"After {string.Join(" and ", dependsOn)}";
+        var performer = s.PerformedBy?.DisplayName ?? "the person asking";
+        return text + (s.Kind switch
+        {
+            RequestStepKind.Form => $" · {(s.Fields.Count == 1 ? "1 field" : $"{s.Fields.Count} fields")} · {performer}",
+            RequestStepKind.Approval => $" · {(s.Stages.Count == 1 ? "1 stage" : $"{s.Stages.Count} stages")}",
+            RequestStepKind.Task => $" · {s.TaskType} task in {s.TaskDepartment?.Name ?? "?"} · "
+                + (s.Assignees.Count == 0 ? "unassigned" : string.Join(", ", s.Assignees.Select(a => a.User.DisplayName))),
+            RequestStepKind.Action => $" · {s.Action?.Name ?? "no action chosen"}",
+            RequestStepKind.Url => $" · {Ui.Truncate(s.Url, 50)} · {performer}",
+            _ => ""
+        });
+    }
+
+    private async Task SaveAsync()
+    {
+        var id = _flow!.Id;
+        var input = _form.ToInput();
+        _busy = true;
+        RequestFlow? saved = null;
+        if (await Act(async s => saved = await s.Get<RequestCatalogueService>().UpdateFlowAsync(id, input)))
+        {
+            Success($"Flow \"{saved!.Title}\" saved.");
+            if (await LoadFlowAsync()) _form = FlowForm.From(_flow!);
+        }
+        _busy = false;
+    }
+
+    /// <summary>Archive: no longer offered; requests in progress carry on and nothing is deleted. Restoring doesn't ask.</summary>
+    private async Task SetArchivedAsync(bool archived)
+    {
+        var id = _flow!.Id;
+        if (archived && !await Confirm("Archive flow", "Archive this flow? It stops being offered; requests in progress carry on and nothing is deleted.", "Archive")) return;
+        _busy = true;
+        if (await Act(s => s.Get<RequestCatalogueService>().SetFlowArchivedAsync(id, archived)))
+        {
+            Success(archived ? "Flow archived: no longer offered. Requests in progress carry on." : "Flow restored.");
+            await LoadFlowAsync();
+        }
+        _busy = false;
+    }
+
+    /// <summary>Switch the flow on or off (§6.20); the message says whether it is offered now.</summary>
+    private async Task SetEnabledAsync(bool enabled)
+    {
+        var id = _flow!.Id;
+        _busy = true;
+        RequestFlow? flow = null;
+        if (await Act(async s => flow = await s.Get<RequestCatalogueService>().SetFlowEnabledAsync(id, enabled)))
+        {
+            Success(FlowSwitch.Message(flow!));
+            await LoadFlowAsync();
+        }
+        _busy = false;
+    }
+
+    /// <summary>Delete the flow with its steps, then show its category; the service refuses once a request was logged through it.</summary>
+    private async Task DeleteAsync()
+    {
+        var f = _flow!;
+        var id = f.Id;
+        var count = f.Steps.Count;
+        if (!await Confirm("Delete flow", $"Delete the flow \"{f.Title}\" with its {count} {(count == 1 ? "step" : "steps")}? Only possible while no request was logged through it.")) return;
+        _busy = true;
+        string? title = null;
+        var categoryId = Guid.Empty;
+        if (await Act(async s =>
+            {
+                var catalogue = s.Get<RequestCatalogueService>();
+                title = (await catalogue.GetFlowAsync(id)).Title;
+                categoryId = await catalogue.DeleteFlowAsync(id);
+            }))
+        {
+            Success($"Flow \"{title}\" deleted.");
+            Nav.NavigateTo($"/RequestCatalogue/Category/{categoryId}");
+        }
+        _busy = false;
+    }
+
+    private async Task AddStepAsync()
+    {
+        var id = _flow!.Id;
+        var input = _newStep.ToInput();
+        _busy = true;
+        RequestFlowStep? added = null;
+        if (await Act(async s => added = await s.Get<RequestCatalogueService>().AddStepAsync(id, input)))
+        {
+            Success($"Step \"{added!.Title}\" added. Now set it up.");
+            Nav.NavigateTo($"/RequestCatalogue/Step/{added.Id}");
+        }
+        _busy = false;
+    }
+
+    /// <summary>Moves a step one place up (-1) or down (+1); only how steps are shown, not when they run (§6.20).</summary>
+    private async Task MoveStepAsync(Guid stepId, int direction)
+    {
+        _busy = true;
+        if (await Act(s => s.Get<RequestCatalogueService>().MoveStepAsync(stepId, direction))) await LoadFlowAsync();
+        _busy = false;
+    }
+}

@@ -1,0 +1,239 @@
+@page "/Tasks"
+@page "/Tasks/Index"
+@inherits OrbitListPage
+@using Orbit.Application.Assets
+@* The Tasks list (spec §6.2): every task the viewer may see, filtered and paged, with the rows' live controls. The filters
+   live in the address, in the Razor page's keys (old links and bookmarks still work), and are remembered for the browser
+   session (OrbitListPage). Changing a filter applies it at once. *@
+
+<PageTitle>Tasks - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_result is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <div class="orbit-page-header">
+        <MudText Typo="Typo.h5" HtmlTag="h1">
+            Tasks <span class="orbit-subtitle">@_result.TotalCount</span>
+            @if (FilterChoice.Id(ParentTaskId) is not null)
+            {
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Href="/Tasks" title="Show the whole list again">Subtasks of one task · clear</MudChip>
+            }
+        </MudText>
+        @if (_actor!.Has(Permission.TasksCreate))
+        {
+            <MudButton Href="/Tasks/Create" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">New task</MudButton>
+        }
+    </div>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        <div class="orbit-filters">
+            <MudTextField T="string" Value="Search" ValueChanged="v => GoAsync(nameof(Search), v)" Label="Search" Placeholder="title or description"
+                          DebounceInterval="500" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-filter orbit-filter-wide" />
+            @if (_canSeeAll)
+            {
+                <FilterSelect Label="Department" Value="@DepartmentId" ValueChanged="v => GoAsync(nameof(DepartmentId), v)" Options="_departments" />
+            }
+            <FilterSelect Label="Project" Value="@ProjectChoice" ValueChanged="v => GoAsync(ProjectKey, v)" Options="_projects"
+                          Title="An open project, or None for the tasks on no project" />
+            <FilterSelect Label="Sprint" Value="@SprintChoice" ValueChanged="v => GoAsync(SprintKey, v)" Options="_sprintOptions"
+                          Title="A planned or active sprint, or Backlog for the tasks in no sprint" />
+            @if (FilterChoice.Id(AssetId) is not null)
+            {
+                <div class="orbit-filter orbit-filter-wide">
+                    <MudChip T="string" Variant="Variant.Outlined" OnClose="@(_ => GoAsync(nameof(AssetId), null))" title="Only tasks about this asset">Asset: @_assetLabel</MudChip>
+                </div>
+            }
+            else if (_canFilterByAsset)
+            {
+                <AssetPicker Label="Asset" Class="orbit-filter orbit-filter-wide" Picked="a => GoAsync(nameof(AssetId), a.Id.ToString())" />
+            }
+            <FilterSelect Label="Status" Value="@StatusChoice" ValueChanged="v => GoAsync(StatusKey, v)" Options="StatusOptions" />
+            <FilterSelect Label="Assignee" Value="@AssigneeChoice" ValueChanged="v => GoAsync(AssigneeKey, v)" Options="_assignees"
+                          Title="One of the people the task is assigned to, or None for the tasks nobody is assigned to" />
+            <FilterSelect Label="Requestee" Value="@RequesteeChoice" ValueChanged="v => GoAsync(RequesteeKey, v)" Options="_requestees"
+                          Title="Whom the task was created for - with Me, also your own tasks other departments hold; None for the tasks created for nobody else" />
+            <FilterSelect Label="Priority" Value="@PriorityChoice" ValueChanged="v => GoAsync(PriorityKey, v)" Options="PriorityOptions" />
+            <FilterSelect Label="Type" Value="@TypeChoice" ValueChanged="v => GoAsync(TypeKey, v)" Options="TypeOptions" />
+            <FilterSelect Label="Source" Value="@SourceChoice" ValueChanged="v => GoAsync(SourceKey, v)" Options="SourceOptions" />
+            <MudDatePicker Label="Due after" Date="@PickerDate.Parse(DueAfter)" DateChanged="d => GoAsync(nameof(DueAfter), PickerDate.Write(d))" DateFormat="yyyy-MM-dd"
+                           Editable="true" Clearable="true" AutoClose="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-filter" />
+            <MudDatePicker Label="Due before" Date="@PickerDate.Parse(DueBefore)" DateChanged="d => GoAsync(nameof(DueBefore), PickerDate.Write(d))" DateFormat="yyyy-MM-dd"
+                           Editable="true" Clearable="true" AutoClose="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-filter" />
+            <MudCheckBox T="bool" Value="FilterQuery.Flag(OpenOnly)" ValueChanged="v => GoAsync(nameof(OpenOnly), v ? FilterQuery.Yes : null)" Label="Open only" Dense="true" Color="Color.Primary" />
+            <MudCheckBox T="bool" Value="FilterQuery.Flag(PlannedToday)" ValueChanged="v => GoAsync(nameof(PlannedToday), v ? FilterQuery.Yes : null)" Label="Planned today" Dense="true" Color="Color.Primary" />
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="ResetAsync"
+                       title="Clear the filters - they are remembered for this browser session until you reset them">Reset</MudButton>
+        </div>
+    </MudPaper>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        <TaskTable Tasks="_result.Items" Actor="_actor" Today="_today" ShowDepartment="TaskLook.MixesDepartments(_actor, _result.Items)"
+                   ShowSprint="true" ShowPlanToday="true" QuickEditAssignees="_quickEditAssignees" QuickEditSprints="_openSprints"
+                   Waiting="_waiting" EmptyMessage="No tasks match these filters." Changed="ReloadAsync" />
+        @if (_result.TotalPages > 1)
+        {
+            <div class="orbit-card-footer orbit-list-row">
+                <span>Page @_result.Page of @_result.TotalPages</span>
+                <MudStack Row="true" Spacing="1">
+                    @if (_result.HasPrevious) { <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@PageUrl(_result.Page - 1)">Previous</MudButton> }
+                    @if (_result.HasNext) { <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@PageUrl(_result.Page + 1)">Next</MudButton> }
+                </MudStack>
+            </div>
+        }
+    </MudPaper>
+}
+
+@code {
+    private const string ProjectKey = "ProjectId", SprintKey = "Sprint", StatusKey = "Status", AssigneeKey = "AssigneeId",
+        RequesteeKey = "RequesteeId", PriorityKey = "Priority", TypeKey = "Type", SourceKey = "Source";
+
+    /// <summary>
+    /// The filter fields remembered for the session (§6.2), in the Razor page's keys. The page number and the one-off
+    /// "subtasks of one task" drill-down are not: a drill-down neither replaces nor is replaced by the remembered filter.
+    /// </summary>
+    private static readonly string[] RememberedFilters =
+    [
+        nameof(Search), nameof(DepartmentId), ProjectKey, StatusKey, AssigneeKey, PriorityKey, TypeKey, SourceKey,
+        nameof(DueAfter), nameof(DueBefore), nameof(OpenOnly), nameof(PlannedToday), nameof(PlannedFor), nameof(AssetId),
+        RequesteeKey, SprintKey
+    ];
+
+    protected override string MemoryKey => "tasks";
+    protected override IReadOnlyList<string> FilterKeys => RememberedFilters;
+    protected override IReadOnlyList<string> CarriedKeys => [nameof(ParentTaskId)];
+
+    // Every filter is read from the address as text and parsed leniently, as the Razor page's binding did: a bad value is no filter.
+    [SupplyParameterFromQuery] public string? Search { get; set; }
+    [SupplyParameterFromQuery] public string? DepartmentId { get; set; }
+    /// <summary>Project, Assignee and Requestee: empty for all, "none" for the tasks with none (<see cref="FilterChoice"/>), or an id.</summary>
+    [SupplyParameterFromQuery(Name = ProjectKey)] public string? ProjectChoice { get; set; }
+    /// <summary>Empty for all, "backlog" for the tasks in no sprint, or a sprint's id.</summary>
+    [SupplyParameterFromQuery(Name = SprintKey)] public string? SprintChoice { get; set; }
+    [SupplyParameterFromQuery(Name = StatusKey)] public string? StatusChoice { get; set; }
+    [SupplyParameterFromQuery(Name = AssigneeKey)] public string? AssigneeChoice { get; set; }
+    [SupplyParameterFromQuery(Name = RequesteeKey)] public string? RequesteeChoice { get; set; }
+    [SupplyParameterFromQuery(Name = PriorityKey)] public string? PriorityChoice { get; set; }
+    [SupplyParameterFromQuery(Name = TypeKey)] public string? TypeChoice { get; set; }
+    [SupplyParameterFromQuery(Name = SourceKey)] public string? SourceChoice { get; set; }
+    [SupplyParameterFromQuery] public string? DueAfter { get; set; }
+    [SupplyParameterFromQuery] public string? DueBefore { get; set; }
+    [SupplyParameterFromQuery] public string? PlannedFor { get; set; }
+    [SupplyParameterFromQuery] public string? OpenOnly { get; set; }
+    [SupplyParameterFromQuery] public string? PlannedToday { get; set; }
+    [SupplyParameterFromQuery] public string? AssetId { get; set; }
+    [SupplyParameterFromQuery] public string? ParentTaskId { get; set; }
+    [SupplyParameterFromQuery] public string? PageNumber { get; set; }
+    /// <summary>"Reset": forget the remembered filter and show the plain list.</summary>
+    [SupplyParameterFromQuery] public string? Reset { get; set; }
+
+    private static readonly IReadOnlyList<(string Value, string Text)> StatusOptions = FilterSelect.EnumOptions<TaskItemStatus>(s => s.Label());
+    private static readonly IReadOnlyList<(string Value, string Text)> PriorityOptions = FilterSelect.EnumOptions<TaskPriority>();
+    private static readonly IReadOnlyList<(string Value, string Text)> TypeOptions = FilterSelect.EnumOptions<TaskType>();
+    private static readonly IReadOnlyList<(string Value, string Text)> SourceOptions = FilterSelect.EnumOptions<TaskSource>(Ui.SourceLabel);
+
+    private Actor? _actor;
+    private DateOnly _today;
+    private PagedResult<TaskItem>? _result;
+    private IReadOnlyDictionary<Guid, WaitingSummary> _waiting = new Dictionary<Guid, WaitingSummary>();
+    private IReadOnlyList<UserSummary> _quickEditAssignees = [];
+    private IReadOnlyList<Sprint> _openSprints = [];
+    private IReadOnlyList<(string Value, string Text)> _departments = [], _projects = [], _sprintOptions = [], _assignees = [], _requestees = [];
+    private bool _canSeeAll, _canFilterByAsset;
+    private string? _assetLabel;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (await GoToRememberedAsync(FilterQuery.Flag(Reset), oneOff: FilterChoice.Id(ParentTaskId) is not null)) return;
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        await Load(async s =>
+        {
+            var actor = await s.Get<IActorProvider>().GetAsync();
+            var users = s.Get<UserDirectoryService>();
+            var sprints = s.Get<SprintService>();
+            var canSeeAll = actor.CanAnywhere(Permission.TasksView);
+            var departmentId = FilterChoice.Id(DepartmentId);
+            var filter = new TaskFilter
+            {
+                Search = Search,
+                DepartmentId = departmentId,
+                NoProject = FilterChoice.IsNone(ProjectChoice),
+                ProjectId = FilterChoice.Id(ProjectChoice),
+                BacklogOnly = SprintChoice == "backlog",
+                SprintId = FilterChoice.Id(SprintChoice),
+                Status = FilterQuery.Enum<TaskItemStatus>(StatusChoice),
+                Unassigned = FilterChoice.IsNone(AssigneeChoice),
+                AssigneeId = FilterChoice.Id(AssigneeChoice),
+                NoRequestee = FilterChoice.IsNone(RequesteeChoice),
+                RequesteeId = FilterChoice.Id(RequesteeChoice),
+                Priority = FilterQuery.Enum<TaskPriority>(PriorityChoice),
+                Type = FilterQuery.Enum<TaskType>(TypeChoice),
+                Source = FilterQuery.Enum<TaskSource>(SourceChoice),
+                DueAfter = FilterQuery.Date(DueAfter),
+                DueBefore = FilterQuery.Date(DueBefore),
+                PlannedFor = FilterQuery.Date(PlannedFor),
+                OpenOnly = FilterQuery.Flag(OpenOnly),
+                PlannedToday = FilterQuery.Flag(PlannedToday),
+                AssetId = FilterChoice.Id(AssetId),
+                ParentTaskId = FilterChoice.Id(ParentTaskId),
+                Page = int.TryParse(PageNumber, out var page) && page > 0 ? page : 1,
+                PageSize = 50
+            };
+            var result = await s.Get<TaskService>().ListAsync(filter);
+            _waiting = await s.Get<TaskStructureService>().GetWaitingAsync(result.Items);
+
+            _departments = canSeeAll
+                ? [("", "All"), .. (await s.Get<DepartmentService>().ListAsync(true)).Select(d => (d.Id.ToString(), d.Name))]
+                : [];
+            _projects =
+            [
+                ("", "All"), (FilterChoice.None, "None"),
+                .. (await s.Get<ProjectService>().ListOpenForPickerAsync(departmentId))
+                    .Select(p => (p.Id.ToString(), canSeeAll ? $"{p.Department.Name} / {p.Name}" : p.Name))
+            ];
+            var people = canSeeAll
+                ? await users.ListAsync(null, departmentId, false)
+                : actor.DepartmentId is Guid ownDept ? await users.GetAssignableAsync(ownDept) : [];
+            _assignees = [("", "All"), (FilterChoice.None, "None"), .. people.Select(u => (u.Id.ToString(), u.DisplayName))];
+            // The Requestee filter (§6.2.2): "Me" first, then the same people. Someone outside the list (another department's
+            // person, from a shared link) stays selected rather than silently dropped.
+            var requestees = new List<(string, string)> { ("", "All"), (FilterChoice.None, "None") };
+            if (actor.UserId is Guid me) requestees.Add((me.ToString(), "Me"));
+            requestees.AddRange(people.Where(u => u.Id != actor.UserId).Select(u => (u.Id.ToString(), u.DisplayName)));
+            if (filter.RequesteeId is Guid requesteeId && requestees.All(r => r.Item1 != requesteeId.ToString())
+                && await users.FindAsync(requesteeId) is { } requestee)
+                requestees.Add((requestee.Id.ToString(), requestee.DisplayName));
+            _requestees = requestees;
+
+            // The filter may be narrowed to one department; the inline control needs candidates for every listed task.
+            _quickEditAssignees = await users.GetQuickEditCandidatesAsync();
+            _openSprints = await sprints.ListOpenAsync();
+            var sprintOptions = new List<(string, string)> { ("", "All"), ("backlog", "Backlog (no sprint)") };
+            sprintOptions.AddRange(_openSprints.Select(sp => (sp.Id.ToString(), $"{sp.Name} ({sp.Status})")));
+            // A remembered or linked sprint that has since been completed stays selected rather than silently dropped.
+            if (filter.SprintId is Guid chosen && _openSprints.All(sp => sp.Id != chosen))
+                sprintOptions.Add((chosen.ToString(), await sprints.FindAsync(chosen) is { } sprint ? $"{sprint.Name} ({sprint.Status})" : "Unknown sprint"));
+            _sprintOptions = sprintOptions;
+
+            _canFilterByAsset = actor.Has(Permission.AssetsView);
+            _assetLabel = filter.AssetId is Guid assetId
+                ? await s.Get<AssetService>().GetRefAsync(assetId) is { } asset ? AssetRules.Label(asset.AssetNumber, asset.Name) : "(an asset you can't see)"
+                : null;
+
+            _canSeeAll = canSeeAll;
+            _today = DateOnly.FromDateTime(DateTime.UtcNow);
+            _actor = actor;
+            _result = result;
+        });
+    }
+}

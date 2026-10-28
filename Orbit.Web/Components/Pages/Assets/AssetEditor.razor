@@ -1,0 +1,358 @@
+@inherits OrbitComponentBase
+@using Orbit.Application.Assets
+@* The asset form (spec §6.19), for a new asset (AssetCreate, blank or copied from another) or an existing one (AssetEdit):
+   identification, the managing department and type, details, the type's properties, purchase and warranty, status and
+   location, and who holds it. The department can be chosen by whoever registers anywhere (new) or edits anywhere (a move);
+   changing it offers that department's types and locations. Changing the type shows which property values carry over. *@
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (!Loaded)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Assets">Assets</a>
+        @if (_asset is not null)
+        {
+            <span class="orbit-crumb-sep">/</span><a href="@($"/Assets/Details/{_asset.Id}")">@_asset.Name</a>
+            <span class="orbit-crumb-sep">/</span><span aria-current="page">Edit</span>
+        }
+        else
+        {
+            <span class="orbit-crumb-sep">/</span><span aria-current="page">Register</span>
+        }
+    </nav>
+    <MudText Typo="Typo.h5" HtmlTag="h1" Class="mb-3">
+        @if (_asset is null) { <span>Register asset</span> }
+        else { <span>Edit asset <span class="orbit-subtitle">@_asset.Name</span></span> }
+    </MudText>
+
+    @if (_copiedFrom is { } source)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+            Copied from <a href="@($"/Assets/Details/{source.Id}")">@AssetRules.Label(source.AssetNumber, source.Name)</a>.
+            Enter this item's own ERP asset number and serial number. Holders, checks, comments and files aren't copied.
+        </MudAlert>
+    }
+
+    @* The page's full width, each section's fields in columns that stack on a narrow screen (as the task form's do). *@
+    <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-form orbit-form-full">
+        <div class="orbit-section-title">Identification</div>
+        <MudGrid Spacing="3">
+            <MudItem xs="12" md="6">
+                <MudTextField T="string" @bind-Value="_form.Name" Label="Name" MaxLength="200" Required="true" RequiredError="Give the asset a name."
+                              Variant="Variant.Outlined" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudTextField T="string" @bind-Value="_form.AssetNumber" Label="ERP asset number" MaxLength="50" Placeholder="Optional"
+                              Variant="Variant.Outlined" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                @if (_canChooseDepartment)
+                {
+                    <MudSelect T="Guid" Value="_form.DepartmentId ?? Guid.Empty" ValueChanged="DepartmentChangedAsync" Label="Managing department"
+                               Variant="Variant.Outlined" Disabled="_busy"
+                               ToStringFunc="@(id => _departments.FirstOrDefault(d => d.Id == id)?.Name ?? "- choose -")">
+                        @foreach (var d in _departments)
+                        {
+                            <MudSelectItem T="Guid" Value="d.Id">@d.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                }
+                else
+                {
+                    <MudTextField T="string" Value="_departmentName" Label="Managing department" ReadOnly="true" Disabled="true"
+                                  Variant="Variant.Outlined" />
+                }
+            </MudItem>
+        </MudGrid>
+        <div class="orbit-help mt-0">
+            ERP asset number: its number in the ERP asset register, if it's on it.
+            @if (_asset is not null && _canChooseDepartment)
+            {
+                <span>Moving the asset to another department means choosing one of its types, and one of its locations or none.</span>
+            }
+        </div>
+        <MudGrid Spacing="3">
+            <MudItem xs="12" md="6">
+                <MudSelect T="Guid" Value="_form.AssetTypeId ?? Guid.Empty" ValueChanged="TypeChanged" Label="Type" Required="true"
+                           Variant="Variant.Outlined" ToStringFunc="TypeName"
+                           HelperText="@(_types.Count == 0 && _form.DepartmentId is not null ? "This department has no asset types yet. Someone who configures its assets adds them under Assets > Asset types." : null)"
+                           Error="@(_types.Count == 0 && _form.DepartmentId is not null)">
+                    <MudSelectItem T="Guid" Value="Guid.Empty">- choose -</MudSelectItem>
+                    @foreach (var t in _types)
+                    {
+                        <MudSelectItem T="Guid" Value="t.Id">@TypeName(t.Id)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+        </MudGrid>
+        <MudTextField T="string" @bind-Value="_form.Description" Label="Description" Lines="2" MaxLength="4000" Variant="Variant.Outlined" />
+
+        <div class="orbit-section-title">Details</div>
+        <MudGrid Spacing="3">
+            <MudItem xs="12" md="4">
+                <MudTextField T="string" @bind-Value="_form.Manufacturer" Label="Manufacturer" MaxLength="200" Variant="Variant.Outlined"
+                              list="asset-manufacturers" autocomplete="off" />
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudTextField T="string" @bind-Value="_form.Model" Label="Model" MaxLength="200" Variant="Variant.Outlined"
+                              list="asset-models" autocomplete="off" />
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudTextField T="string" @bind-Value="_form.SerialNumber" Label="Serial number" MaxLength="100" Variant="Variant.Outlined" />
+            </MudItem>
+        </MudGrid>
+        <datalist id="asset-manufacturers">@foreach (var v in _suggestions.Manufacturers) { <option value="@v"></option> }</datalist>
+        <datalist id="asset-models">@foreach (var v in _suggestions.Models) { <option value="@v"></option> }</datalist>
+        <datalist id="asset-suppliers">@foreach (var v in _suggestions.Suppliers) { <option value="@v"></option> }</datalist>
+
+        <div class="orbit-section-title">Properties</div>
+        <AssetPropertyInputs Fields="_fields" Values="_form.Properties" />
+
+        <div class="orbit-section-title">Purchase &amp; warranty</div>
+        <MudGrid Spacing="3">
+            <MudItem xs="12" sm="6" md="4" lg="2">
+                <MudDatePicker @bind-Date="PurchaseDate" Label="Purchase date" DateFormat="yyyy-MM-dd" Editable="true" Clearable="true" AutoClose="true"
+                               Variant="Variant.Outlined" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4" lg="2">
+                <MudTextField T="string" @bind-Value="_form.PurchaseValue" Label="Purchase value" Placeholder="e.g. 18500.00" Variant="Variant.Outlined"
+                              InputMode="@(InputMode.@decimal)" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4" lg="2">
+                <MudTextField T="string" @bind-Value="_form.PurchaseOrder" Label="Purchase order" MaxLength="100" Variant="Variant.Outlined" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4" lg="2">
+                <MudTextField T="string" @bind-Value="_form.InvoiceNumber" Label="Invoice number" MaxLength="100" Variant="Variant.Outlined" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4" lg="2">
+                <MudTextField T="string" @bind-Value="_form.Supplier" Label="Supplier" MaxLength="200" Variant="Variant.Outlined"
+                              list="asset-suppliers" autocomplete="off" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4" lg="2">
+                <MudDatePicker @bind-Date="WarrantyExpiresOn" Label="Warranty ends" DateFormat="yyyy-MM-dd" Editable="true" Clearable="true" AutoClose="true"
+                               Variant="Variant.Outlined" />
+            </MudItem>
+        </MudGrid>
+
+        <div class="orbit-section-title">Status &amp; location</div>
+        <MudGrid Spacing="3">
+            <MudItem xs="12" sm="6" md="3">
+                <MudSelect T="AssetStatus" Value="_form.Status" ValueChanged="StatusChanged" Label="Status" Variant="Variant.Outlined"
+                           ToStringFunc="@(s => s.Label())">
+                    @foreach (var s in Enum.GetValues<AssetStatus>())
+                    {
+                        <MudSelectItem T="AssetStatus" Value="s">@s.Label()</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            @if (_form.Status == AssetStatus.Disposed)
+            {
+                <MudItem xs="12" sm="6" md="3">
+                    <MudDatePicker @bind-Date="DisposedOn" Label="Disposed on" DateFormat="yyyy-MM-dd" Editable="true" AutoClose="true"
+                                   HelperText="Disposing removes everyone it is assigned to." Variant="Variant.Outlined" />
+                </MudItem>
+            }
+            <MudItem xs="12" md="6">
+                <MudSelect T="Guid" @bind-Value="LocationChoice" Label="Location" Variant="Variant.Outlined" ToStringFunc="LocationName">
+                    <MudSelectItem T="Guid" Value="Guid.Empty">- none -</MudSelectItem>
+                    @foreach (var l in _locations)
+                    {
+                        <MudSelectItem T="Guid" Value="l.Id">@LocationName(l.Id)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+        </MudGrid>
+
+        <div class="orbit-section-title">Assigned to</div>
+        <div>
+            <PeopleField Selected="_holders" Placeholder="Add a person who holds this asset..."
+                         Search="@((sp, q, ct) => sp.Get<UserDirectoryService>().SearchAssetHolderCandidatesAsync(q, 20, ct))" />
+            <div class="orbit-help">Anyone in the organisation can hold an asset, and several people can share one. Search to add someone; × removes them.</div>
+        </div>
+
+        <div class="orbit-gap-row mt-3">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="SaveAsync">@(_asset is null ? "Register asset" : "Save")</MudButton>
+            <MudButton Variant="Variant.Outlined" Href="@(_asset is null ? "/Assets" : $"/Assets/Details/{_asset.Id}")">Cancel</MudButton>
+        </div>
+    </MudPaper>
+
+    @if (_canDelete)
+    {
+        <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-danger-card">
+            <div class="orbit-gap-row">
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="DeleteAsync">Delete asset</MudButton>
+                <span class="orbit-muted orbit-small">For an asset registered by mistake. An asset that has been checked is disposed of instead.</span>
+            </div>
+        </MudPaper>
+    }
+}
+
+@code {
+    /// <summary>The asset to edit; null for a new one.</summary>
+    [Parameter] public Guid? AssetId { get; set; }
+    /// <summary>A new asset: the asset to copy (the asset page's Copy, §6.19).</summary>
+    [Parameter] public Guid? CopyFrom { get; set; }
+    /// <summary>A new asset: the department to register it in, for whoever registers anywhere.</summary>
+    [Parameter] public Guid? DepartmentId { get; set; }
+
+    private AssetForm _form = new();
+    private Asset? _asset;
+    private Asset? _copiedFrom;
+    private bool _canChooseDepartment, _canDelete, _busy;
+    private string? _departmentName;
+    private IReadOnlyList<Department> _departments = [];
+    private IReadOnlyList<AssetType> _types = [];
+    private IReadOnlyList<AssetLocation> _locations = [];
+    private AssetSuggestions _suggestions = new([], [], []);
+    private AssetPropertyFields _fields = new();
+    /// <summary>The chosen holders, shown as chips; saved as the form's AssigneeIds.</summary>
+    private List<UserSummary> _holders = [];
+
+    private DateTime? PurchaseDate { get => PickerDate.Of(_form.PurchaseDate); set => _form.PurchaseDate = PickerDate.Day(value); }
+    private DateTime? WarrantyExpiresOn { get => PickerDate.Of(_form.WarrantyExpiresOn); set => _form.WarrantyExpiresOn = PickerDate.Day(value); }
+    private DateTime? DisposedOn { get => PickerDate.Of(_form.DisposedOn); set => _form.DisposedOn = PickerDate.Day(value); }
+    private Guid LocationChoice { get => _form.AssetLocationId ?? Guid.Empty; set => _form.AssetLocationId = value == Guid.Empty ? null : value; }
+
+
+    protected override async Task OnParametersSetAsync() => await Load(async s =>
+    {
+        var actor = await s.Get<IActorProvider>().GetAsync();
+        var assets = s.Get<AssetService>();
+        if (AssetId is Guid id)
+        {
+            _asset = await assets.GetAsync(id);
+            AccessPolicy.Require(AccessPolicy.CanEditAsset(actor, _asset), "You don't have permission to edit this asset.");
+            var links = await assets.LinkCountsAsync(id);
+            // Only an asset with no checks or links can be deleted (§6.19); otherwise it is disposed.
+            _canDelete = AssetRules.DeleteBlocker(_asset.Checks.Count, links.Tasks, links.Recurring) is null;
+            _form = AssetForm.From(_asset);
+            _canChooseDepartment = actor.CanAnywhere(Permission.AssetsEdit);
+        }
+        else if (CopyFrom is Guid sourceId)
+        {
+            // A copy stays in the source's department: its type and location belong to it.
+            _copiedFrom = await assets.GetAsync(sourceId);
+            AccessPolicy.Require(AccessPolicy.CanCreateAssetIn(actor, _copiedFrom.DepartmentId),
+                "You don't have permission to register assets in this asset's department.");
+            _form = AssetForm.CopyOf(_copiedFrom);
+            _canChooseDepartment = actor.CanAnywhere(Permission.AssetsCreate);
+        }
+        else
+        {
+            _canChooseDepartment = actor.CanAnywhere(Permission.AssetsCreate);
+            _form = new AssetForm { DepartmentId = _canChooseDepartment ? DepartmentId ?? actor.DepartmentId : actor.DepartmentId };
+        }
+        var allDepartments = await s.Get<DepartmentService>().ListAsync(includeArchived: true);
+        _departments = _canChooseDepartment ? allDepartments.Where(d => !d.IsArchived || d.Id == _form.DepartmentId).ToList() : [];
+        _departmentName = allDepartments.FirstOrDefault(d => d.Id == _form.DepartmentId)?.Name;
+        (_types, _locations) = await ChoicesAsync(s, _form.DepartmentId);
+        _suggestions = await assets.SuggestionsAsync();
+        _holders = (await s.Get<UserDirectoryService>().FindManyAsync(_form.AssigneeIds)).ToList();
+        // The fields show the asset's values (an edit) or the source's (a copy, on the source's type).
+        SetFields(_types.FirstOrDefault(t => t.Id == _form.AssetTypeId), _asset ?? _copiedFrom);
+    });
+
+    /// <summary>
+    /// A department's types and locations. For the asset's own department its current type and location are offered even when
+    /// archived, so an edit can keep them.
+    /// </summary>
+    private async Task<(IReadOnlyList<AssetType>, IReadOnlyList<AssetLocation>)> ChoicesAsync(IServiceProvider s, Guid? departmentId)
+    {
+        if (departmentId is not Guid dept) return ([], []);
+        var own = _asset is not null && _asset.DepartmentId == dept;
+        var types = await s.Get<AssetTypeService>().ListForDepartmentAsync(dept, own ? _asset!.AssetTypeId : null);
+        var locations = await s.Get<AssetLocationService>().ListForDepartmentAsync(dept, own ? _asset!.AssetLocationId : null);
+        return (types.OrderBy(t => t.Category ?? "").ThenBy(t => t.Name).ToList(), locations);
+    }
+
+    private void SetFields(AssetType? type, Asset? valuesFrom)
+    {
+        _fields = AssetPropertyFields.For(type, valuesFrom);
+        var values = new Dictionary<string, string?>();
+        foreach (var p in _fields.Properties)
+        {
+            if (!_fields.Values.TryGetValue(p.Id, out var value)) continue;
+            // A choice stored in another case shows as the option it matches.
+            if (p.PropertyType == AssetPropertyType.Choice)
+                value = p.Options.FirstOrDefault(o => string.Equals(o, value, StringComparison.OrdinalIgnoreCase)) ?? value;
+            values[p.Id.ToString()] = value;
+        }
+        _form.Properties = values;
+    }
+
+    private string TypeName(Guid id) =>
+        id == Guid.Empty ? "- choose -"
+        : _types.FirstOrDefault(t => t.Id == id) is { } t
+            ? (string.IsNullOrEmpty(t.Category) ? t.Name : $"{t.Category} / {t.Name}") + (t.IsArchived ? " (archived)" : "")
+            : "";
+
+    private string LocationName(Guid id) =>
+        id == Guid.Empty ? "- none -"
+        : _locations.FirstOrDefault(l => l.Id == id) is { } l ? l.Name + (l.IsArchived ? " (archived)" : "")
+        : "";
+
+    private async Task DepartmentChangedAsync(Guid id)
+    {
+        _busy = true;
+        if (await Act(async s => (_types, _locations) = await ChoicesAsync(s, id)))
+        {
+            _form.DepartmentId = id;
+            if (_types.All(t => t.Id != _form.AssetTypeId)) _form.AssetTypeId = null;
+            if (_locations.All(l => l.Id != _form.AssetLocationId)) _form.AssetLocationId = null;
+            SetFields(_types.FirstOrDefault(t => t.Id == _form.AssetTypeId), _asset);
+        }
+        _busy = false;
+    }
+
+    /// <summary>A new type's fields: for an edit, what carries over from the asset's current type; for a new asset, blank.</summary>
+    private void TypeChanged(Guid id)
+    {
+        _form.AssetTypeId = id == Guid.Empty ? null : id;
+        SetFields(_types.FirstOrDefault(t => t.Id == id), _asset);
+    }
+
+    private void StatusChanged(AssetStatus status)
+    {
+        _form.Status = status;
+        if (status == AssetStatus.Disposed) _form.DisposedOn ??= DateOnly.FromDateTime(DateTime.UtcNow);
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_form.Name)) { Error("Give the asset a name."); return; }
+        if (_form.AssetTypeId is null) { Error("Choose the asset's type."); return; }
+        _form.AssigneeIds = _holders.Select(h => h.Id).ToList();
+        var type = _types.FirstOrDefault(t => t.Id == _form.AssetTypeId);
+        _busy = true;
+        Asset? saved = null;
+        // The purchase value is parsed here too, so a bad one is refused like any other.
+        if (await Act(async s => saved = _asset is null
+                ? await s.Get<AssetService>().CreateAsync(_form.ToInput(type?.Properties ?? []))
+                : await s.Get<AssetService>().UpdateAsync(_asset.Id, _form.ToInput(type?.Properties ?? []))))
+        {
+            Success(_asset is null ? $"Asset \"{saved!.Name}\" registered." : $"Asset \"{saved!.Name}\" saved.");
+            Nav.NavigateTo($"/Assets/Details/{saved.Id}");
+        }
+        _busy = false;
+    }
+
+    private async Task DeleteAsync()
+    {
+        var asset = _asset!;
+        if (!await Confirm("Delete asset", $"Delete the asset \"{asset.Name}\"? Its comments and files go with it. This can't be undone.")) return;
+        _busy = true;
+        if (await Act(s => s.Get<AssetService>().DeleteAsync(asset.Id)))
+        {
+            Success($"Asset \"{asset.Name}\" deleted.");
+            Nav.NavigateTo("/Assets");
+        }
+        _busy = false;
+    }
+}

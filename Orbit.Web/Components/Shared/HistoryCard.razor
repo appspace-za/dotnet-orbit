@@ -1,0 +1,31 @@
+@* A task's or an asset's history (spec §6.2, §6.19): its latest audited writes, Claude's marked. *@
+<MudPaper Outlined="true" Class="orbit-card">
+    <div class="orbit-card-header"><b>History</b></div>
+    @if (Activity.Count == 0)
+    {
+        <div class="orbit-list-item orbit-muted"><i>No history.</i></div>
+    }
+    @foreach (var a in Activity)
+    {
+        <div class="orbit-list-item orbit-small" @key="a.Id">
+            @* A flex row with a gap: Blazor drops the whitespace between an element and a code block. *@
+            <div class="orbit-gap-row">
+                <b>@a.ActorName</b>
+                @if (a.ActorType == ActorType.Api)
+                {
+                    <MudChip T="string" Size="Size.Small" Class="orbit-chip-claude">Claude</MudChip>
+                }
+                <span>@Ui.ActionLabel(a.Action)</span>
+                <span class="orbit-muted">· @Ui.When(a.Timestamp)</span>
+            </div>
+            @if (a.Details is { Length: > 2 })
+            {
+                <div class="orbit-key orbit-muted orbit-tiny">@Ui.Truncate(a.Details, 180)</div>
+            }
+        </div>
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<AuditLog> Activity { get; set; } = [];
+}

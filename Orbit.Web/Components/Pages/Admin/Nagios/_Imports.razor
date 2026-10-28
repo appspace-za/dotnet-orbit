@@ -1,0 +1,3 @@
+@* Nagios monitoring (spec §6.21): every page here needs the Nagios admin permission at some scope, as AuthorizeFolder("/Admin/Nagios") did for the
+   Razor pages. The services apply the rest. *@
+@attribute [RequirePermission(Permission.NagiosManage)]

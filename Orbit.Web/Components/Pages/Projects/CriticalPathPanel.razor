@@ -1,0 +1,242 @@
+@* The last critical path analysis of a project (spec §6.17), under its Gantt view: the schedule's headline, plan readiness,
+   the critical and near-critical paths, recovery opportunities and the float of every task. With none yet, the button that
+   runs one. *@
+@if (Analysis is null)
+{
+    <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-list-row mt-3">
+        <div>
+            <b>No critical path analysis yet.</b>
+            <span class="orbit-muted">Run one once the plan is in place to see the critical and near-critical tasks, each task's float, the planned completion against the target date, and how much of the project buffer remains. It is a deliberate step: Orbit never recalculates it on its own.</span>
+        </div>
+        @if (CanRun)
+        {
+            <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Disabled="Busy" OnClick="Run">Run critical path analysis</MudButton>
+        }
+    </MudPaper>
+}
+else
+{
+    var result = Analysis.Result;
+    var sched = result.Schedule;
+    var warnings = result.Warnings.Where(w => !w.Informational).ToList();
+    var notes = result.Warnings.Where(w => w.Informational).ToList();
+    var nearCritical = result.Tasks.Where(t => t.IsNearCritical).OrderBy(t => t.TotalFloat).ThenBy(t => t.EarlyStart).ToList();
+    var criticalOpportunities = result.Opportunities.Where(o => o.IsCritical).ToList();
+    var otherOpportunities = result.Opportunities.Count - criticalOpportunities.Count;
+    var top = criticalOpportunities.FirstOrDefault(o => o.IsRecoveryOpportunity);
+    var thresholds = result.Thresholds;
+
+    <MudPaper Outlined="true" Class="orbit-card mt-3">
+        <div class="orbit-card-header">
+            <b>Critical path analysis</b>
+            <span class="orbit-small orbit-muted">
+                Analysed @Ui.When(Analysis.Analysis.RunAt)
+                @if (Analysis.IsStale)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning">out of date</MudChip>
+                }
+            </span>
+        </div>
+        <div class="orbit-card-body">
+            <div class="orbit-stats orbit-stats-6">
+                <MudPaper Outlined="true" Class="orbit-stat"><div class="orbit-count">@WhenY(sched.PlannedCompletion)</div><div class="orbit-stat-label">Planned completion</div></MudPaper>
+                <MudPaper Outlined="true" Class="orbit-stat"><div class="orbit-count">@WhenY(sched.InternalCompletion)</div><div class="orbit-stat-label">Internal completion</div></MudPaper>
+                <MudPaper Outlined="true" Class="orbit-stat"><div class="orbit-count">@WhenY(sched.TargetDate)</div><div class="orbit-stat-label">Project target</div></MudPaper>
+                <MudPaper Outlined="true" Class="orbit-stat">
+                    <div><MudChip T="string" Size="Size.Small" Color="StatusLook.Buffer(sched.BufferStatus)">@sched.BufferStatus.Label()</MudChip></div>
+                    <div class="orbit-stat-label">Buffer status@(sched.DaysBeyondTarget > 0 ? $" · {sched.DaysBeyondTarget} d beyond target" : "")</div>
+                </MudPaper>
+                <MudPaper Outlined="true" Class="orbit-stat">
+                    <div class="orbit-count">@(sched.BufferConsumptionPercent is int pct ? $"{pct}%" : "-")</div>
+                    <div class="orbit-stat-label">Buffer consumed · @Days(sched.RequiredBufferDays) required, @Days(sched.BufferConsumedDays) used, @Days(sched.BufferRemainingDays) left</div>
+                </MudPaper>
+                <MudPaper Outlined="true" Class="orbit-stat">
+                    <div class="orbit-count">@result.CriticalTaskCount <span class="orbit-muted orbit-small">/ @result.NearCriticalTaskCount</span></div>
+                    <div class="orbit-stat-label">Critical / near-critical tasks · @result.CriticalPaths.Count path(s), @warnings.Count warning(s)</div>
+                </MudPaper>
+            </div>
+            @if (sched.Note is not null)
+            {
+                <p class="orbit-small orbit-muted">@sched.Note</p>
+            }
+
+            <MudGrid Spacing="3">
+                <MudItem xs="12" lg="6">
+                    <MudText Typo="Typo.subtitle2" HtmlTag="h2">Plan readiness <span class="orbit-muted">· @warnings.Count warning(s)</span></MudText>
+                    @if (warnings.Count == 0)
+                    {
+                        <div class="orbit-small orbit-ok mb-2">✓ Dependency network valid, no circular dependencies, every link and scheduled task in order.</div>
+                    }
+                    <ul class="orbit-plain-list orbit-small mb-2">
+                        @foreach (var w in warnings)
+                        {
+                            <li class="mb-1">
+                                <span class="orbit-warn" aria-hidden="true">⚠</span> @w.Message
+                                @if (w.TaskIds.Count > 0)
+                                {
+                                    <span class="orbit-muted"> Open: </span>
+                                    @for (var i = 0; i < Math.Min(w.TaskIds.Count, 8); i++)
+                                    {
+                                        var id = w.TaskIds[i];
+                                        <a href="@($"/Tasks/Details/{id}")">@Ui.Truncate(Title(id), 30)</a>@(i < Math.Min(w.TaskIds.Count, 8) - 1 ? ", " : "")
+                                    }
+                                }
+                            </li>
+                        }
+                        @foreach (var n in notes)
+                        {
+                            <li class="orbit-muted mb-1"><span aria-hidden="true">ℹ</span> @n.Message</li>
+                        }
+                    </ul>
+                </MudItem>
+                <MudItem xs="12" lg="6">
+                    <MudText Typo="Typo.subtitle2" HtmlTag="h2">Critical path@(result.CriticalPaths.Count == 1 ? "" : "s") <span class="orbit-muted">· @result.CriticalPaths.Count</span></MudText>
+                    @if (result.CriticalPaths.Count == 0)
+                    {
+                        <p class="orbit-small orbit-muted">No connected driving sequence: no two scheduled tasks are linked.</p>
+                    }
+                    @for (var i = 0; i < result.CriticalPaths.Count; i++)
+                    {
+                        var path = result.CriticalPaths[i];
+                        <div class="orbit-small mb-2">
+                            <b>Path @(i + 1)</b> <span class="orbit-muted">@When(path.Start) → @WhenY(path.End)</span><br />
+                            @for (var j = 0; j < path.TaskIds.Count; j++)
+                            {
+                                <a href="@($"/Tasks/Details/{path.TaskIds[j]}")">@path.Titles[j]</a>@(j < path.TaskIds.Count - 1 ? " → " : "")
+                            }
+                        </div>
+                    }
+                    @if (result.CriticalPathsOmitted > 0)
+                    {
+                        <div class="orbit-small orbit-muted">and @result.CriticalPathsOmitted more path(s) not listed.</div>
+                    }
+                    @if (nearCritical.Count > 0)
+                    {
+                        <MudText Typo="Typo.subtitle2" HtmlTag="h2" Class="mt-3">Near-critical <span class="orbit-muted">· within @thresholds.NearCriticalThresholdWorkingDays working day(s) of float</span></MudText>
+                        <ul class="orbit-plain-list orbit-small">
+                            @foreach (var t in nearCritical)
+                            {
+                                <li><span class="gantt-nc">NC</span> <a href="@($"/Tasks/Details/{t.TaskId}")">@t.Title</a> <span class="orbit-muted">· float @Days(t.TotalFloat)</span></li>
+                            }
+                        </ul>
+                    }
+                </MudItem>
+            </MudGrid>
+
+            <MudText Typo="Typo.subtitle2" HtmlTag="h2" Class="mt-3">Recovery opportunities</MudText>
+            @if (criticalOpportunities.Count == 0)
+            {
+                <p class="orbit-small orbit-muted mb-2">No critical task has an estimate materially smaller than its planning window (at @thresholds.HoursPerWorkingDay h per working day), so there is no early-completion opportunity on the critical path.@(otherOpportunities > 0 ? $" {otherOpportunities} task(s) off the critical path could finish early, which would not change the planned completion." : "")</p>
+            }
+            else
+            {
+                <p class="orbit-small mb-2">
+                    @criticalOpportunities.Count critical task(s) have potential early-completion opportunity; @criticalOpportunities.Count(o => o.IsRecoveryOpportunity) could release downstream work.
+                    An opportunity is not an instruction to expedite: the question is whether the downstream chain can use the released time.
+                </p>
+                @if (top is not null)
+                {
+                    var driving = top.Successors.FirstOrDefault(s => s.CanPropagate);
+                    <MudPaper Outlined="true" Class="orbit-card-body orbit-small mb-2 orbit-max-42">
+                        <div class="mb-1"><b>Highest current opportunity</b></div>
+                        <dl class="orbit-dl orbit-dl-flush">
+                            <dt>Task</dt><dd><a href="@($"/Tasks/Details/{top.TaskId}")">@top.Title</a>@(top.Assignee is null ? "" : $" · {top.Assignee}")</dd>
+                            <dt>Estimate / planned window</dt><dd>@TimeFormat.Minutes(top.EstimateMinutes) (@top.EstimateWorkingDays working day(s)) in a @top.SpanWorkingDays working-day window</dd>
+                            <dt>Potential</dt><dd>May complete about @top.PotentialDays working day(s) before its planned due date.</dd>
+                            <dt>Driving successor</dt>
+                            <dd>
+                                @if (driving?.TaskId is Guid sid)
+                                {
+                                    <a href="@($"/Tasks/Details/{sid}")">@driving.Title</a>
+                                }
+                                else
+                                {
+                                    <text>None - the planned completion itself would move earlier</text>
+                                }
+                            </dd>
+                            <dt>Dependency readiness</dt><dd>@(driving?.DependencyReadiness ?? "-")</dd>
+                            <dt>Assigned resource</dt><dd>@(driving?.Assignee ?? (driving?.TaskId is null ? "-" : "Unassigned"))</dd>
+                            <dt>Earlier resource availability</dt><dd>@(driving?.ResourceReadiness ?? "-")</dd>
+                            <dt>Management action</dt><dd>@top.ManagementAction</dd>
+                        </dl>
+                    </MudPaper>
+                }
+                <div class="orbit-table-wrap">
+                    <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks orbit-small">
+                        <thead><tr><th>Critical task</th><th class="text-right">Estimate</th><th class="text-right">Window</th><th class="text-right">Potential</th><th>Driving successor</th><th>Readiness</th><th>Recovery</th></tr></thead>
+                        <tbody>
+                            @foreach (var o in criticalOpportunities)
+                            {
+                                <tr>
+                                    <td><a href="@($"/Tasks/Details/{o.TaskId}")">@o.Title</a></td>
+                                    <td class="text-right">@TimeFormat.Minutes(o.EstimateMinutes)</td>
+                                    <td class="text-right">@o.SpanWorkingDays d</td>
+                                    <td class="text-right">@o.PotentialDays d</td>
+                                    <td>@string.Join(", ", o.Successors.Select(s => s.Title ?? "(project completion)"))</td>
+                                    <td>@string.Join(" ", o.Successors.Select(s => s.DependencyReadiness))</td>
+                                    <td><MudChip T="string" Size="Size.Small" Color="@(o.IsRecoveryOpportunity ? Color.Success : Color.Secondary)">@(o.IsRecoveryOpportunity ? "Possible" : "Held")</MudChip></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </div>
+            }
+            @if (result.EarlyCompletions.Count > 0)
+            {
+                <ul class="orbit-plain-list orbit-small mb-2">
+                    @foreach (var n in result.EarlyCompletions)
+                    {
+                        <li><span aria-hidden="true">ℹ</span> <a href="@($"/Tasks/Details/{n.TaskId}")">@n.Title</a> finished on @WhenY(n.CompletedOn), before its planned due @WhenY(n.PlannedDue): <a href="@($"/Tasks/Details/{n.SuccessorId}")">@n.SuccessorTitle</a> is dependency-ready earlier than planned. Confirm the assignee can bring it forward before moving its dates.</li>
+                    }
+                </ul>
+            }
+
+            <details class="mt-2">
+                <summary class="orbit-small"><b>Float by task</b></summary>
+                <div class="orbit-table-wrap mt-2">
+                    <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks orbit-small">
+                        <thead>
+                            <tr><th>Task</th><th>Status</th><th>Early start</th><th>Early finish</th><th>Late start</th><th>Late finish</th><th class="text-right">Total float</th><th class="text-right">Free float</th><th class="text-right">Span</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var t in result.Tasks)
+                            {
+                                <tr>
+                                    <td><a href="@($"/Tasks/Details/{t.TaskId}")">@t.Title</a></td>
+                                    <td><MudChip T="string" Size="Size.Small" Color="TaskLook.Status(t.Status)">@t.Status.Label()</MudChip></td>
+                                    <td class="text-nowrap">@WhenY(t.EarlyStart)</td>
+                                    <td class="text-nowrap">@WhenY(t.EarlyFinish)</td>
+                                    <td class="text-nowrap">@WhenY(t.LateStart)</td>
+                                    <td class="text-nowrap">@WhenY(t.LateFinish)</td>
+                                    <td class="text-right @(t.TotalFloat < 0 ? "orbit-overdue" : null)">@Days(t.TotalFloat)</td>
+                                    <td class="text-right">@Days(t.FreeFloat)</td>
+                                    <td class="text-right">@t.SpanWorkingDays d</td>
+                                    <td>
+                                        @if (t.IsCritical) { <span class="gantt-cp">CP</span> }
+                                        else if (t.IsNearCritical) { <span class="gantt-nc">NC</span> }
+                                        else if (!t.InNetwork) { <span class="orbit-muted">standalone</span> }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </div>
+                <div class="orbit-help">Working days. Total float: how far the task can move before the planned completion moves. Free float: how far before the next task is affected. Negative float means the plan already breaks a link. Standalone tasks have no links to other scheduled tasks and sit outside the critical path.</div>
+            </details>
+        </div>
+    </MudPaper>
+}
+
+@code {
+    /// <summary>The last stored analysis, or null when none has been run yet.</summary>
+    [Parameter] public CriticalPathView? Analysis { get; set; }
+    [Parameter, EditorRequired] public IReadOnlyDictionary<Guid, TaskItem> TasksById { get; set; } = new Dictionary<Guid, TaskItem>();
+    [Parameter] public bool CanRun { get; set; }
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public EventCallback Run { get; set; }
+
+    private static string When(DateOnly d) => d.ToString("d MMM");
+    private static string WhenY(DateOnly? d) => d?.ToString("d MMM yyyy") ?? "-";
+    private static string Days(int? n) => n is int v ? $"{v} d" : "-";
+    private string Title(Guid id) => TasksById.TryGetValue(id, out var t) ? t.Title : "(task)";
+}

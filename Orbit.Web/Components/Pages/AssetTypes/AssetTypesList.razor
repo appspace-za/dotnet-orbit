@@ -1,0 +1,120 @@
+@page "/AssetTypes"
+@page "/AssetTypes/Index"
+@inherits OrbitComponentBase
+@* The asset types (spec §6.19): the kinds of asset each department manages, within the viewer's assets.configure reach, with
+   their property and asset counts. The filters live in the address, in the Razor page's keys (DepartmentId, ShowArchived); like
+   the Razor page, they aren't remembered. *@
+
+<PageTitle>Asset types - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_actor is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var everywhere = _actor.CanAnywhere(Permission.AssetsConfigure);
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Assets">Assets</a><span class="orbit-crumb-sep">/</span><span aria-current="page">Asset types</span>
+    </nav>
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">Asset types</MudText>
+            <div class="orbit-subtitle">Each department defines the kinds of asset it manages, with their own properties and how often they should be checked.</div>
+        </div>
+        <MudButton Href="/AssetTypes/Create" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">New asset type</MudButton>
+    </div>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        <div class="orbit-filters">
+            @if (everywhere)
+            {
+                <FilterSelect Label="Department" Value="@(FilterChoice.Id(DepartmentId)?.ToString())" ValueChanged="v => Go(nameof(DepartmentId), v)" Options="_departments" />
+            }
+            <MudCheckBox T="bool" Value="FilterQuery.Flag(ShowArchived)" ValueChanged="v => Go(nameof(ShowArchived), v ? FilterQuery.Yes : null)" Label="Show archived" Dense="true" Color="Color.Primary" />
+        </div>
+    </MudPaper>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        @if (_types.Count == 0)
+        {
+            <p class="orbit-empty">No asset types yet. Create one - Laptop, Vehicle, Fire extinguisher - before registering assets.</p>
+        }
+        else
+        {
+            <div class="orbit-table-wrap">
+                <MudSimpleTable Hover="true" Elevation="0" Class="orbit-tasks">
+                    <thead>
+                        <tr>
+                            <th>Type</th>
+                            @if (everywhere) { <th>Department</th> }
+                            <th>Category</th><th>Check every</th><th class="text-right">Properties</th><th class="text-right">Assets</th><th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in _types)
+                        {
+                            var t = row.Type;
+                            // MudSimpleTable sets each row's colour, so an archived type is muted cell by cell.
+                            var muted = t.IsArchived ? "orbit-muted" : null;
+                            <tr @key="t.Id">
+                                <td>
+                                    <a href="@($"/AssetTypes/Edit/{t.Id}")" class="orbit-title">@t.Name</a>
+                                    @if (t.IsArchived) { <MudChip T="string" Size="Size.Small">Archived</MudChip> }
+                                    @if (!string.IsNullOrWhiteSpace(t.Description))
+                                    {
+                                        <div class="orbit-sub">@Ui.Truncate(t.Description, 120)</div>
+                                    }
+                                </td>
+                                @if (everywhere)
+                                {
+                                    <td><MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@t.Department.Name</MudChip></td>
+                                }
+                                <td class="@muted">@(t.Category ?? "-")</td>
+                                <td class="@($"text-nowrap {muted}")">@(t.CheckIntervalDays is int days ? $"{days} days" : "-")</td>
+                                <td class="@($"text-right {muted}")">@row.PropertyCount</td>
+                                <td class="@($"text-right {muted}")"><a href="@($"/Assets?AssetTypeId={t.Id}")" title="The assets of this type">@row.AssetCount</a></td>
+                                <td class="text-right">
+                                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Href="@($"/AssetTypes/Edit/{t.Id}")">Edit</MudButton>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        }
+    </MudPaper>
+}
+
+@code {
+    [SupplyParameterFromQuery] public string? DepartmentId { get; set; }
+    [SupplyParameterFromQuery] public string? ShowArchived { get; set; }
+
+    private Actor? _actor;
+    private IReadOnlyList<AssetTypeListItem> _types = [];
+    private IReadOnlyList<(string Value, string Text)> _departments = [];
+
+    protected override async Task OnParametersSetAsync() => await Load(async s =>
+    {
+        var actor = await s.Get<IActorProvider>().GetAsync();
+        _types = await s.Get<AssetTypeService>().ListAsync(FilterQuery.Flag(ShowArchived), FilterChoice.Id(DepartmentId));
+        // Only someone who configures every department chooses one; everyone else sees their own department's types.
+        _departments = actor.CanAnywhere(Permission.AssetsConfigure)
+            ? [("", "All"), .. (await s.Get<DepartmentService>().ListAsync(true)).Select(d => (d.Id.ToString(), d.Name))]
+            : [];
+        _actor = actor;
+    });
+
+    private void Go(string key, string? value)
+    {
+        var filters = new Dictionary<string, string?> { [nameof(DepartmentId)] = DepartmentId, [nameof(ShowArchived)] = ShowArchived, [key] = value };
+        var query = new FilterQuery()
+            .Add(nameof(DepartmentId), FilterChoice.Id(filters[nameof(DepartmentId)]))
+            .Add(nameof(ShowArchived), FilterQuery.Flag(filters[nameof(ShowArchived)]));
+        Nav.NavigateTo(query.At(new Uri(Nav.Uri).AbsolutePath));
+    }
+}

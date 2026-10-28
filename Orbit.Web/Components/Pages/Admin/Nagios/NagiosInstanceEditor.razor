@@ -1,0 +1,470 @@
+@page "/Admin/Nagios/Edit"
+@page "/Admin/Nagios/Edit/{Id:guid}"
+@inherits OrbitComponentBase
+@using Orbit.Application.Nagios
+@* A Nagios instance's settings (spec §6.21), one page to create and edit: where it is and how to sign in - the password is
+   write-only, stored encrypted and never shown, and left blank keeps the stored one - the agent that reads it, what raises a task,
+   and where the tasks go: department, priority, due date and assignees, whom the picker offers from the department chosen.
+   "Test connection" reads Nagios with what is on the form, saved or not, and shows what a check would do; nothing is saved or raised. *@
+
+<PageTitle>@Title - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (!Loaded || (Id is not null && _item?.Id != Id))
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var n = _item;
+    var plainHttp = _form.BaseUrl?.TrimStart().StartsWith("http://", StringComparison.OrdinalIgnoreCase) == true;
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Admin/Nagios/Index">Nagios</a>
+        @if (n is not null)
+        {
+            <span class="orbit-crumb-sep">/</span><a href="@($"/Admin/Nagios/Details/{n.Id}")">@n.Name</a>
+        }
+        <span class="orbit-crumb-sep">/</span><span aria-current="page">@(n is null ? "New instance" : "Settings")</span>
+    </nav>
+    <div class="orbit-page-header">
+        <MudText Typo="Typo.h5" HtmlTag="h1">@(n?.Name ?? "New Nagios instance")</MudText>
+        @if (n is not null)
+        {
+            <div class="orbit-actions">
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="DeleteAsync">Delete</MudButton>
+            </div>
+        }
+    </div>
+
+    @if (_test is { } test)
+    {
+        <MudAlert Severity="@(test.Ok ? Severity.Success : Severity.Error)" Class="mb-3">
+            <div class="mb-1"><b>@(test.Ok ? "Connection test passed" : "Connection test failed")</b></div>
+            @if (!test.Ok)
+            {
+                <div>@test.Error</div>
+            }
+            else
+            {
+                <div>
+                    Nagios Core @(test.Version ?? "(version not reported)") answered in @test.DurationMs ms: @test.Hosts hosts, @test.Services services,
+                    @test.Decisions.Count in a problem state.
+                </div>
+            }
+            <div class="orbit-small mt-1">Nothing was saved or raised - this tested the values in the form below.</div>
+        </MudAlert>
+        @if (test.Ok && test.Decisions.Count > 0)
+        {
+            var raising = test.Decisions.Count(Acts);
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header">
+                    <span><b>What a check would do now</b> <span class="orbit-muted">(@raising @(raising == 1 ? "task" : "tasks") raised or joined)</span></span>
+                </div>
+                <div class="orbit-table-wrap">
+                    <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks">
+                        <thead>
+                            <tr><th>Host</th><th>Service</th><th>State</th><th>Since</th><th>With these settings</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var x in test.Decisions)
+                            {
+                                var acts = Acts(x);
+                                <tr class="@(acts ? "orbit-row-warn" : null)">
+                                    <td>@x.Problem.Host</td>
+                                    <td>@(x.Problem.IsService ? x.Problem.Service : "-")</td>
+                                    <td><MudChip T="string" Size="Size.Small" Color="StatusLook.Nagios(x.Problem.State)">@x.Problem.State.Label()</MudChip></td>
+                                    <td class="text-nowrap orbit-small">@Ui.When(x.Problem.Since)</td>
+                                    <td class="@(acts ? "orbit-small" : "orbit-small orbit-muted")">
+                                        @if (acts)
+                                        {
+                                            <b>@NagiosText.Verdict(x, Ui.When)</b>
+                                        }
+                                        else
+                                        {
+                                            @NagiosText.Verdict(x, Ui.When)
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </div>
+            </MudPaper>
+        }
+    }
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" lg="8">
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>The Nagios instance</b></div>
+                <div class="orbit-card-body">
+                    <MudSwitch T="bool" @bind-Value="_form.Enabled" Color="Color.Primary" Label="Check this instance and raise tasks" />
+                    <div class="orbit-help mt-0 mb-3">While off, nothing is checked. Test connection works either way.</div>
+                    <MudGrid Spacing="2">
+                        <MudItem xs="12" md="5">
+                            <MudTextField T="string" @bind-Value="_form.Name" Label="Name" MaxLength="@NagiosInstanceRules.MaxNameLength" Required="true"
+                                          RequiredError="A name is required." Placeholder="Head office Nagios" Variant="Variant.Outlined" />
+                        </MudItem>
+                        <MudItem xs="12" md="7">
+                            <MudTextField T="string" @bind-Value="_form.BaseUrl" Label="Address" MaxLength="500" Required="true" RequiredError="A Nagios address is required."
+                                          Placeholder="http://nagios.example/nagios/" Immediate="true" Variant="Variant.Outlined" />
+                            <div class="orbit-help">The address you open Nagios with, as reachable from the agent's machine, not from Orbit.</div>
+                            @if (plainHttp)
+                            {
+                                <div class="orbit-help orbit-warn">Over plain http the password crosses your network unencrypted.</div>
+                            }
+                        </MudItem>
+                        <MudItem xs="12" md="5">
+                            <MudTextField T="string" @bind-Value="_form.Username" Label="Username" MaxLength="@NagiosInstanceRules.MaxUsernameLength" Required="true"
+                                          RequiredError="A username is required." Variant="Variant.Outlined" autocomplete="off" />
+                            <div class="orbit-help">A Nagios user that may see every host and service. Orbit only reads, so give it no command rights.</div>
+                        </MudItem>
+                        <MudItem xs="12" md="7">
+                            @* Write-only: never filled in from the stored value. Blank keeps the stored password. *@
+                            <MudTextField T="string" @bind-Value="_form.Password" Label="Password" InputType="InputType.Password" MaxLength="@NagiosInstanceRules.MaxPasswordLength"
+                                          Placeholder="@(_hasPassword ? "(stored - leave blank to keep it)" : null)" Variant="Variant.Outlined" autocomplete="new-password" />
+                            <div class="orbit-help">Stored encrypted and never shown again.</div>
+                        </MudItem>
+                        <MudItem xs="12" md="5">
+                            <MudSelect T="Guid" @bind-Value="AgentChoice" Label="Orbit Agent" ToStringFunc="AgentLabel" Variant="Variant.Outlined">
+                                <MudSelectItem T="Guid" Value="Guid.Empty">@AgentLabel(Guid.Empty)</MudSelectItem>
+                                @foreach (var c in _agents)
+                                {
+                                    <MudSelectItem T="Guid" Value="c.Agent.Id">@AgentLabel(c.Agent.Id)</MudSelectItem>
+                                }
+                            </MudSelect>
+                            <div class="orbit-help">The agent that can reach this address. Only this one is asked.</div>
+                        </MudItem>
+                        <MudItem xs="12" md="7">
+                            <MudCheckBox T="bool" @bind-Value="_form.ValidateCertificate" Label="Validate the server certificate (https)" Dense="true" Color="Color.Primary" />
+                            <div class="orbit-help mt-0">Untick only for a certificate the agent's machine can't be made to trust.</div>
+                        </MudItem>
+                    </MudGrid>
+                </div>
+            </MudPaper>
+
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>What raises a task</b></div>
+                <div class="orbit-card-body">
+                    <MudGrid Spacing="2">
+                        <MudItem xs="12" md="6">
+                            <div class="orbit-small"><b>A host that is</b></div>
+                            <MudCheckBox T="bool" @bind-Value="_form.RaiseHostDown" Label="Down" Dense="true" Color="Color.Primary" />
+                            <MudCheckBox T="bool" @bind-Value="_form.RaiseHostUnreachable" Label="Unreachable (a parent host is down)" Dense="true" Color="Color.Primary" />
+                            <MudNumericField T="int" @bind-Value="_form.HostThresholdMinutes" Label="for longer than (minutes)" Min="0" Max="@NagiosInstanceRules.MaxThresholdMinutes"
+                                             Variant="Variant.Outlined" Class="orbit-field-sm mt-2" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <div class="orbit-small"><b>A service that is</b></div>
+                            <MudCheckBox T="bool" @bind-Value="_form.RaiseServiceCritical" Label="Critical" Dense="true" Color="Color.Primary" />
+                            <MudCheckBox T="bool" @bind-Value="_form.RaiseServiceWarning" Label="Warning" Dense="true" Color="Color.Primary" />
+                            <MudCheckBox T="bool" @bind-Value="_form.RaiseServiceUnknown" Label="Unknown" Dense="true" Color="Color.Primary" />
+                            <MudNumericField T="int" @bind-Value="_form.ServiceThresholdMinutes" Label="for longer than (minutes)" Min="0" Max="@NagiosInstanceRules.MaxThresholdMinutes"
+                                             Variant="Variant.Outlined" Class="orbit-field-sm mt-2" />
+                        </MudItem>
+                        <MudItem xs="12">
+                            <div class="orbit-help mt-0">
+                                Only once Nagios has finished rechecking (a hard state). A service is never raised while its host is down - the host is.
+                                A problem that already has a task is not raised again, however long it lasts.
+                            </div>
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudCheckBox T="bool" @bind-Value="_form.SkipScheduledDowntime" Label="Not while in scheduled downtime" Dense="true" Color="Color.Primary" />
+                            <div class="orbit-help mt-0">Its own, or its host's. When the downtime ends the threshold starts again.</div>
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudCheckBox T="bool" @bind-Value="_form.SkipAcknowledged" Label="Not while acknowledged in Nagios" Dense="true" Color="Color.Primary" />
+                            <div class="orbit-help mt-0">Someone there has already taken it on.</div>
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudNumericField T="int" @bind-Value="_form.CheckIntervalMinutes" Label="Check every (minutes)" Min="1" Max="@NagiosInstanceRules.MaxCheckIntervalMinutes"
+                                             Variant="Variant.Outlined" Class="orbit-field-sm" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudNumericField T="int" @bind-Value="_form.MaxNewTasksPerCheck" Label="Most new tasks in one check" Min="1" Max="@NagiosInstanceRules.MaxNewTasksPerCheckLimit"
+                                             Variant="Variant.Outlined" Class="orbit-field-sm" />
+                            <div class="orbit-help">A brake for a wide outage: the rest are raised on the following checks, longest down first.</div>
+                        </MudItem>
+                    </MudGrid>
+                </div>
+            </MudPaper>
+
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Where the tasks go</b></div>
+                <div class="orbit-card-body">
+                    <MudGrid Spacing="2">
+                        <MudItem xs="12" md="6">
+                            <MudSelect T="Guid" Value="DepartmentChoice" ValueChanged="DepartmentChanged" Label="Department" Variant="Variant.Outlined"
+                                       ToStringFunc="@(id => _departments.FirstOrDefault(d => d.Id == id)?.Name ?? "Choose...")">
+                                <MudSelectItem T="Guid" Value="Guid.Empty">Choose...</MudSelectItem>
+                                @foreach (var d in _departments)
+                                {
+                                    <MudSelectItem T="Guid" Value="d.Id">@d.Name</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="12" sm="6" md="3">
+                            <MudSelect T="TaskPriority" @bind-Value="_form.TaskPriority" Label="Priority" ToStringFunc="@(p => p.ToString())" Variant="Variant.Outlined">
+                                @foreach (var p in Enum.GetValues<TaskPriority>())
+                                {
+                                    <MudSelectItem T="TaskPriority" Value="p">@p</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="12" sm="6" md="3">
+                            <MudSelect T="NagiosTaskDue" @bind-Value="_form.TaskDue" Label="Due" ToStringFunc="@(v => v.Label())" Variant="Variant.Outlined">
+                                @foreach (var due in Enum.GetValues<NagiosTaskDue>())
+                                {
+                                    <MudSelectItem T="NagiosTaskDue" Value="due">@due.Label()</MudSelectItem>
+                                }
+                            </MudSelect>
+                            <div class="orbit-help">Counted from the day the task is raised (UTC).</div>
+                        </MudItem>
+                        <MudItem xs="12">
+                            <div class="orbit-people-field-box">
+                                <div class="orbit-section-title mt-0 mb-1">Assignees</div>
+                                <PeopleField Selected="_assignees" SelectedChanged="StateHasChanged" Placeholder="Type a name, or click to choose..." Search="SearchAssignees" />
+                                <div class="orbit-help">
+                                    @(_assignees.Count == 0 ? "Nobody - the tasks wait unassigned in the department. " : "")Each raised task is assigned to these people, as far as they are still active.
+                                </div>
+                            </div>
+                        </MudItem>
+                    </MudGrid>
+                </div>
+            </MudPaper>
+
+            <div class="orbit-gap-row mb-3">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="SaveAsync">Save</MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="_busy" OnClick="TestAsync">@(_testing ? "Testing..." : "Test connection")</MudButton>
+                <MudButton Variant="Variant.Outlined" Href="@(n is null ? "/Admin/Nagios/Index" : $"/Admin/Nagios/Details/{n.Id}")">Cancel</MudButton>
+            </div>
+        </MudItem>
+
+        <MudItem xs="12" lg="4">
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Test connection</b></div>
+                <div class="orbit-card-body orbit-small orbit-muted">
+                    <p class="mt-0">Asks the chosen agent to read Nagios with the values in this form, saved or not, and lists every problem Nagios reports with what a check would do about it under these settings.</p>
+                    <p class="mb-0">Use it before switching an instance on: problems that are already past their threshold are raised at the first check.</p>
+                </div>
+            </MudPaper>
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>How it works</b></div>
+                <div class="orbit-card-body orbit-small orbit-muted">
+                    <p class="mt-0">
+                        Orbit can't reach Nagios itself. An <a href="/Admin/Agents/Index">Orbit Agent</a> (version 1.3 or later) inside your network reads Nagios' status and
+                        hands it to Orbit; the address and sign-in above are sent to it with each check.
+                    </p>
+                    <p>A host or service that is down opens one incident, which raises one task once it has lasted past its threshold. While that incident lasts - and while the task stays open - nothing more is raised for it.</p>
+                    <p class="mb-0">When Nagios reports it well again Orbit adds a note to the task and leaves it open for someone to close.</p>
+                </div>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    /// <summary>The instance to edit; null for a new one.</summary>
+    [Parameter] public Guid? Id { get; set; }
+
+    private NagiosInstance? _item;
+    private bool _hasPassword;
+    private NagiosDraft _form = new();
+    private IReadOnlyList<NagiosAgentChoice> _agents = [];
+    private IReadOnlyList<Department> _departments = [];
+    /// <summary>The chosen assignees, shown as chips; saved as the input's AssigneeIds.</summary>
+    private List<UserSummary> _assignees = [];
+    private NagiosTestResult? _test;
+    private bool _busy, _testing;
+
+    private string Title => _item?.Name ?? (Id is null ? "New Nagios instance" : "Nagios instance");
+
+    private Guid AgentChoice { get => _form.AgentId ?? Guid.Empty; set => _form.AgentId = value == Guid.Empty ? null : value; }
+    private Guid DepartmentChoice => _form.DepartmentId ?? Guid.Empty;
+
+    private static bool Acts(NagiosDecision d) => d.Verdict is NagiosVerdict.Raise or NagiosVerdict.Join;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Creating an instance goes on to its page, and Settings there back to this component with an Id: each visit starts afresh.
+        _item = null;
+        _test = null;
+        var id = Id;
+        await Load(async s =>
+        {
+            var nagios = s.Get<NagiosService>();
+            NagiosInstanceView? view = id is Guid existing ? await nagios.GetAsync(existing) : null;
+            _agents = await nagios.AgentsAsync();
+            _departments = await s.Get<DepartmentService>().ListAsync();
+            var form = view is null ? NagiosDraft.New() : NagiosDraft.From(view.Instance);
+            // The Razor selects could only show what they offered: an agent no longer active, or an archived department, shows -
+            // and is sent - as "Choose...", which the service refuses until another is chosen.
+            if (form.AgentId is Guid agentId && _agents.All(c => c.Agent.Id != agentId)) form.AgentId = null;
+            if (form.DepartmentId is Guid departmentId && _departments.All(d => d.Id != departmentId)) form.DepartmentId = null;
+            _assignees = (await nagios.AssigneesAsync(form.AssigneeIds)).ToList();
+            _hasPassword = view?.HasPassword ?? false;
+            _form = form;
+            _item = view?.Instance;
+        });
+    }
+
+    private string AgentLabel(Guid id) =>
+        _agents.FirstOrDefault(x => x.Agent.Id == id) is { } c
+            ? $"{c.Agent.Name} ({(c.Online ? c.QueriesNagios ? "connected" : "connected, too old to read Nagios" : "not connected")})"
+            : "Choose...";
+
+    /// <summary>The Assignees search (the Razor page's People handler): who a task in the department chosen now may be assigned to.</summary>
+    private Task<IReadOnlyList<UserSummary>> SearchAssignees(IServiceProvider s, string? query, CancellationToken ct) =>
+        s.Get<NagiosService>().SearchAssigneesAsync(_form.DepartmentId, query, ct);
+
+    private void DepartmentChanged(Guid id)
+    {
+        _form.DepartmentId = id == Guid.Empty ? null : id;
+        PruneAssignees();
+    }
+
+    /// <summary>
+    /// Drops the chosen people who can't be assigned a task in the department now chosen (§6.2.3), as the people picker does on a
+    /// task form: someone who can be assigned anywhere (tasks.view at All), or who has no department, stays. The service checks
+    /// everyone again when the department changes; only a change on the form prunes, opening it never drops anyone.
+    /// </summary>
+    private void PruneAssignees()
+    {
+        if (_form.DepartmentId is not Guid department) return;
+        var dropped = _assignees.Where(u => !u.CanViewAllTasks && u.DepartmentId is Guid own && own != department).ToList();
+        if (dropped.Count == 0) return;
+        _assignees.RemoveAll(u => dropped.Any(x => x.Id == u.Id));
+        Snackbar.Add($"{string.Join(", ", dropped.Select(u => u.DisplayName))} removed: not in this department.", Severity.Info);
+    }
+
+    private NagiosInstanceInput Input()
+    {
+        _form.AssigneeIds = _assignees.Select(u => u.Id).ToList();
+        return _form.ToInput();
+    }
+
+    /// <summary>A refused save keeps everything typed, the password too, and says why.</summary>
+    private async Task SaveAsync()
+    {
+        var id = Id;
+        var input = Input();
+        _test = null;
+        _busy = true;
+        NagiosInstance? saved = null;
+        if (await Act(async s =>
+            {
+                var nagios = s.Get<NagiosService>();
+                saved = id is Guid existing ? await nagios.UpdateAsync(existing, input) : await nagios.CreateAsync(input);
+            }))
+        {
+            Success(saved!.Enabled
+                ? $"Nagios instance \"{saved.Name}\" saved."
+                : $"Nagios instance \"{saved.Name}\" saved. It is switched off, so nothing is checked.");
+            Nav.NavigateTo($"/Admin/Nagios/Details/{saved.Id}");
+        }
+        _busy = false;
+    }
+
+    /// <summary>Tests what is in the form - nothing is saved, nothing is raised - so settings can be proven before they go live.</summary>
+    private async Task TestAsync()
+    {
+        var id = Id;
+        var input = Input();
+        _test = null;
+        _busy = _testing = true;
+        NagiosTestResult? result = null;
+        IReadOnlyList<NagiosAgentChoice>? agents = null;
+        if (await Act(async s =>
+            {
+                var nagios = s.Get<NagiosService>();
+                result = await nagios.TestAsync(id, input);
+                // Whether each agent is connected may have changed meanwhile, as a fresh Razor page would have shown.
+                agents = await nagios.AgentsAsync();
+            }))
+        {
+            _test = result;
+            _agents = agents!;
+        }
+        _busy = _testing = false;
+    }
+
+    private async Task DeleteAsync()
+    {
+        var item = _item!;
+        if (!await Confirm("Delete Nagios instance",
+                $"Delete the Nagios instance \"{item.Name}\"? Orbit stops watching it and forgets its incidents. The tasks it raised are kept.")) return;
+        _busy = true;
+        string? name = null;
+        if (await Act(async s =>
+            {
+                var nagios = s.Get<NagiosService>();
+                name = (await nagios.GetAsync(item.Id)).Instance.Name;
+                await nagios.DeleteAsync(item.Id);
+            }))
+        {
+            Success($"Nagios instance \"{name}\" deleted. The tasks it raised are kept.");
+            Nav.NavigateTo("/Admin/Nagios/Index");
+        }
+        _busy = false;
+    }
+
+    /// <summary>The form as typed (the Razor page's NagiosForm). The password is write-only: it is never filled in from the instance.</summary>
+    private sealed class NagiosDraft
+    {
+        public bool Enabled { get; set; }
+        public bool ValidateCertificate { get; set; }
+        public bool RaiseHostDown { get; set; }
+        public bool RaiseHostUnreachable { get; set; }
+        public bool RaiseServiceCritical { get; set; }
+        public bool RaiseServiceWarning { get; set; }
+        public bool RaiseServiceUnknown { get; set; }
+        public bool SkipScheduledDowntime { get; set; }
+        public bool SkipAcknowledged { get; set; }
+
+        public string? Name { get; set; }
+        public string? BaseUrl { get; set; }
+        public string? Username { get; set; }
+        /// <summary>Blank keeps the stored password.</summary>
+        public string? Password { get; set; }
+        public Guid? AgentId { get; set; }
+        public int CheckIntervalMinutes { get; set; } = 5;
+        public int HostThresholdMinutes { get; set; } = 15;
+        public int ServiceThresholdMinutes { get; set; } = 15;
+        public int MaxNewTasksPerCheck { get; set; } = 10;
+        public Guid? DepartmentId { get; set; }
+        public TaskPriority TaskPriority { get; set; } = TaskPriority.High;
+        public NagiosTaskDue TaskDue { get; set; } = NagiosTaskDue.None;
+        public List<Guid> AssigneeIds { get; set; } = [];
+
+        public NagiosInstanceInput ToInput() => new()
+        {
+            Name = Name, BaseUrl = BaseUrl, Username = Username, NewPassword = Password, ValidateCertificate = ValidateCertificate,
+            AgentId = AgentId, Enabled = Enabled, CheckIntervalMinutes = CheckIntervalMinutes,
+            HostThresholdMinutes = HostThresholdMinutes, ServiceThresholdMinutes = ServiceThresholdMinutes,
+            RaiseHostDown = RaiseHostDown, RaiseHostUnreachable = RaiseHostUnreachable,
+            RaiseServiceCritical = RaiseServiceCritical, RaiseServiceWarning = RaiseServiceWarning, RaiseServiceUnknown = RaiseServiceUnknown,
+            SkipScheduledDowntime = SkipScheduledDowntime, SkipAcknowledged = SkipAcknowledged, MaxNewTasksPerCheck = MaxNewTasksPerCheck,
+            DepartmentId = DepartmentId, TaskPriority = TaskPriority, TaskDue = TaskDue, AssigneeIds = [.. AssigneeIds]
+        };
+
+        /// <summary>A new instance: down hosts and critical services raise tasks; downtime and acknowledged problems don't; switched off until tested.</summary>
+        public static NagiosDraft New() => new()
+        {
+            ValidateCertificate = true, RaiseHostDown = true, RaiseServiceCritical = true, SkipScheduledDowntime = true, SkipAcknowledged = true
+        };
+
+        public static NagiosDraft From(NagiosInstance n) => new()
+        {
+            Name = n.Name, BaseUrl = n.BaseUrl, Username = n.Username, ValidateCertificate = n.ValidateCertificate,
+            AgentId = n.AgentId, Enabled = n.Enabled, CheckIntervalMinutes = n.CheckIntervalMinutes,
+            HostThresholdMinutes = n.HostThresholdMinutes, ServiceThresholdMinutes = n.ServiceThresholdMinutes,
+            RaiseHostDown = n.RaiseHostDown, RaiseHostUnreachable = n.RaiseHostUnreachable,
+            RaiseServiceCritical = n.RaiseServiceCritical, RaiseServiceWarning = n.RaiseServiceWarning, RaiseServiceUnknown = n.RaiseServiceUnknown,
+            SkipScheduledDowntime = n.SkipScheduledDowntime, SkipAcknowledged = n.SkipAcknowledged, MaxNewTasksPerCheck = n.MaxNewTasksPerCheck,
+            DepartmentId = n.DepartmentId, TaskPriority = n.TaskPriority, TaskDue = n.TaskDue, AssigneeIds = n.Assignees.Select(a => a.UserId).ToList()
+        };
+    }
+}

@@ -1,0 +1,172 @@
+@page "/Recurring/Details/{Id:guid}"
+@inherits OrbitComponentBase
+@* One recurring task definition (spec §6.4): its rule and template, the next occurrences computed from the RRULE, and the tasks it
+   has generated. Whoever may edit it (tasks.edit, §6.5) can edit, pause or resume it, and generate the next task now. *@
+
+<PageTitle>@(_definition?.Title ?? "Recurring task") - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_definition is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var d = _definition;
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Recurring">Recurring tasks</a><span class="orbit-crumb-sep">/</span><span aria-current="page">@d.Title</span>
+    </nav>
+
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">@d.Title</MudText>
+            <div class="orbit-chips">
+                <MudChip T="string" Size="Size.Small" Color="@(d.Active ? Color.Success : Color.Default)">@(d.Active ? "Active" : "Paused")</MudChip>
+                <MudChip T="string" Size="Size.Small" Color="TaskLook.Priority(d.Priority)" Variant="@(d.Priority == TaskPriority.Low ? Variant.Outlined : Variant.Filled)">@d.Priority</MudChip>
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@d.Department.Name</MudChip>
+                @if (d.Project is not null)
+                {
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Href="@($"/Projects/Details/{d.ProjectId}")">@d.Project.Name</MudChip>
+                }
+            </div>
+        </div>
+        @if (_canEdit)
+        {
+            <div class="orbit-actions">
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Href="@($"/Recurring/Edit/{d.Id}")">Edit</MudButton>
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="_busy" OnClick="ToggleAsync">@(d.Active ? "Pause" : "Resume")</MudButton>
+                @if (d.Active && d.NextRunDate is not null)
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Success" Disabled="_busy" OnClick="GenerateAsync">Generate next now</MudButton>
+                }
+            </div>
+        }
+    </div>
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" lg="7">
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Definition</b></div>
+                <dl class="orbit-dl">
+                    <dt>Rule</dt><dd><code>@d.RecurrenceRule</code></dd>
+                    <dt>Series start</dt><dd>@Ui.Day(d.StartDate)</dd>
+                    <dt>Next due</dt><dd>@Ui.Day(d.NextRunDate)</dd>
+                    <dt>Lead time</dt>
+                    <dd>@d.LeadTimeDays day(s) before due (task created @(d.NextRunDate is DateOnly next ? Ui.Day(next.AddDays(-d.LeadTimeDays)) : "-"))</dd>
+                    <dt>Assignees</dt>
+                    <dd>
+                        @if (d.Assignees.Count == 0)
+                        {
+                            <span>Unassigned</span>
+                        }
+                        @foreach (var u in d.Assignees)
+                        {
+                            <div>@u.DisplayName@(u.IsActive ? "" : " (deactivated)")</div>
+                        }
+                    </dd>
+                    <dt>Asset</dt>
+                    <dd>
+                        @if (d.Asset is not null)
+                        {
+                            <span class="orbit-gap-row">
+                                <span>@Ui.AssetLabel(d.Asset)</span>
+                                @if (d.Asset.Status == AssetStatus.Disposed)
+                                {
+                                    @* A disposed asset is left off the tasks generated from now on (§6.19). *@
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Dark" title="New tasks are generated without it">Disposed</MudChip>
+                                }
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="orbit-muted">None</span>
+                        }
+                    </dd>
+                    <dt>Created by</dt><dd>@Ui.AuthorName(d.CreatedBy) <span class="orbit-muted">@Ui.When(d.CreatedAt)</span></dd>
+                    <dt>Last generated</dt><dd>@Ui.When(d.LastGeneratedAt)</dd>
+                </dl>
+                @if (!string.IsNullOrWhiteSpace(d.Description))
+                {
+                    <MudDivider />
+                    <div class="orbit-card-body orbit-text">@((MarkupString)Ui.LinkifyHtml(d.Description))</div>
+                }
+            </MudPaper>
+
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Generated tasks</b></div>
+                <TaskTable Tasks="_generated" Actor="_actor!" ShowDepartment="false" ShowProject="false" ShowSprint="true"
+                           EmptyMessage="No tasks generated yet." Changed="ReloadAsync" />
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" lg="5">
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Upcoming occurrences</b></div>
+                @if (_upcoming.Count == 0)
+                {
+                    <p class="orbit-empty">@(d.Active ? "No further occurrences." : "Paused - resume to see upcoming dates.")</p>
+                }
+                @foreach (var date in _upcoming)
+                {
+                    <div class="orbit-list-item orbit-list-row">
+                        <span>@date.ToString("dddd, d MMMM yyyy")</span>
+                        <span class="orbit-muted orbit-small">task on @Ui.Day(date.AddDays(-d.LeadTimeDays))</span>
+                    </div>
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private Actor? _actor;
+    private RecurringTaskDefinition? _definition;
+    private IReadOnlyList<DateOnly> _upcoming = [];
+    private IReadOnlyList<TaskItem> _generated = [];
+    private bool _canEdit, _busy;
+
+    protected override Task OnParametersSetAsync() => ReloadAsync();
+
+    private async Task ReloadAsync() => await Load(async s =>
+    {
+        var actor = await s.Get<IActorProvider>().GetAsync();
+        var definition = await s.Get<RecurrenceService>().GetAsync(Id);
+        _canEdit = AccessPolicy.CanEditRecurring(actor, definition);
+        _upcoming = definition.Active ? RecurrenceService.Upcoming(definition, 10) : [];
+        _generated = (await s.Get<TaskService>().ListAsync(new TaskFilter { RecurringTaskDefinitionId = Id, PageSize = 50 })).Items;
+        _actor = actor;
+        _definition = definition;
+    });
+
+    /// <summary>Pause (history kept) or resume, which recomputes the next due date from today.</summary>
+    private async Task ToggleAsync()
+    {
+        var active = !_definition!.Active;
+        _busy = true;
+        RecurringTaskDefinition? saved = null;
+        if (await Act(async s => saved = await s.Get<RecurrenceService>().SetActiveAsync(Id, active)))
+        {
+            Success(active ? $"Resumed. Next due {Ui.Day(saved!.NextRunDate)}." : "Paused.");
+            await ReloadAsync();
+        }
+        _busy = false;
+    }
+
+    /// <summary>Creates the next task instance at once, ignoring the lead time.</summary>
+    private async Task GenerateAsync()
+    {
+        if (!await Confirm("Generate next now", "Create the next task instance now (ignoring lead time)?", "Generate")) return;
+        _busy = true;
+        TaskItem? task = null;
+        if (await Act(async s => task = await s.Get<RecurrenceService>().GenerateNowAsync(Id)))
+        {
+            Success($"Generated task due {Ui.Day(task!.DueDate)}.");
+            await ReloadAsync();
+        }
+        _busy = false;
+    }
+}

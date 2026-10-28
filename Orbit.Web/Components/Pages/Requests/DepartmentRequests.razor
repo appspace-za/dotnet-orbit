@@ -1,0 +1,92 @@
+@page "/Requests/Department"
+@inherits OrbitComponentBase
+@* The requests filed with a department (spec §6.20), for whoever manages them (requests.manage): a filter and a list, the first
+   200. The filters are in the address under the Razor page's keys (dept, status, q) and apply as soon as they change. *@
+
+<PageTitle>Department requests - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (!Loaded)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Requests">Requests</a><span class="orbit-crumb-sep">/</span><span aria-current="page">Department requests</span>
+    </nav>
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">Department requests</MudText>
+            <div class="orbit-subtitle">Every request filed with @(_departments.Count == 1 ? _departments[0].Name : "the departments you manage"), whoever logged it.</div>
+        </div>
+    </div>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        <div class="orbit-filters">
+            @if (_departments.Count > 1)
+            {
+                <FilterSelect Label="Department" Value="@(FilterChoice.Id(Dept)?.ToString())" ValueChanged="v => Go(nameof(Dept), v)"
+                              Options="@([("", "All"), .. _departments.Select(d => (d.Id.ToString(), d.Name))])" />
+            }
+            <FilterSelect Label="Status" Value="@(FilterQuery.Enum<RequestStatus>(Status)?.ToString())" ValueChanged="v => Go(nameof(Status), v)"
+                          Options="StatusOptions" />
+            <MudTextField T="string" Value="Q" ValueChanged="v => Go(nameof(Q), v)" Label="Number, title or requester" DebounceInterval="500"
+                          Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-filter orbit-filter-wide" />
+        </div>
+    </MudPaper>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        @if (_items.Count == 0)
+        {
+            <p class="orbit-empty">No requests match.</p>
+        }
+        else
+        {
+            <RequestTable Requests="_items" ShowFlow="true" ShowDepartmentUnderTitle="@(_departments.Count > 1)" />
+            @if (_items.Count >= Take)
+            {
+                <div class="orbit-card-footer">Showing the first @Take; narrow the filter to see others.</div>
+            }
+        }
+    </MudPaper>
+}
+
+@code {
+    private const int Take = 200;
+
+    private static readonly IReadOnlyList<(string Value, string Text)> StatusOptions =
+        [("", "Any"), .. Enum.GetValues<RequestStatus>().Select(s => (s.ToString(), s.Label()))];
+
+    [SupplyParameterFromQuery(Name = "dept")] public string? Dept { get; set; }
+    [SupplyParameterFromQuery(Name = "status")] public string? Status { get; set; }
+    [SupplyParameterFromQuery(Name = "q")] public string? Q { get; set; }
+
+    private IReadOnlyList<Request> _items = [];
+    private IReadOnlyList<Department> _departments = [];
+
+    protected override async Task OnParametersSetAsync() => await Load(async s =>
+    {
+        var actor = await s.Get<IActorProvider>().GetAsync();
+        AccessPolicy.Require(actor.Has(Permission.RequestsManage), "You don't have permission to manage requests.");
+        var requests = s.Get<RequestService>();
+        _departments = await requests.ManagedDepartmentsAsync();
+        _items = await requests.DepartmentRequestsAsync(new RequestFilter
+        {
+            DepartmentId = FilterChoice.Id(Dept), Status = FilterQuery.Enum<RequestStatus>(Status), Query = Q, Take = Take
+        });
+    });
+
+    private void Go(string key, string? value)
+    {
+        var filters = new Dictionary<string, string?> { [nameof(Dept)] = Dept, [nameof(Status)] = Status, [nameof(Q)] = Q, [key] = value };
+        var query = new FilterQuery()
+            .Add("dept", FilterChoice.Id(filters[nameof(Dept)]))
+            .Add("status", filters[nameof(Status)])
+            .Add("q", filters[nameof(Q)]);
+        Nav.NavigateTo(query.At("/Requests/Department"));
+    }
+}

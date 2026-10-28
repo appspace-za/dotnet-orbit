@@ -1,0 +1,172 @@
+@page "/Admin/Messages"
+@page "/Admin/Messages/Index"
+@inherits OrbitComponentBase
+@using Microsoft.AspNetCore.Identity.UI.Services
+@using Microsoft.Extensions.Options
+@using Orbit.Application.Messages
+@inject IOptions<EmailOptions> EmailSettings
+@* Admin > Messages (spec §6.7): the emails Orbit sends, by the trigger each is sent on, grouped Tasks, Projects and Requests. Each
+   trigger says what raises it and lists its messages - name, subject, whom it goes to, its condition, how many of its emails are in
+   the outbox, and an On/Off button - with Add a message. Send test email goes straight through the sender, not the outbox, to the
+   caller's own address; the page names the sender in use, or says that emails are only written to the log. *@
+
+<PageTitle>Messages - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_items is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var email = EmailSettings.Value;
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">Messages</MudText>
+            <div class="orbit-subtitle">
+                The emails Orbit sends when something happens, each with whom it goes to and what it says. Nobody is emailed about what they
+                did themselves, and someone a message would reach twice for one change gets only the most personal one.
+            </div>
+        </div>
+        <div class="orbit-actions">
+            <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="_busy" OnClick="SendTestEmailAsync"
+                       title="Send a short email to your own address">Send test email</MudButton>
+            <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="/Admin/Messages/Emails">Emails sent</MudButton>
+        </div>
+    </div>
+
+    @if (_onlyLogged)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+            No mail server is set up yet, so Orbit writes each email to its log instead of sending it.
+            <a href="/Admin/Messages/Emails">Emails sent</a> lists them as they would have gone.
+        </MudAlert>
+    }
+    else
+    {
+        <div class="orbit-small orbit-muted mb-3">
+            Emails are sent through @email.Provider from @email.FromName &lt;@email.FromAddress&gt;.
+        </div>
+    }
+
+    @foreach (var group in MessageCatalogue.Groups)
+    {
+        <MudText Typo="Typo.h6" HtmlTag="h2" Class="mt-4 mb-2">@group.Key</MudText>
+        @foreach (var trigger in group)
+        {
+            var items = For(trigger.Trigger);
+            <MudPaper Outlined="true" Class="orbit-card" @key="trigger.Trigger">
+                <div class="orbit-card-header">
+                    <div>
+                        <b>@trigger.Label</b>
+                        <div class="orbit-small orbit-muted">@trigger.Description</div>
+                    </div>
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Class="text-nowrap"
+                               Href="@($"/Admin/Messages/Edit?trigger={trigger.Trigger}")">Add a message</MudButton>
+                </div>
+                @if (items.Count == 0)
+                {
+                    <p class="orbit-empty orbit-small">No message: nobody is emailed.</p>
+                }
+                else
+                {
+                    <div class="orbit-table-wrap">
+                        <MudSimpleTable Hover="true" Elevation="0" Class="orbit-tasks">
+                            <tbody>
+                                @foreach (var m in items)
+                                {
+                                    @* MudSimpleTable sets each row's colour, so a message that is off is muted cell by cell. *@
+                                    var muted = m.Enabled ? null : "orbit-muted";
+                                    <tr @key="m.Id">
+                                        <td class="@muted">
+                                            <a href="@($"/Admin/Messages/Edit/{m.Id}")" class="orbit-title">@m.Name</a>
+                                            <div class="orbit-sub">@Ui.Truncate(m.Subject, 100)</div>
+                                        </td>
+                                        <td class="@($"orbit-small {muted}")">
+                                            <div>To @RecipientsText(m)</div>
+                                            @if (m.Condition != MessageCondition.Always)
+                                            {
+                                                <div class="orbit-muted">@m.Condition.Label()</div>
+                                            }
+                                        </td>
+                                        <td class="orbit-small orbit-muted text-nowrap">@($"{_sent.GetValueOrDefault(m.Id)} in the outbox")</td>
+                                        <td class="text-right">
+                                            <MudButton Size="Size.Small" Variant="@(m.Enabled ? Variant.Filled : Variant.Outlined)"
+                                                       Color="@(m.Enabled ? Color.Success : Color.Default)" Disabled="_busy"
+                                                       title="@(m.Enabled ? "Switch it off" : "Switch it on")"
+                                                       OnClick="@(() => SetEnabledAsync(m.Id, !m.Enabled))">@(m.Enabled ? "On" : "Off")</MudButton>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    </div>
+                }
+            </MudPaper>
+        }
+    }
+}
+
+@code {
+    private IReadOnlyList<MessageTemplate>? _items;
+    /// <summary>How many emails each message has written that are still in the outbox, by message.</summary>
+    private IReadOnlyDictionary<Guid, int> _sent = new Dictionary<Guid, int>();
+    /// <summary>No mail server yet: emails are written to the log, not sent.</summary>
+    private bool _onlyLogged;
+    private bool _busy;
+
+    protected override async Task OnParametersSetAsync() => await LoadAsync();
+
+    private async Task LoadAsync() => await Load(async s =>
+    {
+        var messages = s.Get<MessageTemplateService>();
+        var items = await messages.ListAsync();
+        _sent = await messages.SentCountsAsync();
+        _onlyLogged = s.Get<IEmailSender>() is LoggingEmailSender;
+        _items = items;
+    });
+
+    private IReadOnlyList<MessageTemplate> For(MessageTrigger trigger) => _items!.Where(m => m.Trigger == trigger).ToList();
+
+    /// <summary>"assignees, requestee, helpdesk@example.com": the recipient roles in rank order, then the addresses listed.</summary>
+    private static string RecipientsText(MessageTemplate m) =>
+        string.Join(", ", m.Recipients.Select(r => r.Kind).Order().Select(k => k.Label().ToLowerInvariant())
+            .Concat(MessageRules.ParseAddresses(m.Addresses).Addresses.Select(a => a.Address)));
+
+    private async Task SetEnabledAsync(Guid id, bool enabled)
+    {
+        _busy = true;
+        MessageTemplate? message = null;
+        if (await Act(async s => message = await s.Get<MessageTemplateService>().SetEnabledAsync(id, enabled)))
+        {
+            Success($"\"{message!.Name}\" is {(enabled ? "on" : "off")}.");
+            await LoadAsync();
+        }
+        _busy = false;
+    }
+
+    /// <summary>The service refuses with the sender's reason when the email can't be sent, or when the caller has no address.</summary>
+    private async Task SendTestEmailAsync()
+    {
+        _busy = true;
+        string? address = null;
+        if (await Act(async s => address = await s.Get<MessageTemplateService>().SendTestEmailAsync()))
+        {
+            Success(_onlyLogged
+                ? $"A test email to {address} was written to the log: no mail server is set up, so nothing was sent."
+                : $"A test email went to {address}. If it doesn't arrive, look for it in {ProviderLog}.");
+        }
+        _busy = false;
+    }
+
+    /// <summary>Where the provider shows what it sent.</summary>
+    private string ProviderLog => EmailSettings.Value.Provider switch
+    {
+        EmailProvider.Mailjet => "Mailjet's statistics",
+        EmailProvider.Resend => "Resend's email log",
+        _ => "Brevo's transactional logs"
+    };
+}

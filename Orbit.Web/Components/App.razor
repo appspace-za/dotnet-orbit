@@ -1,0 +1,61 @@
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Antiforgery
+@inject IAntiforgery Antiforgery
+@* The document for every Blazor page (spec §6). Pages render interactively over the circuit, without prerendering: an
+   operation then always runs in a circuit, never in this first request, and nothing is loaded twice. The theme cookie colours
+   the page before the circuit connects, so a dark-theme user doesn't see a white flash. orbit-user names the user the page
+   was opened as, for the sign-out check in orbit-interop.js (§8). *@
+<!DOCTYPE html>
+<html lang="en" data-theme="@(_dark ? "dark" : "light")">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <meta name="orbit-user" content="@_user" />
+    <link rel="stylesheet" href="@Assets["_content/MudBlazor/MudBlazor.min.css"]" />
+    <link rel="stylesheet" href="@Assets["css/app.css"]" />
+    <link rel="stylesheet" href="@Assets["css/gantt.css"]" />
+    <link rel="stylesheet" href="@Assets["css/requests.css"]" />
+    <ImportMap />
+    <HeadOutlet @rendermode="Mode" />
+</head>
+<body class="@(_dark ? "orbit-dark" : null)">
+    <Routes @rendermode="Mode" Theme="@_theme" RequestToken="@_requestToken" />
+
+    @* Shown by blazor.web.js while the connection to the server is lost, e.g. during a restart or deploy (classes below). *@
+    <div id="components-reconnect-modal" class="orbit-reconnect" role="alertdialog" aria-live="assertive">
+        <div class="orbit-reconnect-box">
+            <p class="orbit-reconnect-show">Lost the connection to Orbit. Reconnecting&hellip;</p>
+            <p class="orbit-reconnect-failed">Couldn't reconnect. <button type="button" class="js-reconnect-retry">Try again</button></p>
+            <p class="orbit-reconnect-rejected">Orbit has restarted. <button type="button" class="js-reconnect-reload">Reload the page</button></p>
+        </div>
+    </div>
+    <div id="blazor-error-ui" role="alert">
+        Something went wrong on this page. <a href="" class="reload">Reload</a> <button type="button" class="dismiss" aria-label="Dismiss">&times;</button>
+    </div>
+
+    <script src="@Assets["_framework/blazor.web.js"]"></script>
+    <script src="@Assets["_content/MudBlazor/MudBlazor.min.js"]"></script>
+    <script src="@Assets["js/orbit-interop.js"]"></script>
+</body>
+</html>
+
+@code {
+    private static readonly IComponentRenderMode Mode = new InteractiveServerRenderMode(prerender: false);
+
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = null!;
+
+    private string? _theme;
+    private bool _dark;
+    private string? _requestToken;
+    private string _user = "";
+
+    protected override void OnInitialized()
+    {
+        _user = HttpContext.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
+        var theme = HttpContext.Request.Cookies[ShellContext.ThemeCookie];
+        _theme = theme is "light" or "dark" ? theme : null;
+        _dark = _theme == "dark";
+        _requestToken = Antiforgery.GetAndStoreTokens(HttpContext).RequestToken;
+    }
+}

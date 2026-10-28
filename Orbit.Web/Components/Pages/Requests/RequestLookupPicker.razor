@@ -1,0 +1,64 @@
+@inherits OrbitComponentBase
+@* A request form's Asset, Project or Person question (spec §6.20) when it offers too many to list: type to search within the
+   question's scope (RequestService.LookupAsync, as the Razor form's /Requests/Lookup did). The one picked shows as a chip with
+   × to take it back. *@
+@if (SelectedId is not null)
+{
+    <div class="orbit-chips mt-0 mb-2">
+        <MudChip T="string" Variant="Variant.Outlined" Color="Color.Primary" OnClose="ClearAsync">@SelectedLabel</MudChip>
+    </div>
+}
+<MudAutocomplete @key="_version" T="RequestLookupItem" SearchFunc="SearchAsync" ValueChanged="PickedAsync" ToStringFunc="@(i => i?.Name)"
+                 Label="@(SelectedId is null ? Label : "Choose another")" Placeholder="@Placeholder" Variant="Variant.Outlined" Class="request-field-medium"
+                 MinCharacters="0" DebounceInterval="250" RelativeWidth="DropdownWidth.Adaptive" MaxItems="20" SelectValueOnTab="true"
+                 ResetValueOnEmptyText="true" AdornmentIcon="@Icons.Material.Filled.Search" Adornment="Adornment.End" Error="Invalid">
+    <ItemTemplate Context="item">
+        <div>
+            <div>@item.Name</div>
+            @if (Detail(item) is { Length: > 0 } detail) { <div class="orbit-sub">@detail</div> }
+        </div>
+    </ItemTemplate>
+    <NoItemsTemplate>
+        <div class="pa-2 orbit-muted">Nothing matches.</div>
+    </NoItemsTemplate>
+</MudAutocomplete>
+
+@code {
+    [Parameter, EditorRequired] public Guid FieldId { get; set; }
+    /// <summary>The request step being filled in, so a question scoped to the requester's department knows whose; null while logging.</summary>
+    [Parameter] public Guid? RequestStepId { get; set; }
+    [Parameter] public Guid? SelectedId { get; set; }
+    [Parameter] public string? SelectedLabel { get; set; }
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public string? Placeholder { get; set; }
+    /// <summary>Marked as needing attention.</summary>
+    [Parameter] public bool Invalid { get; set; }
+    /// <summary>Raised with the item picked, or null when the chip is removed.</summary>
+    [Parameter] public EventCallback<RequestLookupItem?> Picked { get; set; }
+
+    private int _version;
+
+    private static string Detail(RequestLookupItem item) =>
+        string.Join(" · ", new[] { item.Tag, item.Detail }.Where(s => !string.IsNullOrEmpty(s)));
+
+    private async Task<IEnumerable<RequestLookupItem>> SearchAsync(string? text, CancellationToken ct)
+    {
+        try
+        {
+            return await Runner.RunAsync(s => s.Get<RequestService>().LookupAsync(FieldId, text, RequestStepId, 20, ct));
+        }
+        catch (Exception ex) when (ex is OrbitException or OperationCanceledException)
+        {
+            return [];
+        }
+    }
+
+    private async Task PickedAsync(RequestLookupItem? item)
+    {
+        if (item is null) return;
+        await Picked.InvokeAsync(item);
+        _version++;
+    }
+
+    private Task ClearAsync() => Picked.InvokeAsync(null);
+}

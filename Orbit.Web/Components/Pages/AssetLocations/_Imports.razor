@@ -1,0 +1,4 @@
+@* Asset locations (spec §6.19): every page here needs assets.configure at some scope, as AuthorizeFolder("/AssetLocations") does
+   for the Razor pages. AssetLocationService applies the scope: a location is managed only by whoever's assets.configure reaches
+   its department. *@
+@attribute [RequirePermission(Permission.AssetsConfigure)]

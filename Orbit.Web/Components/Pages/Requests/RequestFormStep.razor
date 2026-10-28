@@ -1,0 +1,69 @@
+@page "/Requests/Form/{Id:guid}"
+@inherits OrbitComponentBase
+@using Microsoft.Extensions.Options
+@inject IOptions<AttachmentOptions> AttachmentOptions
+@* A later form step of a request (spec §6.20), filled in by the person it is addressed to: the same form as logging a request. *@
+
+<PageTitle>@(_step?.FlowStep.Title ?? "Form") - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_step is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var s = _step;
+    var r = s.Request;
+    var flow = s.FlowStep.Flow;
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Requests">Requests</a><span class="orbit-crumb-sep">/</span><a href="@($"/Requests/Request/{r.Id}")">@r.Number</a>
+        <span class="orbit-crumb-sep">/</span><span aria-current="page">@s.FlowStep.Title</span>
+    </nav>
+    <div class="mb-4">
+        <MudText Typo="Typo.h5" HtmlTag="h1">@s.FlowStep.Title</MudText>
+        <div class="orbit-muted">For request <b>@r.Number</b> @r.Title, logged by @r.Requester.DisplayName.</div>
+    </div>
+
+    <RequestWizard Fields="_fields" AssetTypes="_assetTypes" AssetChoices="_assetChoices" Limits="AttachmentOptions.Value" RequestStepId="s.Id"
+                   NoDepartmentNote="@(r.Requester.DepartmentId is null ? $"{r.Requester.DisplayName} isn't in a department, so nothing is offered here." : null)"
+                   Send="SendAsync">
+        <Aside>
+            <section class="request-aside-section" aria-labelledby="request-this-heading">
+                <h2 id="request-this-heading">This request</h2>
+                <div><a href="@($"/Requests/Request/{r.Id}")"><span class="orbit-key orbit-small mr-1">@r.Number</span>@r.Title</a></div>
+                <div class="orbit-small orbit-muted">@flow.Category.Title › @flow.Title</div>
+                <div class="orbit-small orbit-muted">Filed with @flow.Category.Department.Name</div>
+            </section>
+        </Aside>
+    </RequestWizard>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private RequestStep? _step;
+    private IReadOnlyList<RequestFormField> _fields = [];
+    private IReadOnlyDictionary<Guid, IReadOnlyList<RequestAssetTypeChoice>> _assetTypes = new Dictionary<Guid, IReadOnlyList<RequestAssetTypeChoice>>();
+    private IReadOnlyDictionary<Guid, IReadOnlyList<RequestLookupItem>> _assetChoices = new Dictionary<Guid, IReadOnlyList<RequestLookupItem>>();
+
+    protected override async Task OnParametersSetAsync() => await Load(async sp =>
+    {
+        var requests = sp.Get<RequestService>();
+        var step = await requests.FormStepAsync(Id);
+        _assetTypes = await requests.AssetTypeChoicesAsync(step.FlowStep.Flow, step.FlowStep, Id);
+        _assetChoices = await requests.AssetChoicesAsync(step.FlowStep.Flow, step.FlowStep, Id);
+        _fields = step.FlowStep.Fields.ToList();
+        _step = step;
+    });
+
+    private async Task<(string, string)> SendAsync(IServiceProvider sp, IReadOnlyDictionary<Guid, RequestAnswerInput> answers,
+        IReadOnlyDictionary<Guid, IReadOnlyList<AttachmentUpload>> files)
+    {
+        await sp.Get<RequestService>().SubmitFormAsync(Id, answers, files);
+        return ($"\"{_step!.FlowStep.Title}\" filled in.", $"/Requests/Request/{_step.RequestId}");
+    }
+}

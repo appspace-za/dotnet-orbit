@@ -1,0 +1,63 @@
+@* A request category's fields (spec §6.20), on the add form and the category's page: the department (only on create, for someone
+   who configures more than their own), title, description, and the icon and colour as buttons drawn as tiles, the chosen one
+   outlined. The values are written straight into Form. *@
+@if (Departments is { } departments)
+{
+    <div>
+        <MudSelect T="Guid" Value="@(Form.DepartmentId ?? Guid.Empty)" ValueChanged="@((Guid id) => Form.DepartmentId = id)" Label="Department"
+                   Required="true" Variant="Variant.Outlined" Class="orbit-field-lg"
+                   ToStringFunc="@(id => departments.FirstOrDefault(d => d.Id == id)?.Name ?? "")">
+            @foreach (var d in departments)
+            {
+                <MudSelectItem T="Guid" Value="d.Id">@d.Name</MudSelectItem>
+            }
+        </MudSelect>
+        <div class="orbit-help">Requests logged under this category are filed with this department. It can't be changed later.</div>
+    </div>
+}
+<MudTextField T="string" @bind-Value="Form.Title" Label="Title" Placeholder="e.g. Report a problem" MaxLength="RequestFlowRules.MaxCategoryTitleLength"
+              Required="true" RequiredError="A title is required." Variant="Variant.Outlined" Immediate="true" />
+<MudTextField T="string" @bind-Value="Form.Description" Label="Description" Placeholder="e.g. Something is broken, not working or has gone wrong."
+              Lines="2" MaxLength="RequestFlowRules.MaxDescriptionLength" Variant="Variant.Outlined" />
+<div>
+    <div class="orbit-small mb-1" id="@($"{_id}-icon")">Icon</div>
+    <div class="request-icon-picker" role="group" aria-labelledby="@($"{_id}-icon")">
+        @foreach (var (name, label) in RequestIcons.Choices)
+        {
+            var chosen = name == Form.Icon;
+            <button type="button" class="@(chosen ? "request-icon-choice is-chosen" : "request-icon-choice")" title="@label"
+                    aria-pressed="@(chosen ? "true" : "false")" @onclick="() => Form.Icon = name">
+                <RequestIcon Name="@name" Size="18" /><span class="orbit-sr-only">@label</span>
+            </button>
+        }
+    </div>
+</div>
+<div>
+    <div class="orbit-small mb-1" id="@($"{_id}-colour")">Colour</div>
+    <div class="orbit-gap-row" role="group" aria-labelledby="@($"{_id}-colour")">
+        @foreach (var colour in Enum.GetValues<RequestColour>())
+        {
+            var chosen = colour == Form.Colour;
+            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="@(chosen ? Color.Primary : Color.Default)" Class="@RequestIcons.ColourClass(colour)"
+                       aria-pressed="@(chosen ? "true" : "false")" OnClick="() => Form.Colour = colour">
+                <span class="request-swatch mr-1"></span>@colour
+            </MudButton>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>The category as typed; the page reads it back to save.</summary>
+    [Parameter, EditorRequired] public CategoryForm Form { get; set; } = null!;
+    /// <summary>The departments to choose from: only on create, and only for someone who configures more than their own department.</summary>
+    [Parameter] public IReadOnlyList<Department>? Departments { get; set; }
+
+    // Ties each group of buttons to its caption; the page may hold more than one of these.
+    private readonly string _id = $"category-{Guid.NewGuid():N}";
+
+    protected override void OnParametersSet()
+    {
+        // As the Razor form's radio buttons did: an icon that isn't one of the choices (or none yet) shows, and saves, as the default.
+        if (!RequestIcons.IsChoice(Form.Icon)) Form.Icon = RequestIcons.Default;
+    }
+}

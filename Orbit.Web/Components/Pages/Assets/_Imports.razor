@@ -1,0 +1,3 @@
+@* The asset register (spec §6.19): every page here needs assets.view at some scope, as AuthorizeFolder("/Assets") does for the
+   Razor pages; Create and Edit add their own doors. The services apply the scope. *@
+@attribute [RequirePermission(Permission.AssetsView)]

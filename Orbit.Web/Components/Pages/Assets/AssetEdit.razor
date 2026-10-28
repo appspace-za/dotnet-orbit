@@ -1,0 +1,11 @@
+@page "/Assets/Edit/{Id:guid}"
+@attribute [RequirePermission(Permission.AssetsEdit)]
+@* Edit an asset (spec §6.19): every field, a move to another department for whoever edits anywhere, and Delete while it has no
+   checks or links. *@
+
+<PageTitle>Edit asset - Orbit</PageTitle>
+<AssetEditor AssetId="Id" />
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+}

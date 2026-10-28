@@ -1,0 +1,16 @@
+@* The three steps of logging a request (spec §6.20): Current is the one under way, 1 to 3, and the ones before it are ticked. *@
+<ol class="request-steps" aria-label="Steps">
+    @for (var i = 0; i < Names.Length; i++)
+    {
+        var n = i + 1;
+        <li class="@(n < Current ? "is-done" : n == Current ? "is-current" : null)" aria-current="@(n == Current ? "step" : null)">
+            <span class="request-step-number" aria-hidden="true">@(n < Current ? "✓" : n.ToString())</span>@Names[i]
+        </li>
+    }
+</ol>
+
+@code {
+    private static readonly string[] Names = ["Choose a request", "Answer the questions", "Review and log it"];
+
+    [Parameter] public int Current { get; set; } = 1;
+}

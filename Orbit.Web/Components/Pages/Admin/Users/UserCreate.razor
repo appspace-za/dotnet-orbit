@@ -1,0 +1,116 @@
+@page "/Admin/Users/Create"
+@inherits OrbitComponentBase
+@* Create user (spec §6.5, §6.13): the email they sign in with, a display name, a role (the shipped Member role by default) and,
+   when the role needs one, a department, an optional manager, and the sign-in method - a local password, with a temporary one
+   to hand over, or the company directory, which needs directory sign-in enabled and has no password in Orbit. *@
+
+<PageTitle>Create user - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (!Loaded)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Admin/Users">Users</a><span class="orbit-crumb-sep">/</span><span aria-current="page">Create</span>
+    </nav>
+    <MudText Typo="Typo.h5" HtmlTag="h1" Class="mb-3">Create user</MudText>
+
+    <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-form">
+        <div class="orbit-form-row">
+            <MudTextField T="string" @bind-Value="_form.Email" Label="Email (sign-in name)" InputType="InputType.Email" Required="true"
+                          RequiredError="A valid email address is required." Variant="Variant.Outlined" Class="orbit-field-lg" />
+            <MudTextField T="string" @bind-Value="_form.DisplayName" Label="Display name" MaxLength="200" Required="true"
+                          RequiredError="Display name is required." Variant="Variant.Outlined" Class="orbit-field-lg" />
+        </div>
+
+        <UserAccessFields Form="_form" Roles="_roles" Departments="_departments" Manager="_manager" />
+
+        <div>
+            <div class="orbit-form-row">
+                <MudSelect T="AuthSource" @bind-Value="_form.AuthSource" Label="Sign-in method" Variant="Variant.Outlined" Class="orbit-field-sm"
+                           ToStringFunc="@(a => a.Label())">
+                    @foreach (var a in Enum.GetValues<AuthSource>())
+                    {
+                        <MudSelectItem T="AuthSource" Value="a">@a.Label()</MudSelectItem>
+                    }
+                </MudSelect>
+                @* A directory user has no Orbit password, so the field goes (the Razor form's script disabled it) and none is sent. *@
+                @if (_form.AuthSource != AuthSource.Ldap)
+                {
+                    @* Plain text, as on the Razor page: the admin reads it back to hand it over. Never echoed in a message. *@
+                    <MudTextField T="string" @bind-Value="_form.Password" Label="Temporary password" Required="true"
+                                  RequiredError="A temporary password is required; the user changes it after first sign-in."
+                                  HelperText="At least 8 characters with upper, lower case and a digit. The user changes it after signing in."
+                                  Variant="Variant.Outlined" Class="orbit-field-lg" autocomplete="off" />
+                }
+            </div>
+            <div class="orbit-help">
+                @if (_directoryEnabled)
+                {
+                    <span>Directory users sign in with their company (Active Directory) password. The email above must match their directory account.</span>
+                }
+                else
+                {
+                    <span>Directory sign-in isn't enabled yet. Set it up under <a href="/Admin/Directory/Index">Admin &gt; Directory</a> to use it.</span>
+                }
+            </div>
+        </div>
+
+        <div class="orbit-gap-row mt-2">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="CreateAsync">Create user</MudButton>
+            <MudButton Variant="Variant.Outlined" Href="/Admin/Users">Cancel</MudButton>
+        </div>
+    </MudPaper>
+}
+
+@code {
+    private UserForm _form = new();
+    private IReadOnlyList<RolePickerItem> _roles = [];
+    private IReadOnlyList<Department> _departments = [];
+    private List<UserSummary> _manager = [];
+    private bool _directoryEnabled, _busy;
+
+    protected override async Task OnInitializedAsync() => await Load(async s =>
+    {
+        _roles = await s.Get<RoleService>().ListForPickerAsync();
+        _departments = await s.Get<DepartmentService>().ListAsync(false);
+        _directoryEnabled = await s.Get<LdapSettingsService>().IsEnabledAsync();
+        _form.RoleId = UserForm.DefaultRole(_roles);
+    });
+
+    private async Task CreateAsync()
+    {
+        // The form's [Required, EmailAddress] and [Required] checks; UserAdminService checks the rest, as it did for the Razor page.
+        if (string.IsNullOrWhiteSpace(_form.Email) || !new System.ComponentModel.DataAnnotations.EmailAddressAttribute().IsValid(_form.Email.Trim()))
+        {
+            Error("A valid email address is required.");
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_form.DisplayName))
+        {
+            Error("Display name is required.");
+            return;
+        }
+        _form.ManagerId = _manager.FirstOrDefault()?.Id;
+        var input = _form.ToInput();
+        if (input.AuthSource == AuthSource.Ldap) input.Password = null;
+        _busy = true;
+        UserSummary? user = null;
+        // A refusal keeps everything typed, the temporary password too, as the Razor page did.
+        if (await Act(async s => user = await s.Get<UserAdminService>().CreateAsync(input)))
+        {
+            var created = user!;
+            Success(created.AuthSource == AuthSource.Ldap
+                ? $"User {created.DisplayName} created. They sign in with their email and company directory password."
+                : $"User {created.DisplayName} created. Hand them the temporary password; they can change it under Manage account.");
+            Nav.NavigateTo($"/Admin/Users/Edit/{created.Id}");
+        }
+        _busy = false;
+    }
+}

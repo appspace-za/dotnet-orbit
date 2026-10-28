@@ -1,0 +1,236 @@
+@page "/Admin/Activity"
+@page "/Admin/Activity/Index"
+@inherits OrbitComponentBase
+@using System.Globalization
+@* Admin > Activity Log (spec §6.5): every audited write within the viewer's audit.view reach, newest first, 100 a page; at Department
+   scope the department's own, and at All a Department filter too. The filters and the page are in the address under the Razor
+   page's keys (From, To, EntityType, DepartmentId, PageNumber), so links and bookmarks keep working, and a change applies at once;
+   they aren't remembered. From and To are UTC in the address, as the Razor page read them, and shown in the server's local time like
+   every time on the page; without them the window is the last seven days. The pager keeps the window it was shown, as the Razor
+   page's links did. *@
+
+<PageTitle>Activity log - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_result is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">Activity log</MudText>
+            <div class="orbit-subtitle">Every audited write: who or what made it, and when. API writes are tagged Claude.</div>
+        </div>
+    </div>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        <div class="orbit-filters">
+            @* A date and time box changes the window once typing pauses; a box left incomplete changes nothing (Reset goes back to the last seven days). *@
+            <MudTextField T="string" Value="@LocalInput(_from)" ValueChanged="v => GoTime(nameof(From), v)" Label="From" InputType="InputType.DateTimeLocal"
+                          ShrinkLabel="true" DebounceInterval="800" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-filter" />
+            <MudTextField T="string" Value="@LocalInput(_to)" ValueChanged="v => GoTime(nameof(To), v)" Label="To" InputType="InputType.DateTimeLocal"
+                          ShrinkLabel="true" DebounceInterval="800" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-filter" />
+            <FilterSelect Label="Entity" Value="@EntityType" ValueChanged="v => Go(nameof(EntityType), v)" Options="EntityOptions" />
+            @if (_canFilterDepartments)
+            {
+                <FilterSelect Label="Department" Value="@(FilterChoice.Id(DepartmentId)?.ToString())" ValueChanged="v => Go(nameof(DepartmentId), v)"
+                              Options="_departments" />
+            }
+            <div>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Href="@BasePath">Reset</MudButton>
+            </div>
+        </div>
+    </MudPaper>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        @if (_result.Items.Count == 0)
+        {
+            <p class="orbit-empty">No activity in this window.</p>
+        }
+        else
+        {
+            <div class="orbit-table-wrap">
+                <MudSimpleTable Dense="true" Hover="true" Elevation="0" Class="orbit-tasks">
+                    <thead>
+                        <tr><th>When</th><th>Actor</th><th>Action</th><th>Entity</th><th>Details</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var a in _result.Items)
+                        {
+                            var href = EntityHref(a);
+                            <tr @key="a.Id">
+                                <td class="text-nowrap">@Ui.When(a.Timestamp)</td>
+                                <td>
+                                    @* A flex row with a gap: Blazor drops the whitespace between an element and a code block. *@
+                                    <span class="orbit-gap-row">
+                                        <span>@a.ActorName</span>
+                                        @if (a.ActorType == ActorType.Api)
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Class="orbit-chip-claude">Claude</MudChip>
+                                        }
+                                        else if (a.ActorType == ActorType.System)
+                                        {
+                                            <MudChip T="string" Size="Size.Small">System</MudChip>
+                                        }
+                                    </span>
+                                </td>
+                                <td>@a.Action</td>
+                                <td>
+                                    <span class="orbit-gap-row">
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@a.EntityType</MudChip>
+                                        @if (href is not null)
+                                        {
+                                            <a href="@href">@Ui.Truncate(a.Summary, 60)</a>
+                                        }
+                                        else
+                                        {
+                                            <span>@Ui.Truncate(a.Summary, 60)</span>
+                                        }
+                                    </span>
+                                </td>
+                                <td class="orbit-key orbit-small orbit-muted" style="max-width: 28rem">@Ui.Truncate(a.Details, 200)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        }
+        @if (_result.TotalPages > 1)
+        {
+            <div class="orbit-card-footer orbit-list-row">
+                <span>Page @_result.Page of @_result.TotalPages (@_result.TotalCount entries)</span>
+                <MudStack Row="true" Spacing="1">
+                    @if (_result.HasPrevious)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@PageUrl(_result.Page - 1)">Previous</MudButton>
+                    }
+                    @if (_result.HasNext)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@PageUrl(_result.Page + 1)">Next</MudButton>
+                    }
+                </MudStack>
+            </div>
+        }
+    </MudPaper>
+}
+
+@code {
+    private const string BasePath = "/Admin/Activity";
+    private const int PerPage = 100;
+    /// <summary>From and To in the address: UTC, to the second, so the pager's window is the one shown.</summary>
+    private const string AddressFormat = "yyyy-MM-ddTHH:mm:ss";
+    /// <summary>What a datetime-local box holds: the server's local time, to the minute (or the second).</summary>
+    private static readonly string[] LocalFormats = ["yyyy-MM-ddTHH:mm", "yyyy-MM-ddTHH:mm:ss"];
+
+    /// <summary>The entity types the Entity filter offers, as the Razor page did.</summary>
+    private static readonly string[] EntityTypes =
+    [
+        AuditEntity.Task, AuditEntity.Project, AuditEntity.Sprint, AuditEntity.RecurringTaskDefinition, AuditEntity.Department, AuditEntity.User,
+        AuditEntity.Role, AuditEntity.ApiKey, AuditEntity.Request, AuditEntity.RequestFlow, AuditEntity.RequestCategory, AuditEntity.RequestAction,
+        AuditEntity.NagiosInstance, AuditEntity.Message
+    ];
+
+    private static readonly IReadOnlyList<(string Value, string Text)> EntityOptions = [("", "All"), .. EntityTypes.Select(t => (t, t))];
+
+    /// <summary>The window's start, UTC; the default is seven days before To.</summary>
+    [SupplyParameterFromQuery] public string? From { get; set; }
+    /// <summary>The window's end, UTC; the default is now.</summary>
+    [SupplyParameterFromQuery] public string? To { get; set; }
+    [SupplyParameterFromQuery] public string? EntityType { get; set; }
+    [SupplyParameterFromQuery] public string? DepartmentId { get; set; }
+    [SupplyParameterFromQuery] public string? PageNumber { get; set; }
+
+    private PagedResult<AuditLog>? _result;
+    private IReadOnlyList<(string Value, string Text)> _departments = [];
+    /// <summary>audit.view for every department offers the department filter; at Department scope the log is the viewer's own department's.</summary>
+    private bool _canFilterDepartments;
+    /// <summary>The window shown, UTC.</summary>
+    private DateTime _from, _to;
+
+    protected override async Task OnParametersSetAsync() => await Load(async s =>
+    {
+        var actor = await s.Get<IActorProvider>().GetAsync();
+        var canFilterDepartments = actor.CanAnywhere(Permission.AuditView);
+        var to = ParseUtc(To) ?? DateTime.UtcNow;
+        var from = ParseUtc(From) ?? to.AddDays(-7);
+        var result = await s.Get<AuditService>().ListAsync(new AuditFilter
+        {
+            From = from,
+            To = to,
+            EntityType = EntityType,
+            DepartmentId = canFilterDepartments ? FilterChoice.Id(DepartmentId) : null,
+            Page = int.TryParse(PageNumber, out var page) && page > 0 ? page : 1,
+            PageSize = PerPage
+        });
+        _departments = canFilterDepartments
+            ? [("", "All"), .. (await s.Get<DepartmentService>().ListAsync(true)).Select(d => (d.Id.ToString(), d.Name))]
+            : [];
+        _canFilterDepartments = canFilterDepartments;
+        _from = from;
+        _to = to;
+        _result = result;
+    });
+
+    /// <summary>The task or project the entry is about, on its page; null for anything else.</summary>
+    private static string? EntityHref(AuditLog a) => a.EntityType switch
+    {
+        AuditEntity.Task => $"/Tasks/Details/{a.EntityId}",
+        AuditEntity.Project => $"/Projects/Details/{a.EntityId}",
+        _ => null
+    };
+
+    /// <summary>
+    /// A time in the address, read as UTC as the Razor page read it: its own form ("2026-10-21T14:30:00"), its datetime-local boxes'
+    /// ("2026-10-21T14:30") and its pager's (invariant, "10/21/2026 14:30:00") all parse. Null when there is none or it isn't one.
+    /// </summary>
+    private static DateTime? ParseUtc(string? value) =>
+        DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var utc) ? utc : null;
+
+    private static string ToAddress(DateTime utc) => utc.ToString(AddressFormat, CultureInfo.InvariantCulture);
+
+    /// <summary>A UTC time as a datetime-local box shows it: the server's local time, as Ui.When shows every time.</summary>
+    private static string LocalInput(DateTime utc) =>
+        DateTime.SpecifyKind(utc, DateTimeKind.Utc).ToLocalTime().ToString("yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture);
+
+    /// <summary>A datetime-local box's value (the server's local time) as UTC, or null when it holds no whole date and time.</summary>
+    private static DateTime? FromLocalInput(string? value) =>
+        DateTime.TryParseExact(value, LocalFormats, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal | DateTimeStyles.AdjustToUniversal, out var utc)
+            ? utc
+            : null;
+
+    private void GoTime(string key, string? local)
+    {
+        if (FromLocalInput(local) is DateTime utc) Go(key, ToAddress(utc));
+    }
+
+    /// <summary>The filters in force with one changed, back on the first page.</summary>
+    private void Go(string key, string? value)
+    {
+        var filters = new Dictionary<string, string?>
+        {
+            [nameof(From)] = From, [nameof(To)] = To, [nameof(EntityType)] = EntityType, [nameof(DepartmentId)] = DepartmentId
+        };
+        filters[key] = value;
+        var query = new FilterQuery()
+            .Add(nameof(From), filters[nameof(From)])
+            .Add(nameof(To), filters[nameof(To)])
+            .Add(nameof(EntityType), filters[nameof(EntityType)])
+            .Add(nameof(DepartmentId), FilterChoice.Id(filters[nameof(DepartmentId)]));
+        Nav.NavigateTo(Address(query));
+    }
+
+    /// <summary>Another page of the window shown, with the filters in force.</summary>
+    private string PageUrl(int page) => Address(new FilterQuery()
+        .Add(nameof(From), ToAddress(_from))
+        .Add(nameof(To), ToAddress(_to))
+        .Add(nameof(EntityType), EntityType)
+        .Add(nameof(DepartmentId), _canFilterDepartments ? FilterChoice.Id(DepartmentId) : null)
+        .Add(nameof(PageNumber), page));
+
+    private static string Address(FilterQuery query) => query.At(BasePath);
+}

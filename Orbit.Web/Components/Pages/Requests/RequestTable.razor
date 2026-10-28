@@ -1,0 +1,54 @@
+@* A list of requests (spec §6.20): number and title (and who logged it, when that isn't the viewer), the department or flow,
+   status and when it was logged. Used by the Requests page's "Your requests" and by Department requests. *@
+<div class="orbit-table-wrap">
+    <MudSimpleTable Hover="true" Elevation="0" Class="orbit-tasks">
+        <thead>
+            <tr>
+                <th>Request</th>
+                @if (ShowDepartment) { <th>With</th> }
+                @if (ShowFlow) { <th>Flow</th><th>Logged by</th> }
+                <th>Status</th>
+                <th>Logged</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var r in Requests)
+            {
+                <tr @key="r.Id">
+                    <td>
+                        <span class="orbit-number">@r.Number</span>
+                        <a href="@($"/Requests/Request/{r.Id}")" class="orbit-title">@r.Title</a>
+                        @if (ShowDepartment && r.RequesterId != MeId)
+                        {
+                            <div class="orbit-sub">Logged by @r.Requester.DisplayName</div>
+                        }
+                        @if (ShowFlow && ShowDepartmentUnderTitle)
+                        {
+                            <div class="orbit-sub">@r.Department.Name</div>
+                        }
+                    </td>
+                    @if (ShowDepartment) { <td>@r.Department.Name</td> }
+                    @if (ShowFlow)
+                    {
+                        <td>@r.Flow.Title</td>
+                        <td>@r.Requester.DisplayName</td>
+                    }
+                    <td><MudChip T="string" Size="Size.Small" Color="StatusLook.Request(r.Status)">@r.Status.Label()</MudChip></td>
+                    <td class="text-nowrap orbit-small" title="@Ui.When(r.CreatedAt)">@Ui.Ago(r.CreatedAt)</td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<Request> Requests { get; set; } = [];
+    /// <summary>The viewer, whose own requests don't say who logged them.</summary>
+    [Parameter] public Guid? MeId { get; set; }
+    /// <summary>The department each request is filed with (the Requests page).</summary>
+    [Parameter] public bool ShowDepartment { get; set; }
+    /// <summary>The flow and who logged it (Department requests).</summary>
+    [Parameter] public bool ShowFlow { get; set; }
+    /// <summary>With <see cref="ShowFlow"/>, the department under the title, when the list spans several.</summary>
+    [Parameter] public bool ShowDepartmentUnderTitle { get; set; }
+}

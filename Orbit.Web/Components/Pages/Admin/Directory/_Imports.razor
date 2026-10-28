@@ -1,0 +1,3 @@
+@* Directory (LDAP) settings (spec §6.13): every page here needs the Directory admin permission at some scope, as AuthorizeFolder("/Admin/Directory") did for the
+   Razor pages. The services apply the rest. *@
+@attribute [RequirePermission(Permission.DirectoryManage)]

@@ -1,0 +1,126 @@
+@page "/Recurring"
+@page "/Recurring/Index"
+@inherits OrbitComponentBase
+@* The recurring task definitions (spec §6.4) the viewer may see, scoped as tasks are (§6.5), with Pause / Resume for those who may
+   edit one. The filter has no controls: it is read from the address in the Razor page's keys (ProjectId, DepartmentId,
+   IncludeInactive), which its binding also accepted with a "Filter." prefix. *@
+
+<PageTitle>Recurring tasks - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_actor is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var showDepartment = _actor.CanAnywhere(Permission.TasksView);
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">Recurring tasks</MudText>
+            <div class="orbit-subtitle">Definitions that generate task instances on a schedule. Generated tasks land in the backlog.</div>
+        </div>
+        <MudButton Href="/Recurring/Create" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">New recurring task</MudButton>
+    </div>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        @if (_definitions.Count == 0)
+        {
+            <p class="orbit-empty">No recurring task definitions.</p>
+        }
+        else
+        {
+            <div class="orbit-table-wrap">
+                <MudSimpleTable Hover="true" Elevation="0" Class="orbit-tasks">
+                    <thead>
+                        <tr>
+                            <th>Title</th>
+                            <th>Project</th>
+                            @if (showDepartment) { <th>Department</th> }
+                            <th>Rule</th><th>Next due</th><th>Lead</th><th>Assignee</th><th>Status</th><th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var d in _definitions)
+                        {
+                            <tr @key="d.Id">
+                                <td><a href="@($"/Recurring/Details/{d.Id}")" class="orbit-title">@d.Title</a></td>
+                                <td>
+                                    @if (d.Project is not null)
+                                    {
+                                        <MudLink Href="@($"/Projects/Details/{d.ProjectId}")" Underline="Underline.Hover">@d.Project.Name</MudLink>
+                                    }
+                                    else
+                                    {
+                                        <span class="orbit-muted">-</span>
+                                    }
+                                </td>
+                                @if (showDepartment)
+                                {
+                                    <td><MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@d.Department.Name</MudChip></td>
+                                }
+                                <td><code>@d.RecurrenceRule</code></td>
+                                <td class="text-nowrap">@Ui.Day(d.NextRunDate)</td>
+                                <td class="text-nowrap">@d.LeadTimeDays d</td>
+                                <td>@(d.AssigneeNames ?? "-")</td>
+                                <td><MudChip T="string" Size="Size.Small" Color="@(d.Active ? Color.Success : Color.Default)">@(d.Active ? "Active" : "Paused")</MudChip></td>
+                                <td class="text-right text-nowrap">
+                                    @if (AccessPolicy.CanEditRecurring(_actor!, d))
+                                    {
+                                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="_busy" OnClick="() => ToggleAsync(d)">@(d.Active ? "Pause" : "Resume")</MudButton>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        }
+    </MudPaper>
+}
+
+@code {
+    // The filter's keys, as the Razor page's RecurringFilter binding read them: plain, or with its "Filter." prefix.
+    [SupplyParameterFromQuery] public string? ProjectId { get; set; }
+    [SupplyParameterFromQuery] public string? DepartmentId { get; set; }
+    [SupplyParameterFromQuery] public string? IncludeInactive { get; set; }
+    [SupplyParameterFromQuery(Name = "Filter.ProjectId")] public string? PrefixedProjectId { get; set; }
+    [SupplyParameterFromQuery(Name = "Filter.DepartmentId")] public string? PrefixedDepartmentId { get; set; }
+    [SupplyParameterFromQuery(Name = "Filter.IncludeInactive")] public string? PrefixedIncludeInactive { get; set; }
+
+    private Actor? _actor;
+    private IReadOnlyList<RecurringTaskDefinition> _definitions = [];
+    private bool _busy;
+
+    protected override Task OnParametersSetAsync() => ReloadAsync();
+
+    private async Task ReloadAsync() => await Load(async s =>
+    {
+        var actor = await s.Get<IActorProvider>().GetAsync();
+        // Paused definitions are listed unless the address says otherwise (RecurringFilter's default).
+        var includeInactive = !bool.TryParse((PrefixedIncludeInactive ?? IncludeInactive)?.Trim(), out var include) || include;
+        _definitions = await s.Get<RecurrenceService>().ListAsync(new RecurringFilter
+        {
+            ProjectId = FilterChoice.Id(PrefixedProjectId ?? ProjectId),
+            DepartmentId = FilterChoice.Id(PrefixedDepartmentId ?? DepartmentId),
+            IncludeInactive = includeInactive
+        });
+        _actor = actor;
+    });
+
+    private async Task ToggleAsync(RecurringTaskDefinition definition)
+    {
+        var active = !definition.Active;
+        _busy = true;
+        RecurringTaskDefinition? saved = null;
+        if (await Act(async s => saved = await s.Get<RecurrenceService>().SetActiveAsync(definition.Id, active)))
+        {
+            Success(active ? $"\"{saved!.Title}\" resumed. Next due {Ui.Day(saved.NextRunDate)}." : $"\"{saved!.Title}\" paused.");
+            await ReloadAsync();
+        }
+        _busy = false;
+    }
+}

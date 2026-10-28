@@ -1,0 +1,92 @@
+@* One form field's settings (spec §6.20), for adding a field and for editing one: its prompt, answer type and key, a Choice's
+   answers (one per line), what each level of an Urgency means (blank keeps the standard wording, shown as the placeholder), what
+   an Asset, Asset type, Project or Person field offers, help text and whether it is required. It edits Form in place; the card
+   holding it saves. While requests are in progress through the flow (Frozen) the type and key can't change. The settings another
+   type needs are only shown for it, and the service ignores them for any other type, as it did the Razor form's hidden inputs. *@
+
+<div class="orbit-form">
+    <MudTextField T="string" @bind-Value="Form.Prompt" Label="Prompt" Placeholder="The question asked" MaxLength="RequestFlowRules.MaxPromptLength"
+                  Required="true" RequiredError="The field needs a prompt." Variant="Variant.Outlined" Margin="Margin.Dense" />
+    <div class="orbit-form-row">
+        <MudSelect T="RequestFieldType" @bind-Value="Form.FieldType" Label="Answer type" Disabled="Frozen" ToStringFunc="@(t => t.Label())"
+                   Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Class="orbit-field-sm">
+            @foreach (var type in Enum.GetValues<RequestFieldType>())
+            {
+                <MudSelectItem T="RequestFieldType" Value="type">@type.Label()</MudSelectItem>
+            }
+        </MudSelect>
+        <MudTextField T="string" @bind-Value="Form.Key" Label="Key" Placeholder="from the prompt" MaxLength="RequestFlowRules.MaxKeyLength" ReadOnly="Frozen"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-field-grow orbit-code" spellcheck="false" />
+    </div>
+    @if (Form.FieldType == RequestFieldType.Choice)
+    {
+        <MudTextField T="string" @bind-Value="Form.Choices" Label="Answers (one per line)" Lines="3" Variant="Variant.Outlined" Margin="Margin.Dense" />
+    }
+    @if (Form.FieldType == RequestFieldType.Urgency)
+    {
+        <div>
+            <div class="orbit-small mb-1">What each level means <span class="orbit-muted">(optional)</span></div>
+            @for (var i = 0; i < Levels.Length; i++)
+            {
+                var index = i;
+                var level = Levels[i];
+                <div class="orbit-form-row mb-1">
+                    <span class="@($"request-urgency-level request-urgency-{level.ToString().ToLowerInvariant()} orbit-small px-2")">@level</span>
+                    <MudTextField T="string" @bind-Value="Form.UrgencyMeanings[index]" Placeholder="@RequestEngineRules.StandardUrgencyMeaning(level)"
+                                  MaxLength="RequestFlowRules.MaxUrgencyMeaningLength" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-field-grow"
+                                  aria-label="@($"What {level} means")" />
+                </div>
+            }
+            <div class="orbit-help">Word them for this question. Leave one blank to keep the wording shown.</div>
+        </div>
+    }
+    @if (Form.FieldType is RequestFieldType.Asset or RequestFieldType.AssetType or RequestFieldType.Project or RequestFieldType.User)
+    {
+        <div class="orbit-form-row">
+            <MudSelect T="string" @bind-Value="ScopeChoice" Label="Offers" ToStringFunc="ScopeLabel" Variant="Variant.Outlined" Margin="Margin.Dense"
+                       Dense="true" Class="orbit-field-lg">
+                <MudSelectItem T="string" Value="@NoScope">Choose...</MudSelectItem>
+                @foreach (var scope in Enum.GetValues<RequestPickerScope>())
+                {
+                    <MudSelectItem T="string" Value="@scope.ToString()">@ScopeLabel(scope.ToString())</MudSelectItem>
+                }
+            </MudSelect>
+        </div>
+    }
+    <MudTextField T="string" @bind-Value="Form.HelpText" Label="Help text (optional)" Placeholder="What a good answer looks like"
+                  MaxLength="RequestFlowRules.MaxHelpTextLength" Variant="Variant.Outlined" Margin="Margin.Dense" />
+    <MudCheckBox T="bool" @bind-Value="Form.IsRequired" Label="Required" Dense="true" Color="Color.Primary" />
+</div>
+
+@code {
+    /// <summary>The field as typed, changed in place.</summary>
+    [Parameter, EditorRequired] public FieldForm Form { get; set; } = new();
+    /// <summary>Requests are in progress through the flow: the type and key can't change (§6.20).</summary>
+    [Parameter] public bool Frozen { get; set; }
+
+    private static readonly TaskPriority[] Levels = Enum.GetValues<TaskPriority>();
+    /// <summary>The scope select's "Choose..." (no scope yet).</summary>
+    private const string NoScope = "choose";
+
+    private string ScopeChoice
+    {
+        get => Form.PickerScope?.ToString() ?? NoScope;
+        set => Form.PickerScope = Enum.TryParse<RequestPickerScope>(value, out var scope) ? scope : null;
+    }
+
+    protected override void OnParametersSet()
+    {
+        // A box per urgency level, in priority order.
+        if (Form.UrgencyMeanings.Length < Levels.Length)
+        {
+            var meanings = Form.UrgencyMeanings;
+            Array.Resize(ref meanings, Levels.Length);
+            Form.UrgencyMeanings = meanings;
+        }
+    }
+
+    private static string ScopeLabel(string? value) =>
+        Enum.TryParse<RequestPickerScope>(value, out var scope)
+            ? scope.Label() + (scope == RequestPickerScope.Held ? " (assets only)" : "")
+            : "Choose...";
+}

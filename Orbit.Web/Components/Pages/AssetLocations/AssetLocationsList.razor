@@ -1,0 +1,117 @@
+@page "/AssetLocations"
+@page "/AssetLocations/Index"
+@inherits OrbitComponentBase
+@* The asset locations (spec §6.19): the places each department keeps its assets, within the viewer's assets.configure reach, with
+   how many assets are at each. The filters live in the address, in the Razor page's keys (DepartmentId, ShowArchived); like the
+   Razor page, they aren't remembered. *@
+
+<PageTitle>Asset locations - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_actor is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var everywhere = _actor.CanAnywhere(Permission.AssetsConfigure);
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Assets">Assets</a><span class="orbit-crumb-sep">/</span><span aria-current="page">Locations</span>
+    </nav>
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">Asset locations</MudText>
+            <div class="orbit-subtitle">The places each department keeps its assets.</div>
+        </div>
+        <MudButton Href="/AssetLocations/Create" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">New location</MudButton>
+    </div>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        <div class="orbit-filters">
+            @if (everywhere)
+            {
+                <FilterSelect Label="Department" Value="@(FilterChoice.Id(DepartmentId)?.ToString())" ValueChanged="v => Go(nameof(DepartmentId), v)" Options="_departments" />
+            }
+            <MudCheckBox T="bool" Value="FilterQuery.Flag(ShowArchived)" ValueChanged="v => Go(nameof(ShowArchived), v ? FilterQuery.Yes : null)" Label="Show archived" Dense="true" Color="Color.Primary" />
+        </div>
+    </MudPaper>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        @if (_locations.Count == 0)
+        {
+            <p class="orbit-empty">No locations yet.</p>
+        }
+        else
+        {
+            <div class="orbit-table-wrap">
+                <MudSimpleTable Hover="true" Elevation="0" Class="orbit-tasks">
+                    <thead>
+                        <tr>
+                            <th>Location</th>
+                            @if (everywhere) { <th>Department</th> }
+                            <th class="text-right">Assets</th><th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in _locations)
+                        {
+                            var l = row.Location;
+                            // MudSimpleTable sets each row's colour, so an archived location is muted cell by cell.
+                            var muted = l.IsArchived ? "orbit-muted" : null;
+                            <tr @key="l.Id">
+                                <td>
+                                    <a href="@($"/AssetLocations/Edit/{l.Id}")" class="orbit-title">@l.Name</a>
+                                    @if (l.IsArchived) { <MudChip T="string" Size="Size.Small">Archived</MudChip> }
+                                    @if (!string.IsNullOrWhiteSpace(l.Description))
+                                    {
+                                        <div class="orbit-sub">@Ui.Truncate(l.Description, 120)</div>
+                                    }
+                                </td>
+                                @if (everywhere)
+                                {
+                                    <td><MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@l.Department.Name</MudChip></td>
+                                }
+                                <td class="@($"text-right {muted}")"><a href="@($"/Assets?LocationId={l.Id}")" title="The assets at this location">@row.AssetCount</a></td>
+                                <td class="text-right">
+                                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Href="@($"/AssetLocations/Edit/{l.Id}")">Edit</MudButton>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        }
+    </MudPaper>
+}
+
+@code {
+    [SupplyParameterFromQuery] public string? DepartmentId { get; set; }
+    [SupplyParameterFromQuery] public string? ShowArchived { get; set; }
+
+    private Actor? _actor;
+    private IReadOnlyList<AssetLocationListItem> _locations = [];
+    private IReadOnlyList<(string Value, string Text)> _departments = [];
+
+    protected override async Task OnParametersSetAsync() => await Load(async s =>
+    {
+        var actor = await s.Get<IActorProvider>().GetAsync();
+        _locations = await s.Get<AssetLocationService>().ListAsync(FilterQuery.Flag(ShowArchived), FilterChoice.Id(DepartmentId));
+        // Only someone who configures every department chooses one; everyone else sees their own department's locations.
+        _departments = actor.CanAnywhere(Permission.AssetsConfigure)
+            ? [("", "All"), .. (await s.Get<DepartmentService>().ListAsync(true)).Select(d => (d.Id.ToString(), d.Name))]
+            : [];
+        _actor = actor;
+    });
+
+    private void Go(string key, string? value)
+    {
+        var filters = new Dictionary<string, string?> { [nameof(DepartmentId)] = DepartmentId, [nameof(ShowArchived)] = ShowArchived, [key] = value };
+        var query = new FilterQuery()
+            .Add(nameof(DepartmentId), FilterChoice.Id(filters[nameof(DepartmentId)]))
+            .Add(nameof(ShowArchived), FilterQuery.Flag(filters[nameof(ShowArchived)]));
+        Nav.NavigateTo(query.At(new Uri(Nav.Uri).AbsolutePath));
+    }
+}

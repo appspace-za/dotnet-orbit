@@ -1,0 +1,4 @@
+@* Requests (spec §6.20): every page here needs requests.submit, as AuthorizeFolder("/Requests") did for the Razor pages.
+   RequestService applies the rest: who may see a request, fill in its form, decide or manage it. *@
+@attribute [RequirePermission(Permission.RequestsSubmit)]
+@using Orbit.Application.Requests

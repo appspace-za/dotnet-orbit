@@ -1,0 +1,30 @@
+@* How a Nagios instance last answered (spec §6.21), on the Nagios list and an instance's page: off, never checked, failing with
+   the reason (and when it was last read), or OK with when and how often. The Razor pages' _Health partial. *@
+@if (!Instance.Enabled)
+{
+    <MudChip T="string" Size="Size.Small" Color="Color.Secondary">Off</MudChip>
+}
+else if (Instance.LastError is not null)
+{
+    <MudChip T="string" Size="Size.Small" Color="Color.Error">Failing</MudChip>
+    <MudText Typo="Typo.body2" Color="Color.Error" HtmlTag="div" Class="orbit-break">@Instance.LastError</MudText>
+    @if (Instance.LastSucceededAt is DateTime good)
+    {
+        <div class="orbit-small orbit-muted">Last read @Ui.Ago(good)</div>
+    }
+}
+else if (Instance.LastSucceededAt is DateTime read)
+{
+    <span class="orbit-gap-row">
+        <MudChip T="string" Size="Size.Small" Color="Color.Success">OK</MudChip>
+        <span class="orbit-small orbit-muted">@Ui.Ago(read) · every @Instance.CheckIntervalMinutes min</span>
+    </span>
+}
+else
+{
+    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Not checked yet</MudChip>
+}
+
+@code {
+    [Parameter, EditorRequired] public NagiosInstance Instance { get; set; } = null!;
+}

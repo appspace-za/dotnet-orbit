@@ -1,0 +1,151 @@
+@inherits OrbitComponentBase
+@* Time logged on the task (spec §6.10): the entries, the total against the estimate, and logging more - for yourself, or
+   for someone else where the role allows it. Editing an entry is the Razor page Time/Edit. *@
+<MudPaper Outlined="true" Class="orbit-card">
+    <div class="orbit-card-header">
+        <b>Time logged</b>
+        <span class="orbit-muted">
+            @TimeFormat.Minutes(TotalMinutes) logged@(Task.EstimateMinutes is int est ? $" of {TimeFormat.Minutes(est)} estimated" : "")
+            @if (Task.EstimateMinutes is int limit && TotalMinutes > limit)
+            {
+                <MudChip T="string" Size="Size.Small" Color="Color.Warning" title="More time has been logged than was estimated">Over estimate</MudChip>
+            }
+        </span>
+    </div>
+    @if (Entries.Count > 0)
+    {
+        <div class="orbit-table-wrap">
+            <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks">
+                <thead><tr><th>Date</th><th>Who</th><th>Duration</th><th>Note</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var e in Entries)
+                    {
+                        <tr @key="e.Id">
+                            <td class="text-nowrap">@Ui.Day(e.Date)</td>
+                            <td>@e.User.DisplayName</td>
+                            <td class="text-nowrap">@TimeFormat.Minutes(e.DurationMinutes)</td>
+                            <td>@e.Note</td>
+                            <td class="text-right text-nowrap">
+                                @if (AccessPolicy.CanEditTimeEntry(Actor, e, Task))
+                                {
+                                    var entryId = e.Id;
+                                    <MudButton Size="Size.Small" Variant="Variant.Text" Href="@($"/Time/Edit/{entryId}")">Edit</MudButton>
+                                    <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" Disabled="_busy" OnClick="() => DeleteAsync(entryId)">Delete</MudButton>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </div>
+    }
+    <div class="orbit-card-body">
+        @if (CanLogTime)
+        {
+            <div class="orbit-form-row">
+                <MudDatePicker @bind-Date="_date" Label="Date" DateFormat="yyyy-MM-dd" Editable="true" AutoClose="true"
+                               Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-field-sm" />
+                <MudNumericField T="int" @bind-Value="_minutes" Label="Minutes" Min="1" Max="@TimeRules.MaxEntryMinutes"
+                                 Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-field-xs" />
+                @if (CanLogForOthers)
+                {
+                    <MudSelect T="Guid" @bind-Value="_for" Label="For" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true"
+                               Class="orbit-field-sm" ToStringFunc="PersonName">
+                        <MudSelectItem T="Guid" Value="Guid.Empty">Me</MudSelectItem>
+                        @foreach (var u in TimeUsers)
+                        {
+                            <MudSelectItem T="Guid" Value="u.Id">@u.DisplayName</MudSelectItem>
+                        }
+                    </MudSelect>
+                }
+                <MudTextField T="string" @bind-Value="_note" Label="Note" Placeholder="optional" MaxLength="1000"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-field-grow" />
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="_busy" OnClick="LogAsync">Log time</MudButton>
+            </div>
+        }
+        else
+        {
+            <p class="orbit-muted orbit-small">You can log time on tasks assigned to you.</p>
+        }
+    </div>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public TaskItem Task { get; set; } = null!;
+    [Parameter, EditorRequired] public Actor Actor { get; set; } = null!;
+    [Parameter, EditorRequired] public IReadOnlyList<TimeEntry> Entries { get; set; } = [];
+    [Parameter] public bool CanLogTime { get; set; }
+    [Parameter] public bool CanLogForOthers { get; set; }
+    /// <summary>Who time may be logged for, when <see cref="CanLogForOthers"/>: the task's department.</summary>
+    [Parameter] public IReadOnlyList<UserSummary> TimeUsers { get; set; } = [];
+    [Parameter] public EventCallback Changed { get; set; }
+
+    private DateTime? _date;
+    /// <summary>The day the date box last offered by itself. While the box still shows it, the user hasn't picked a date.</summary>
+    private DateTime? _defaultDate;
+    private int _minutes = 60;
+    private Guid _for;
+    private string? _note;
+    private bool _busy;
+
+    private int TotalMinutes => Entries.Sum(e => e.DurationMinutes);
+
+    private string PersonName(Guid id) => id == Guid.Empty ? "Me" : TimeUsers.FirstOrDefault(u => u.Id == id)?.DisplayName ?? "";
+
+    /// <summary>
+    /// The date box offers today. A Blazor page stays open for days, so whenever the task page reloads (after each change on it,
+    /// as the Razor page reloaded after each post) a date the user hasn't touched moves on to today; a date they picked stays.
+    /// </summary>
+    protected override void OnParametersSet()
+    {
+        var today = DateTime.UtcNow.Date;
+        if (_date == _defaultDate) _date = today;
+        _defaultDate = today;
+    }
+
+    private async Task LogAsync()
+    {
+        if (_date is not DateTime date)
+        {
+            Error("Choose the date the time was worked.");
+            return;
+        }
+        // The page sat open past midnight with nothing reloading it: the box still offers yesterday. Show today and let the user
+        // look, rather than log the time on a day they didn't choose, or on one the box didn't show.
+        var today = DateTime.UtcNow.Date;
+        if (date == _defaultDate && date != today)
+        {
+            _date = _defaultDate = today;
+            Error("The date has moved on to today; check it and log again.");
+            return;
+        }
+        _busy = true;
+        var minutes = _minutes;
+        if (await Act(s => s.Get<TimeEntryService>().AddAsync(new TimeEntryInput
+            {
+                TaskId = Task.Id,
+                UserId = _for == Guid.Empty ? null : _for,
+                Date = DateOnly.FromDateTime(date),
+                DurationMinutes = minutes,
+                Note = _note
+            })))
+        {
+            Success($"Logged {TimeFormat.Minutes(minutes)}.");
+            _note = null;
+            await Changed.InvokeAsync();
+        }
+        _busy = false;
+    }
+
+    private async Task DeleteAsync(Guid entryId)
+    {
+        if (!await Confirm("Delete time entry", "Delete this time entry?")) return;
+        _busy = true;
+        if (await Act(s => s.Get<TimeEntryService>().DeleteAsync(entryId)))
+        {
+            Success("Time entry deleted.");
+            await Changed.InvokeAsync();
+        }
+        _busy = false;
+    }
+}

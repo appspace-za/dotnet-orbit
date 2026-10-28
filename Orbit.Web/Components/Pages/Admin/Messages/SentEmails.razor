@@ -1,0 +1,130 @@
+@page "/Admin/Messages/Emails"
+@inherits OrbitComponentBase
+@using Microsoft.Extensions.Options
+@inject IOptions<EmailOptions> EmailSettings
+@* The outbox (spec §6.7, Admin > Messages > Emails sent): the latest 200 emails the messages have written, newest first - sent,
+   waiting, or given up on. The status filter is in the address under the Razor page's key (status) and applies as soon as it changes;
+   it isn't remembered. Each email opens to what it was sent on and from which message, the task, project or request it is about, when
+   it was sent or will next be tried, its error and its plain-text body. *@
+
+<PageTitle>Emails sent - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_items is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Admin/Messages">Messages</a><span class="orbit-crumb-sep">/</span><span aria-current="page">Emails sent</span>
+    </nav>
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">Emails sent</MudText>
+            <div class="orbit-subtitle">
+                The latest @Shown emails the messages have written, newest first. Each is sent within a few seconds; one that fails is tried again
+                later, and given up on after several tries. They are kept for @EmailSettings.Value.KeepDays days.
+            </div>
+        </div>
+        <div class="orbit-actions">
+            <FilterSelect Label="Showing" Value="@(_status?.ToString())" ValueChanged="Go" Options="StatusOptions" Class="orbit-field-sm" />
+        </div>
+    </div>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        @if (_items.Count == 0)
+        {
+            <p class="orbit-empty">@EmptyText</p>
+        }
+        @foreach (var e in _items)
+        {
+            var link = EntityLink(e);
+            <div class="orbit-list-item" @key="e.Id">
+                <details>
+                    @* A flex row with a gap: Blazor drops the whitespace between an element and a code block. *@
+                    <summary class="orbit-gap-row" style="cursor: pointer">
+                        <MudChip T="string" Size="Size.Small" Color="StatusColour(e.Status)">@e.Status</MudChip>
+                        <b>@e.Subject</b>
+                        <span class="orbit-small orbit-muted">to @e.ToName &lt;@e.ToAddress&gt;</span>
+                        <span class="orbit-small orbit-muted text-nowrap ml-auto" title="@Ui.When(e.CreatedAt)">@Ui.Ago(e.CreatedAt)</span>
+                    </summary>
+                    <div class="orbit-small mt-2">
+                        <div class="orbit-gap-row orbit-muted mb-2">
+                            <span>@e.Trigger.Label()</span>
+                            <span>· message "@e.MessageName"</span>
+                            @if (link is { } l)
+                            {
+                                <span>· <a href="@l.Href">@l.Text</a></span>
+                            }
+                            <span>· @Progress(e)</span>
+                            @if (e.Attempts > 0)
+                            {
+                                <span>@($"· {e.Attempts} {(e.Attempts == 1 ? "try" : "tries")}")</span>
+                            }
+                        </div>
+                        @if (e.LastError is not null)
+                        {
+                            <MudAlert Severity="Severity.Error" Dense="true" Class="mb-2">@e.LastError</MudAlert>
+                        }
+                        <MudPaper Outlined="true" Class="pa-2 orbit-text" Style="background: var(--mud-palette-background-gray)">@e.Body</MudPaper>
+                    </div>
+                </details>
+            </div>
+        }
+    </MudPaper>
+}
+
+@code {
+    private const int Shown = 200;
+
+    private static readonly IReadOnlyList<(string Value, string Text)> StatusOptions = FilterSelect.EnumOptions<OutboundEmailStatus>();
+
+    /// <summary>Blank for every email, or Pending, Sent or Failed.</summary>
+    [SupplyParameterFromQuery(Name = "status")] public string? Status { get; set; }
+
+    private IReadOnlyList<OutboundEmail>? _items;
+    private OutboundEmailStatus? _status;
+
+    protected override async Task OnParametersSetAsync() => await Load(async s =>
+    {
+        var status = FilterQuery.Enum<OutboundEmailStatus>(Status);
+        _items = await s.Get<MessageTemplateService>().RecentEmailsAsync(status, Shown);
+        _status = status;
+    });
+
+    /// <summary>"No emails yet.", or "No emails failed yet." under a filter.</summary>
+    private string EmptyText => _status is OutboundEmailStatus s ? $"No emails {s.ToString().ToLowerInvariant()} yet." : "No emails yet.";
+
+    private void Go(string? status)
+    {
+        Nav.NavigateTo(new FilterQuery().Add("status", status).At("/Admin/Messages/Emails"));
+    }
+
+    private static Color StatusColour(OutboundEmailStatus s) => s switch
+    {
+        OutboundEmailStatus.Sent => Color.Success,
+        OutboundEmailStatus.Failed => Color.Error,
+        _ => Color.Default
+    };
+
+    /// <summary>The task, project or request the email is about, on its page; null for anything else.</summary>
+    private static (string Href, string Text)? EntityLink(OutboundEmail e) => e.EntityType switch
+    {
+        AuditEntity.Task => ($"/Tasks/Details/{e.EntityId}", "the task"),
+        AuditEntity.Project => ($"/Projects/Details/{e.EntityId}", "the project"),
+        AuditEntity.Request => ($"/Requests/Request/{e.EntityId}", "the request"),
+        _ => null
+    };
+
+    /// <summary>When it went, that it was given up on, or when it will next be tried.</summary>
+    private static string Progress(OutboundEmail e) => e.Status switch
+    {
+        OutboundEmailStatus.Sent => $"sent {Ui.When(e.SentAt)}",
+        OutboundEmailStatus.Failed => "given up on",
+        _ => $"next try {Ui.When(e.NextAttemptAt)}"
+    };
+}

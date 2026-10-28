@@ -1,0 +1,3 @@
+@* Departments (spec §6.6): every page here needs the Departments admin permission at some scope, as AuthorizeFolder("/Admin/Departments") did for the
+   Razor pages. The services apply the rest. *@
+@attribute [RequirePermission(Permission.DepartmentsManage)]

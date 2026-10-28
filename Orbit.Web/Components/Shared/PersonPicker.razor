@@ -1,0 +1,56 @@
+@inherits OrbitComponentBase
+@* The people picker (spec §6.2.3, §6.19): type part of a name or email to search, or open it to browse the first people by
+   name. By default it searches who may be assigned a task in DepartmentId (UserDirectoryService.SearchAssignableAsync); Search
+   swaps that for another list, such as an asset's possible holders. It raises Picked and then clears itself, ready for the next
+   person. *@
+<MudAutocomplete @key="_version" T="UserSummary" SearchFunc="SearchAsync" ValueChanged="PickedAsync" ToStringFunc="@(u => u?.DisplayName)"
+                 Placeholder="@Placeholder" aria-label="@Placeholder" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true"
+                 MinCharacters="0" OpenOnFocus="true" RelativeWidth="DropdownWidth.Adaptive" DebounceInterval="250" MaxItems="20" Disabled="Disabled"
+                 AdornmentIcon="@Icons.Material.Filled.PersonAdd" Adornment="Adornment.End" ResetValueOnEmptyText="true">
+    <ItemTemplate Context="u">
+        <div>
+            <div>@u.DisplayName</div>
+            <div class="orbit-sub">@u.Email@(u.DepartmentName is { } d ? $" · {d}" : "")</div>
+        </div>
+    </ItemTemplate>
+    <NoItemsTemplate>
+        <div class="pa-2 orbit-muted">Nobody matches.</div>
+    </NoItemsTemplate>
+</MudAutocomplete>
+
+@code {
+    /// <summary>The department whose tasks the person would be assigned; null searches everyone who may be assigned anywhere.</summary>
+    [Parameter] public Guid? DepartmentId { get; set; }
+    [Parameter] public string Placeholder { get; set; } = "Assign someone...";
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback<UserSummary> Picked { get; set; }
+    /// <summary>Who to offer for the typed text, in the operation's scope; null searches task assignees in <see cref="DepartmentId"/>.</summary>
+    [Parameter] public Func<IServiceProvider, string?, CancellationToken, Task<IReadOnlyList<UserSummary>>>? Search { get; set; }
+
+    private int _version;
+
+    private async Task<IEnumerable<UserSummary>> SearchAsync(string? query, CancellationToken ct)
+    {
+        try
+        {
+            return await Runner.RunAsync(s => Search is not null
+                ? Search(s, query, ct)
+                : s.Get<UserDirectoryService>().SearchAssignableAsync(DepartmentId, query, 20, ct));
+        }
+        catch (OrbitException)
+        {
+            return [];
+        }
+        catch (OperationCanceledException)
+        {
+            return [];
+        }
+    }
+
+    private async Task PickedAsync(UserSummary? person)
+    {
+        if (person is null) return;
+        await Picked.InvokeAsync(person);
+        _version++;
+    }
+}

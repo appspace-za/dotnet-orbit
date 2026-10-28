@@ -1,0 +1,70 @@
+@page "/Admin/Roles"
+@page "/Admin/Roles/Index"
+@inherits OrbitComponentBase
+@* Admin > Roles (spec §6.5): every role with its description, grant count, users and API keys. The built-in System Administrator
+   role comes first and opens view-only; a role with any grant at Department scope is flagged as needing a department. *@
+
+<PageTitle>Roles - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (!Loaded)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">Roles</MudText>
+            <div class="orbit-subtitle">A role is a set of permissions, each granted at a scope: the user's own work, their department, or every department. Users and API keys have one role each.</div>
+        </div>
+        <MudButton Href="/Admin/Roles/Create" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">New role</MudButton>
+    </div>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        <div class="orbit-table-wrap">
+            <MudSimpleTable Hover="true" Elevation="0" Class="orbit-tasks">
+                <thead>
+                    <tr>
+                        <th>Role</th><th>Description</th><th class="text-right">Permissions</th><th class="text-right">Users</th><th class="text-right">API keys</th><th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var r in _roles)
+                    {
+                        <tr @key="r.Role.Id">
+                            <td>
+                                <span class="orbit-gap-row">
+                                    <a href="@($"/Admin/Roles/Edit/{r.Role.Id}")" class="orbit-title">@r.Role.Name</a>
+                                    <MudChip T="string" Size="Size.Small" Color="RoleLook.Chip(r.Ref)">@RoleLook.Kind(r.Ref)</MudChip>
+                                    @if (r.RequiresDepartment)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                                 title="Has a permission at Department scope, so its users and keys must belong to a department">Needs a department</MudChip>
+                                    }
+                                </span>
+                            </td>
+                            <td class="orbit-muted orbit-small">@r.Role.Description</td>
+                            <td class="text-right">@r.GrantCount</td>
+                            <td class="text-right">@r.UserCount</td>
+                            <td class="text-right">@r.KeyCount</td>
+                            <td class="text-right">
+                                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Href="@($"/Admin/Roles/Edit/{r.Role.Id}")">@(r.Role.IsBuiltIn ? "View" : "Edit")</MudButton>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </div>
+    </MudPaper>
+}
+
+@code {
+    private IReadOnlyList<RoleListItem> _roles = [];
+
+    protected override async Task OnInitializedAsync() =>
+        await Load(async s => _roles = await s.Get<RoleService>().ListAsync());
+}

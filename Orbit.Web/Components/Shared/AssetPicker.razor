@@ -1,0 +1,47 @@
+@inherits OrbitComponentBase
+@using Orbit.Application.Assets
+@* The asset picker (spec §6.19): type part of a name, ERP number, serial number, model, location or holder; an exact ERP or
+   serial number comes first, so a scan followed by Enter picks it. It searches AssetService.SearchForPickerAsync and raises
+   Picked; then it clears itself. *@
+<MudAutocomplete @key="_version" T="AssetPickerItem" SearchFunc="SearchAsync" ValueChanged="PickedAsync" ToStringFunc="@(a => a is null ? null : AssetRules.Label(a.AssetNumber, a.Name))"
+                 Label="@Label" Placeholder="@Placeholder" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Class="@Class"
+                 MinCharacters="1" DebounceInterval="250" RelativeWidth="DropdownWidth.Adaptive" MaxItems="20" SelectValueOnTab="true" ResetValueOnEmptyText="true"
+                 AdornmentIcon="@Icons.Material.Filled.Search" Adornment="Adornment.End">
+    <ItemTemplate Context="a">
+        <div>
+            <div>@AssetRules.Label(a.AssetNumber, a.Name)</div>
+            <div class="orbit-sub">@Ui.AssetDetail(a.TypeName, a.LocationName, a.Holders, a.Status)</div>
+        </div>
+    </ItemTemplate>
+    <NoItemsTemplate>
+        <div class="pa-2 orbit-muted">No asset matches.</div>
+    </NoItemsTemplate>
+</MudAutocomplete>
+
+@code {
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public string Placeholder { get; set; } = "Search assets...";
+    [Parameter] public string Class { get; set; } = "orbit-filter";
+    [Parameter] public EventCallback<AssetPickerItem> Picked { get; set; }
+
+    private int _version;
+
+    private async Task<IEnumerable<AssetPickerItem>> SearchAsync(string? text, CancellationToken ct)
+    {
+        try
+        {
+            return await Runner.RunAsync(s => s.Get<AssetService>().SearchForPickerAsync(text, 20, ct));
+        }
+        catch (Exception ex) when (ex is OrbitException or OperationCanceledException)
+        {
+            return [];
+        }
+    }
+
+    private async Task PickedAsync(AssetPickerItem? asset)
+    {
+        if (asset is null) return;
+        await Picked.InvokeAsync(asset);
+        _version++;
+    }
+}

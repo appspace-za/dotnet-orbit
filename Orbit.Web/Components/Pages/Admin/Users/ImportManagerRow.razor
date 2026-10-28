@@ -1,0 +1,51 @@
+@* One person already in Orbit whose manager differs from the directory's, on Import from directory (spec §6.13.1): a tick box,
+   the person, the manager they have in Orbit, the one the directory names, and whether it sets a manager or replaces one. Like
+   ImportUserRow it renders again only when its change or its tick changes, and its tick box is a plain checkbox. *@
+<tr>
+    <td class="orbit-check">
+        <input type="checkbox" class="orbit-tick" checked="@Ticked" @onchange="ChangedAsync" aria-label="@($"Change the manager of {Change.DisplayName}")" />
+    </td>
+    <td>
+        <a href="@($"/Admin/Users/Edit/{Change.UserId}")">@Change.DisplayName</a>
+        <div class="orbit-sub">@Change.Email</div>
+    </td>
+    <td>
+        <span class="orbit-gap-row">
+            <span>@(Change.CurrentManagerName ?? "-")</span>
+            @if (Change.CurrentManagerInactive)
+            {
+                <span class="orbit-muted">(deactivated)</span>
+            }
+        </span>
+    </td>
+    <td>@Change.ManagerName</td>
+    <td>
+        @if (Change.Kind == ManagerChangeKind.Set)
+        {
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Sets a manager</MudChip>
+        }
+        else
+        {
+            <MudChip T="string" Size="Size.Small" Color="Color.Warning">Replaces</MudChip>
+        }
+    </td>
+</tr>
+
+@code {
+    [Parameter, EditorRequired] public DirectoryManagerChange Change { get; set; } = null!;
+    [Parameter] public bool Ticked { get; set; }
+    [Parameter] public EventCallback<bool> TickedChanged { get; set; }
+
+    private DirectoryManagerChange? _change;
+    private bool _ticked, _changed;
+
+    protected override void OnParametersSet()
+    {
+        _changed = !ReferenceEquals(Change, _change) || Ticked != _ticked;
+        (_change, _ticked) = (Change, Ticked);
+    }
+
+    protected override bool ShouldRender() => _changed;
+
+    private Task ChangedAsync(ChangeEventArgs e) => TickedChanged.InvokeAsync(e.Value is true);
+}

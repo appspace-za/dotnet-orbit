@@ -37,6 +37,23 @@ public class RequestAccessTests
         Assert.True(RoleRules.RequiresDepartment(new Dictionary<string, PermissionScope> { [Permission.RequestsSubmit] = PermissionScope.Department }));
     }
 
+    /// <summary>
+    /// REQ-024: the flow builder's people search answers whoever configures request flows, at any scope and whatever their asset
+    /// rights - it used to ask for assets.create or assets.edit, so a role that only configures flows found nobody.
+    /// </summary>
+    [Fact]
+    public void Configuring_flows_opens_the_builders_people_search()
+    {
+        var configuresOnly = TestActors.Grants(It, (Permission.RequestsConfigure, PermissionScope.Department));
+        Assert.True(AccessPolicy.CanConfigureRequests(configuresOnly));
+        Assert.False(configuresOnly.Has(Permission.AssetsCreate) || configuresOnly.Has(Permission.AssetsEdit));
+        Assert.True(AccessPolicy.CanConfigureRequests(TestActors.Grants(null, (Permission.RequestsConfigure, PermissionScope.All))));
+        Assert.True(AccessPolicy.CanConfigureRequests(TestActors.DepartmentAdmin(It)));
+        Assert.True(AccessPolicy.CanConfigureRequests(TestActors.SystemAdmin()));
+        Assert.False(AccessPolicy.CanConfigureRequests(TestActors.Member(It)));
+        Assert.False(AccessPolicy.CanConfigureRequests(TestActors.Grants(It, (Permission.AssetsCreate, PermissionScope.Department))));
+    }
+
     /// <summary>REQ-007: requests.configure at Department covers the actor's own department's flows only; at All, every department's.</summary>
     [Fact]
     public void Configuring_follows_the_department_scope()

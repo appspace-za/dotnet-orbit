@@ -1,0 +1,9 @@
+@page "/Recurring/Edit/{Id:guid}"
+@* Editing a recurring task definition (spec §6.4). There is no page door: the editor checks the right to edit this definition. *@
+
+<PageTitle>Edit recurring task - Orbit</PageTitle>
+<RecurringEditor DefinitionId="Id" />
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+}

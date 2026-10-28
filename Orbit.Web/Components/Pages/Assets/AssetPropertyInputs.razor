@@ -1,0 +1,89 @@
+@using Orbit.Application.Assets
+@* The chosen type's property fields (spec §6.19): text, number, date, yes/no or a choice, each written into Values by the
+   property's id. Changing the type shows which current values carry over and which are dropped on save. *@
+@if (!Fields.TypeChosen)
+{
+    <p class="orbit-muted orbit-small ma-0">Choose a type to see its properties.</p>
+}
+else
+{
+    @if (Fields.Dropped.Count > 0)
+    {
+        <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+            Changing the type drops these values when you save: <b>@string.Join("; ", Fields.Dropped)</b>.
+            @if (Fields.Carried.Count > 0) { <span>Carried over: @string.Join(", ", Fields.Carried).</span> }
+        </MudAlert>
+    }
+    else if (Fields.Carried.Count > 0)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">Carried over from the current type: @string.Join(", ", Fields.Carried).</MudAlert>
+    }
+    @if (Fields.Properties.Count == 0)
+    {
+        <p class="orbit-muted orbit-small ma-0">This type has no extra properties.</p>
+    }
+    else
+    {
+        @* Columns that stack on a narrow screen: a number, date or yes/no takes half the width of a text or choice. *@
+        <MudGrid Spacing="3">
+            @foreach (var property in Fields.Properties)
+            {
+                var p = property;
+                var key = p.Id.ToString();
+                var label = p.IsRequired ? $"{p.Name} *" : p.Name;
+                var narrow = p.PropertyType is AssetPropertyType.Number or AssetPropertyType.Date or AssetPropertyType.YesNo;
+                <MudItem @key="key" xs="12" sm="@(narrow ? 6 : 12)" md="@(narrow ? 3 : 6)">
+                    @switch (p.PropertyType)
+                    {
+                        case AssetPropertyType.Number:
+                            <MudTextField T="string" Value="Get(key)" ValueChanged="v => Set(key, v)" Label="@label" Placeholder="e.g. 16"
+                                          Variant="Variant.Outlined" InputMode="@(InputMode.@decimal)" />
+                            break;
+                        case AssetPropertyType.Date:
+                            <MudDatePicker Date="PickerDate.Parse(Get(key))" DateChanged="d => Set(key, PickerDate.Write(d))" Label="@label" DateFormat="@PickerDate.Format"
+                                           Editable="true" Clearable="true" AutoClose="true" Variant="Variant.Outlined" />
+                            break;
+                        case AssetPropertyType.YesNo:
+                            <MudSelect T="string" Value="Get(key) ?? string.Empty" ValueChanged="v => Set(key, v)" Label="@label"
+                                       Variant="Variant.Outlined" ToStringFunc="YesNo">
+                                <MudSelectItem T="string" Value="string.Empty">-</MudSelectItem>
+                                <MudSelectItem T="string" Value="@("true")">Yes</MudSelectItem>
+                                <MudSelectItem T="string" Value="@("false")">No</MudSelectItem>
+                            </MudSelect>
+                            break;
+                        case AssetPropertyType.Choice:
+                            <MudSelect T="string" Value="Get(key) ?? string.Empty" ValueChanged="v => Set(key, v)" Label="@label"
+                                       Variant="Variant.Outlined" ToStringFunc="@(v => string.IsNullOrEmpty(v) ? "-" : v)">
+                                <MudSelectItem T="string" Value="string.Empty">-</MudSelectItem>
+                                @foreach (var o in p.Options)
+                                {
+                                    <MudSelectItem T="string" Value="o">@o</MudSelectItem>
+                                }
+                            </MudSelect>
+                            break;
+                        default:
+                            <MudTextField T="string" Value="Get(key)" ValueChanged="v => Set(key, v)" Label="@label" MaxLength="AssetPropertyRules.MaxValueLength"
+                                          Variant="Variant.Outlined" />
+                            break;
+                    }
+                </MudItem>
+            }
+        </MudGrid>
+    }
+    @if (Fields.Properties.Any(p => p.IsRequired))
+    {
+        <div class="orbit-help">* Required.</div>
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public AssetPropertyFields Fields { get; set; } = new();
+    /// <summary>The values being edited, keyed by the property's id as text; a cleared field holds null.</summary>
+    [Parameter, EditorRequired] public Dictionary<string, string?> Values { get; set; } = new();
+
+    private string? Get(string key) => Values.GetValueOrDefault(key);
+
+    private void Set(string key, string? value) => Values[key] = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string YesNo(string? value) => value switch { "true" => "Yes", "false" => "No", _ => "-" };
+}

@@ -1,0 +1,71 @@
+@* A user's role, department and manager (spec §6.5), on Create user and on the user's page. A role with any permission at
+   Department scope needs a department, so "(none)" is withheld while one is chosen and the hint says so, as the Razor forms'
+   script did; UserAdminService checks regardless. The manager is any active person but the user themself
+   (UserDirectoryService.SearchManagerCandidatesAsync, which the Razor forms reached through /Admin/Users/Managers). It changes
+   Form and Manager in place; nothing is saved until the page saves. *@
+
+<div class="orbit-form-row">
+    <MudSelect T="Guid" Value="Form.RoleId" ValueChanged="RoleChanged" Label="Role" Variant="Variant.Outlined" Class="orbit-field-sm"
+               ToStringFunc="@(id => Roles.FirstOrDefault(r => r.Id == id)?.Name ?? "")">
+        @foreach (var r in Roles)
+        {
+            <MudSelectItem T="Guid" Value="r.Id" title="@r.Description">@r.Name</MudSelectItem>
+        }
+    </MudSelect>
+    <MudSelect T="Guid" @bind-Value="DepartmentChoice" Label="Department" Variant="Variant.Outlined" Class="orbit-field-lg"
+               ToStringFunc="DepartmentName" HelperText="@DepartmentHint">
+        @if (!RequiresDepartment)
+        {
+            <MudSelectItem T="Guid" Value="Guid.Empty">(none)</MudSelectItem>
+        }
+        @foreach (var d in Departments)
+        {
+            <MudSelectItem T="Guid" Value="d.Id">@d.Name</MudSelectItem>
+        }
+    </MudSelect>
+</div>
+<div class="orbit-help mt-0">What the user may do: <a href="/Admin/Roles/Index">Admin &gt; Roles</a>.</div>
+
+<div>
+    <div class="orbit-section-title mt-0 mb-1">Manager <span class="orbit-muted">(optional)</span></div>
+    <div class="orbit-people-field-box">
+        <PeopleField Selected="Manager" SelectedChanged="StateHasChanged" Single="true" Placeholder="Search for the user's manager" Search="SearchManagersAsync" />
+    </div>
+    @if (Manager.Count == 0)
+    {
+        <div class="orbit-small orbit-muted">No manager</div>
+    }
+    <div class="orbit-help">Whom the user reports to. A request flow can ask them to approve what the user asks for.</div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public UserForm Form { get; set; } = null!;
+    [Parameter, EditorRequired] public IReadOnlyList<RolePickerItem> Roles { get; set; } = [];
+    /// <summary>The active departments: an archived one can't be chosen (the service refuses it).</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<Department> Departments { get; set; } = [];
+    /// <summary>The chosen manager as a chip, at most one; the page saves its id as the form's ManagerId.</summary>
+    [Parameter, EditorRequired] public List<UserSummary> Manager { get; set; } = [];
+    /// <summary>The user being edited, left out of the manager search; null on Create user.</summary>
+    [Parameter] public Guid? UserId { get; set; }
+
+    private bool RequiresDepartment => Roles.FirstOrDefault(r => r.Id == Form.RoleId)?.RequiresDepartment == true;
+
+    private string DepartmentHint => RequiresDepartment
+        ? "Required: this role has permissions scoped to a department."
+        : "Optional for this role: a home department, used as the default for new work.";
+
+    private Guid DepartmentChoice
+    {
+        get => Form.DepartmentId ?? Guid.Empty;
+        set => Form.DepartmentId = value == Guid.Empty ? null : value;
+    }
+
+    private string DepartmentName(Guid id) =>
+        id == Guid.Empty ? (RequiresDepartment ? "" : "(none)")
+        : Departments.FirstOrDefault(d => d.Id == id)?.Name ?? "";
+
+    private void RoleChanged(Guid id) => Form.RoleId = id;
+
+    private Task<IReadOnlyList<UserSummary>> SearchManagersAsync(IServiceProvider services, string? query, CancellationToken ct) =>
+        services.Get<UserDirectoryService>().SearchManagerCandidatesAsync(query, UserId, 20, ct);
+}

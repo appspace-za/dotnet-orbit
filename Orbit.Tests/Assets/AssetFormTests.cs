@@ -1,9 +1,9 @@
 using Orbit.Data.Entities;
-using Orbit.Pages.Assets;
+using Orbit.Components.Pages.Assets;
 
 namespace Orbit.Tests.Assets;
 
-/// <summary>The asset form filled from another asset: the asset page's Copy (spec §6.19).</summary>
+/// <summary>The asset form (spec §6.19): filled from another asset (the asset page's Copy), and turned into the service input.</summary>
 public class AssetFormTests
 {
     /// <summary>
@@ -60,5 +60,29 @@ public class AssetFormTests
         var copy = AssetForm.CopyOf(new Asset { DepartmentId = Guid.NewGuid(), Name = "Spare phone", Status = status });
 
         Assert.Equal(status, copy.Status);
+    }
+
+    /// <summary>
+    /// The form is the whole state (§6.19): every one of the chosen type's properties is passed, a blank or untouched one as null so
+    /// it clears, and a value left over from another type is ignored.
+    /// </summary>
+    [Fact]
+    public void The_input_passes_every_property_of_the_type_and_ignores_others()
+    {
+        var ram = new AssetTypeProperty { Id = Guid.NewGuid(), Name = "RAM" };
+        var os = new AssetTypeProperty { Id = Guid.NewGuid(), Name = "OS" };
+        var leftover = Guid.NewGuid();
+        var form = new AssetForm
+        {
+            Name = "Laptop", AssetTypeId = Guid.NewGuid(),
+            Properties = new() { [ram.Id.ToString()] = "16", [leftover.ToString()] = "old value" }
+        };
+
+        var input = form.ToInput([ram, os]);
+
+        Assert.Equal(2, input.Properties.Count);
+        Assert.Equal("16", input.Properties[ram.Id]);
+        Assert.Null(input.Properties[os.Id]);
+        Assert.False(input.Properties.ContainsKey(leftover));
     }
 }

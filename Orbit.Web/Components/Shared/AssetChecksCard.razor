@@ -1,0 +1,29 @@
+@* The dashboard's Asset checks card (spec §6.9, §6.19): what is overdue, due soon or not OK within the viewer's assets.check reach. *@
+<MudPaper Outlined="true" Class="orbit-card">
+    <div class="orbit-card-header">
+        <b>Asset checks</b>
+        <a href="/Assets?Check=Due" class="orbit-small">Open</a>
+    </div>
+    <div class="orbit-card-body orbit-small">
+        @if (Summary.Scope == PermissionScope.Own)
+        {
+            <div class="mb-1">You hold <a href="/Assets?Holder=me"><b>@Summary.Held @(Summary.Held == 1 ? "asset" : "assets")</b></a>.</div>
+        }
+        @if (Summary.Overdue == 0 && Summary.DueSoon == 0 && Summary.NotOk == 0)
+        {
+            <span class="orbit-muted">No checks due@(Summary.Scope == PermissionScope.Own ? " on your assets" : "").</span>
+        }
+        else
+        {
+            <div class="orbit-gap-row orbit-gap-lg">
+                <a href="/Assets?Check=Overdue" class="orbit-plain"><span class="orbit-count orbit-overdue">@Summary.Overdue</span> overdue</a>
+                <a href="/Assets?Check=DueSoon" class="orbit-plain"><span class="orbit-count orbit-warn">@Summary.DueSoon</span> due soon</a>
+                <a href="/Assets?Check=NotOk" class="orbit-plain"><span class="orbit-count">@Summary.NotOk</span> last check not OK</a>
+            </div>
+        }
+    </div>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public AssetCheckSummary Summary { get; set; } = null!;
+}

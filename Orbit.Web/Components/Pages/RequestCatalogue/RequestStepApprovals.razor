@@ -1,0 +1,284 @@
+@inherits OrbitComponentBase
+@* An approval step's stages (spec §6.20), in order: each with its rule (any one or all of its approvers must approve), saved on
+   its own, moved up or down, or deleted with its approvers; its approvers, each with "remove"; and Add an approver - a person
+   (added as soon as they are picked), everyone with a role in a department or in the requester's department, the requester's
+   manager or the manager of the requester's department. Then Add a stage. Stages and approvers may change while requests are in
+   progress. Every change raises Changed for the page to reload the step, which rebuilds the rows, so as on the Razor page what
+   is typed but not saved in the other stages is dropped; a refused change keeps it. *@
+
+<MudPaper Outlined="true" Class="orbit-card">
+    <div class="orbit-card-header"><span><b>Stages</b> <span class="orbit-muted">(@_drafts.Count, in order)</span></span></div>
+    @if (_drafts.Count == 0)
+    {
+        <p class="orbit-empty">No stages yet: an approval needs at least one, each with an approver.</p>
+    }
+    @for (var i = 0; i < _drafts.Count; i++)
+    {
+        var d = _drafts[i];
+        var st = d.Stage;
+        var first = i == 0;
+        var last = i == _drafts.Count - 1;
+        var adding = _adding.Contains(st.Id);
+        <div class="orbit-list-item" id="@($"stage-{st.Id:N}")" @key="st.Id">
+            <div class="orbit-list-row">
+                <div class="orbit-form-row">
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Stage @st.StageOrder</MudChip>
+                    <MudSelect T="ApprovalRule" @bind-Value="d.Rule" ToStringFunc="RuleLabel" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true"
+                               Class="orbit-field-lg" aria-label="Rule">
+                        @foreach (var rule in Enum.GetValues<ApprovalRule>())
+                        {
+                            <MudSelectItem T="ApprovalRule" Value="rule">@RuleLabel(rule)</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Disabled="_busy" OnClick="() => SaveRuleAsync(d)">Save</MudButton>
+                </div>
+                <span class="orbit-gap-row">
+                    <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small" Variant="Variant.Outlined" Disabled="@(_busy || first)"
+                                   OnClick="() => MoveAsync(st, -1)" title="Move up" aria-label="Move up" />
+                    <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small" Variant="Variant.Outlined" Disabled="@(_busy || last)"
+                                   OnClick="() => MoveAsync(st, 1)" title="Move down" aria-label="Move down" />
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="() => DeleteAsync(st)">Delete</MudButton>
+                </span>
+            </div>
+
+            @if (st.Approvers.Count == 0)
+            {
+                <div class="orbit-small orbit-warn mt-2">No approver yet.</div>
+            }
+            else
+            {
+                <ul class="orbit-plain-list orbit-small mt-2 mb-0">
+                    @foreach (var approver in st.Approvers)
+                    {
+                        var a = approver;
+                        <li class="orbit-gap-row" @key="a.Id">
+                            <span>@RequestCatalogueService.ApproverLabel(a)</span>
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" Disabled="_busy" OnClick="() => RemoveAsync(a)">remove</MudButton>
+                        </li>
+                    }
+                </ul>
+            }
+
+            <div class="mt-2">
+                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => ToggleAdding(st.Id)" aria-expanded="@(adding ? "true" : "false")"
+                           StartIcon="@(adding ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.Add)">Add an approver</MudButton>
+                @if (adding)
+                {
+                    <div class="orbit-form mt-2">
+                        <div class="orbit-form-row">
+                            <MudSelect T="ApproverKind" @bind-Value="d.Kind" Label="Approver kind" ToStringFunc="@(k => k.Label())" Variant="Variant.Outlined"
+                                       Margin="Margin.Dense" Dense="true" Class="orbit-field-lg">
+                                @foreach (var kind in Enum.GetValues<ApproverKind>())
+                                {
+                                    <MudSelectItem T="ApproverKind" Value="kind">@kind.Label()</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </div>
+                        @ApproverFields(d)
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    <div class="orbit-card-body">
+        <div class="orbit-form-row">
+            <MudSelect T="ApprovalRule" @bind-Value="_newRule" ToStringFunc="RuleLabel" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true"
+                       Class="orbit-field-lg" aria-label="Rule for the new stage">
+                @foreach (var rule in Enum.GetValues<ApprovalRule>())
+                {
+                    <MudSelectItem T="ApprovalRule" Value="rule">@RuleLabel(rule)</MudSelectItem>
+                }
+            </MudSelect>
+            <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="AddStageAsync">Add a stage</MudButton>
+        </div>
+    </div>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public Guid StepId { get; set; }
+    /// <summary>The stages in order, with their approvers. Only a new list (the page reloaded the step) replaces the rows being edited.</summary>
+    [Parameter, EditorRequired] public IEnumerable<RequestFlowApprovalStage> Stages { get; set; } = [];
+    /// <summary>The roles an approver may name.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<ApplicationRole> Roles { get; set; } = [];
+    /// <summary>The open departments an approver may name.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<Department> Departments { get; set; } = [];
+    /// <summary>Raised after a stage or approver was added, saved, moved, deleted or removed, for the page to reload the step.</summary>
+    [Parameter] public EventCallback Changed { get; set; }
+
+    /// <summary>The flow builder's people search, as the Razor page's /RequestCatalogue/People endpoint did.</summary>
+    private static readonly Func<IServiceProvider, string?, CancellationToken, Task<IReadOnlyList<UserSummary>>> SearchPeople =
+        (sp, q, ct) => sp.Get<UserDirectoryService>().SearchRequestFlowPeopleAsync(q, 20, ct);
+
+    private IEnumerable<RequestFlowApprovalStage>? _shown;
+    private List<StageDraft> _drafts = [];
+    /// <summary>The stages whose Add an approver is open; kept across reloads, by id.</summary>
+    private readonly HashSet<Guid> _adding = [];
+    private ApprovalRule _newRule = ApprovalRule.Any;
+    private bool _busy;
+
+    protected override void OnParametersSet()
+    {
+        // The page re-renders this card whenever its own state changes; rebuilding the rows then would throw away what is typed in them.
+        if (ReferenceEquals(Stages, _shown)) return;
+        _shown = Stages;
+        _drafts = Stages.Select(s => new StageDraft(s)).ToList();
+    }
+
+    private static string RuleLabel(ApprovalRule rule) => rule.Label() + " must approve";
+
+    private string RoleName(Guid id) => Roles.FirstOrDefault(r => r.Id == id)?.Name ?? "- choose -";
+
+    private string DepartmentName(Guid id) => Departments.FirstOrDefault(d => d.Id == id)?.Name ?? "- choose -";
+
+    private void ToggleAdding(Guid stageId)
+    {
+        if (!_adding.Remove(stageId)) _adding.Add(stageId);
+    }
+
+    /// <summary>What the chosen kind of approver names: a person (added when picked), a role, a role and a department, or nothing.</summary>
+    private RenderFragment ApproverFields(StageDraft d) => __builder =>
+    {
+        switch (d.Kind)
+        {
+            case ApproverKind.Person:
+                <div>
+                    <PersonPicker Placeholder="Type a name or email..." Search="SearchPeople" Disabled="_busy" Picked="@(u => AddPersonAsync(d, u))" />
+                    <div class="orbit-help">Picking someone adds them as an approver of this stage.</div>
+                </div>
+                break;
+            case ApproverKind.RoleInDepartment:
+            case ApproverKind.RoleInRequestersDepartment:
+                <div class="orbit-form-row">
+                    <MudSelect T="Guid" @bind-Value="d.RoleId" Label="Role" ToStringFunc="RoleName" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true"
+                               Class="orbit-field-sm">
+                        <MudSelectItem T="Guid" Value="Guid.Empty">- choose -</MudSelectItem>
+                        @foreach (var r in Roles)
+                        {
+                            <MudSelectItem T="Guid" Value="r.Id">@r.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                    @if (d.Kind == ApproverKind.RoleInDepartment)
+                    {
+                        <MudSelect T="Guid" @bind-Value="d.DepartmentId" Label="Department" ToStringFunc="DepartmentName" Variant="Variant.Outlined"
+                                   Margin="Margin.Dense" Dense="true" Class="orbit-field-sm">
+                            <MudSelectItem T="Guid" Value="Guid.Empty">- choose -</MudSelectItem>
+                            @foreach (var dept in Departments)
+                            {
+                                <MudSelectItem T="Guid" Value="dept.Id">@dept.Name</MudSelectItem>
+                            }
+                        </MudSelect>
+                    }
+                </div>
+                <div><MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Disabled="_busy" OnClick="() => AddNamedAsync(d)">Add approver</MudButton></div>
+                break;
+            case ApproverKind.RequestersManager:
+                <div class="orbit-help mt-0">
+                    Whoever is the manager of the person who logged the request when the stage opens (set under Admin &gt; Users). For someone with no
+                    manager there is nobody to ask, and the step fails until one is set.
+                </div>
+                <div><MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Disabled="_busy" OnClick="() => AddNamedAsync(d)">Add approver</MudButton></div>
+                break;
+            case ApproverKind.RequestersDepartmentManager:
+                <div class="orbit-help mt-0">
+                    Whoever manages the department of the person who logged the request when the stage opens (set under Admin &gt; Departments). With
+                    no department, or no manager for it, there is nobody to ask, and the step fails until one is set.
+                </div>
+                <div><MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Disabled="_busy" OnClick="() => AddNamedAsync(d)">Add approver</MudButton></div>
+                break;
+        }
+    };
+
+    private async Task AddStageAsync()
+    {
+        var rule = _newRule;
+        _busy = true;
+        if (await Act(s => s.Get<RequestCatalogueService>().AddStageAsync(StepId, rule)))
+        {
+            Success("Stage added. Now add its approvers.");
+            _newRule = ApprovalRule.Any;
+            await Changed.InvokeAsync();
+        }
+        _busy = false;
+    }
+
+    private async Task SaveRuleAsync(StageDraft d)
+    {
+        var rule = d.Rule;
+        _busy = true;
+        if (await Act(s => s.Get<RequestCatalogueService>().UpdateStageAsync(d.Stage.Id, rule)))
+        {
+            Success("Stage saved.");
+            await Changed.InvokeAsync();
+        }
+        _busy = false;
+    }
+
+    /// <summary>One place up (-1) or down (+1); the Razor page said nothing either, the new order shows it.</summary>
+    private async Task MoveAsync(RequestFlowApprovalStage stage, int direction)
+    {
+        _busy = true;
+        if (await Act(s => s.Get<RequestCatalogueService>().MoveStageAsync(stage.Id, direction))) await Changed.InvokeAsync();
+        _busy = false;
+    }
+
+    private async Task DeleteAsync(RequestFlowApprovalStage stage)
+    {
+        if (!await Confirm("Delete stage", $"Delete stage {stage.StageOrder} with its approvers?")) return;
+        _busy = true;
+        if (await Act(s => s.Get<RequestCatalogueService>().DeleteStageAsync(stage.Id)))
+        {
+            Success("Stage deleted.");
+            _adding.Remove(stage.Id);
+            await Changed.InvokeAsync();
+        }
+        _busy = false;
+    }
+
+    private Task AddPersonAsync(StageDraft d, UserSummary person) =>
+        AddApproverAsync(d.Stage.Id, new ApproverForm { Kind = ApproverKind.Person, UserId = person.Id });
+
+    /// <summary>A role (in a department, or in the requester's), or a manager: only what the kind names is sent, as the Razor form sent only its shown inputs.</summary>
+    private Task AddNamedAsync(StageDraft d)
+    {
+        var names = d.Kind is ApproverKind.RoleInDepartment or ApproverKind.RoleInRequestersDepartment;
+        return AddApproverAsync(d.Stage.Id, new ApproverForm
+        {
+            Kind = d.Kind,
+            RoleId = names && d.RoleId != Guid.Empty ? d.RoleId : null,
+            DepartmentId = d.Kind == ApproverKind.RoleInDepartment && d.DepartmentId != Guid.Empty ? d.DepartmentId : null
+        });
+    }
+
+    private async Task AddApproverAsync(Guid stageId, ApproverForm approver)
+    {
+        var input = approver.ToInput();
+        _busy = true;
+        if (await Act(s => s.Get<RequestCatalogueService>().AddApproverAsync(stageId, input)))
+        {
+            Success("Approver added.");
+            await Changed.InvokeAsync();
+        }
+        _busy = false;
+    }
+
+    private async Task RemoveAsync(RequestFlowApprover approver)
+    {
+        _busy = true;
+        if (await Act(s => s.Get<RequestCatalogueService>().RemoveApproverAsync(approver.Id)))
+        {
+            Success("Approver removed.");
+            await Changed.InvokeAsync();
+        }
+        _busy = false;
+    }
+
+    /// <summary>A stage as typed: its rule, and the approver being added to it.</summary>
+    private sealed class StageDraft(RequestFlowApprovalStage stage)
+    {
+        public RequestFlowApprovalStage Stage { get; } = stage;
+        public ApprovalRule Rule { get; set; } = stage.Rule;
+        public ApproverKind Kind { get; set; } = ApproverKind.Person;
+        public Guid RoleId { get; set; }
+        public Guid DepartmentId { get; set; }
+    }
+}

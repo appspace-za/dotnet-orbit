@@ -1,0 +1,149 @@
+@inherits OrbitComponentBase
+@* A form step's fields (spec §6.20), in order, each opened to edit its settings and saved on its own, moved up or down, or deleted;
+   then Add a field. While requests are in progress through the flow (Frozen) a field's key and type can't change and fields can't
+   be added or deleted. Every change raises Changed for the page to reload the step, which rebuilds the rows, so as on the Razor
+   page edits not yet saved in the other rows are dropped; a refused save keeps what was typed. *@
+
+<MudPaper Outlined="true" Class="orbit-card">
+    <div class="orbit-card-header"><span><b>Fields</b> <span class="orbit-muted">(@_drafts.Count)</span></span></div>
+    @if (_drafts.Count == 0)
+    {
+        <p class="orbit-empty">No fields yet: a form needs at least one.</p>
+    }
+    @for (var i = 0; i < _drafts.Count; i++)
+    {
+        var d = _drafts[i];
+        var number = i + 1;
+        var first = i == 0;
+        var last = i == _drafts.Count - 1;
+        var open = _open.Contains(d.Id);
+        <div class="orbit-list-item" id="@($"field-{d.Id:N}")" @key="d.Id">
+            <div class="orbit-list-row">
+                <span class="orbit-gap-row">
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@number</MudChip>
+                    <b>@d.Saved.Prompt</b>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@d.Saved.FieldType.Label()</MudChip>
+                    <span class="orbit-key orbit-small orbit-muted">@Token(d.Saved.Key)</span>
+                    @if (!d.Saved.IsRequired)
+                    {
+                        <span class="orbit-small orbit-muted">optional</span>
+                    }
+                </span>
+                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => Toggle(d.Id)" aria-expanded="@(open ? "true" : "false")"
+                           EndIcon="@(open ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)">@(open ? "Close" : "Edit")</MudButton>
+            </div>
+            @if (open)
+            {
+                <div class="mt-3">
+                    <RequestFieldEditor Form="d.Form" Frozen="Frozen" />
+                    <div class="orbit-gap-row mt-3">
+                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="() => SaveAsync(d)">Save field</MudButton>
+                        <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small" Variant="Variant.Outlined" Disabled="@(_busy || first)"
+                                       OnClick="() => MoveAsync(d, -1)" title="Move up" aria-label="Move up" />
+                        <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small" Variant="Variant.Outlined" Disabled="@(_busy || last)"
+                                       OnClick="() => MoveAsync(d, 1)" title="Move down" aria-label="Move down" />
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="@(_busy || Frozen)" OnClick="() => DeleteAsync(d)">Delete</MudButton>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</MudPaper>
+
+<MudPaper Outlined="true" Class="orbit-card">
+    <div class="orbit-card-header"><b>Add a field</b></div>
+    <div class="orbit-card-body">
+        @* Keyed on the draft, so a fresh one after Add starts untouched rather than saying its blank prompt is required. *@
+        <RequestFieldEditor @key="_new" Form="_new" Frozen="Frozen" />
+        <div class="mt-3">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || Frozen)" OnClick="AddAsync">Add field</MudButton>
+        </div>
+    </div>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public Guid StepId { get; set; }
+    /// <summary>The step's key: a field's value is <c>{{step-key.field-key}}</c> to later steps.</summary>
+    [Parameter, EditorRequired] public string StepKey { get; set; } = string.Empty;
+    /// <summary>The fields in display order. Only a new list (the page reloaded the step) replaces the rows being edited.</summary>
+    [Parameter, EditorRequired] public IEnumerable<RequestFormField> Fields { get; set; } = [];
+    /// <summary>Requests are in progress through the flow (§6.20).</summary>
+    [Parameter] public bool Frozen { get; set; }
+    /// <summary>Raised after a field was added, saved, moved or deleted, for the page to reload the step.</summary>
+    [Parameter] public EventCallback Changed { get; set; }
+
+    private IEnumerable<RequestFormField>? _shown;
+    private List<FieldDraft> _drafts = [];
+    /// <summary>The fields opened for editing; kept across reloads, by id.</summary>
+    private readonly HashSet<Guid> _open = [];
+    private FieldForm _new = new() { IsRequired = true };
+    private bool _busy;
+
+    protected override void OnParametersSet()
+    {
+        // The page re-renders this card whenever its own state changes; rebuilding the rows then would throw away what is typed in them.
+        if (ReferenceEquals(Fields, _shown)) return;
+        _shown = Fields;
+        _drafts = Fields.Select(f => new FieldDraft(f, FieldForm.From(f))).ToList();
+    }
+
+    private string Token(string fieldKey) => "{{" + StepKey + "." + fieldKey + "}}";
+
+    private void Toggle(Guid id)
+    {
+        if (!_open.Remove(id)) _open.Add(id);
+    }
+
+    private async Task AddAsync()
+    {
+        var input = _new.ToInput();
+        _busy = true;
+        if (await Act(s => s.Get<RequestCatalogueService>().AddFieldAsync(StepId, input)))
+        {
+            Success("Field added.");
+            _new = new FieldForm { IsRequired = true };
+            await Changed.InvokeAsync();
+        }
+        _busy = false;
+    }
+
+    private async Task SaveAsync(FieldDraft d)
+    {
+        var input = d.Form.ToInput();
+        _busy = true;
+        if (await Act(s => s.Get<RequestCatalogueService>().UpdateFieldAsync(StepId, d.Id, input)))
+        {
+            Success("Field saved.");
+            await Changed.InvokeAsync();
+        }
+        _busy = false;
+    }
+
+    /// <summary>One place up (-1) or down (+1); the Razor page said nothing either, the new order shows it.</summary>
+    private async Task MoveAsync(FieldDraft d, int direction)
+    {
+        _busy = true;
+        if (await Act(s => s.Get<RequestCatalogueService>().MoveFieldAsync(StepId, d.Id, direction))) await Changed.InvokeAsync();
+        _busy = false;
+    }
+
+    /// <summary>The service refuses a field answered in a request already logged, and suggests archiving the flow.</summary>
+    private async Task DeleteAsync(FieldDraft d)
+    {
+        if (!await Confirm("Delete field", $"Delete the field \"{d.Saved.Prompt}\"?")) return;
+        _busy = true;
+        if (await Act(s => s.Get<RequestCatalogueService>().DeleteFieldAsync(StepId, d.Id)))
+        {
+            Success("Field deleted.");
+            _open.Remove(d.Id);
+            await Changed.InvokeAsync();
+        }
+        _busy = false;
+    }
+
+    /// <summary>A field as stored (its summary line and the delete confirmation) and as typed.</summary>
+    private sealed record FieldDraft(RequestFormField Saved, FieldForm Form)
+    {
+        public Guid Id => Saved.Id;
+    }
+}

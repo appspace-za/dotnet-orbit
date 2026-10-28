@@ -1,0 +1,43 @@
+@* A form field holding any number of people (spec §6.19's holders, §6.2.3's assignees), or at most one (Single, §6.20's step
+   performer): the chosen people as chips, each with × to remove it, over a PersonPicker that adds the next one - or, Single,
+   replaces the one chosen. It changes Selected in place and raises SelectedChanged; nothing is saved until the form is. *@
+<div class="orbit-people-field">
+    @if (Selected.Count > 0)
+    {
+        <div class="orbit-chips mb-1">
+            @foreach (var person in Selected)
+            {
+                var p = person;
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" OnClose="@(_ => RemoveAsync(p))" @key="p.Id"
+                         title="@(p.DepartmentName is { } d ? $"{p.Email} · {d}" : p.Email)">
+                    @p.DisplayName@(p.IsActive ? "" : " (deactivated)")
+                </MudChip>
+            }
+        </div>
+    }
+    <PersonPicker Placeholder="@Placeholder" Search="Search" DepartmentId="DepartmentId" Picked="AddAsync" />
+</div>
+
+@code {
+    [Parameter, EditorRequired] public List<UserSummary> Selected { get; set; } = [];
+    [Parameter] public EventCallback SelectedChanged { get; set; }
+    [Parameter] public string Placeholder { get; set; } = "Add someone...";
+    /// <summary>Who may be added; null searches task assignees in <see cref="DepartmentId"/> (PersonPicker's default).</summary>
+    [Parameter] public Func<IServiceProvider, string?, CancellationToken, Task<IReadOnlyList<UserSummary>>>? Search { get; set; }
+    [Parameter] public Guid? DepartmentId { get; set; }
+    /// <summary>At most one person: picking replaces the chip.</summary>
+    [Parameter] public bool Single { get; set; }
+
+    private async Task AddAsync(UserSummary person)
+    {
+        if (Single) Selected.Clear();
+        if (Selected.All(p => p.Id != person.Id)) Selected.Add(person);
+        await SelectedChanged.InvokeAsync();
+    }
+
+    private async Task RemoveAsync(UserSummary person)
+    {
+        Selected.RemoveAll(p => p.Id == person.Id);
+        await SelectedChanged.InvokeAsync();
+    }
+}

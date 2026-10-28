@@ -1,0 +1,42 @@
+@* The solution-notes dialog (spec §6.2.4): setting a task Done asks how it was resolved. Started with any notes kept from an
+   earlier close. Closes with the notes, or cancels. The server refuses Done without notes regardless. *@
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.subtitle1" Class="mb-3"><b>@TaskLabel</b></MudText>
+        <MudTextField T="string" @bind-Value="_notes" Label="Solution notes (required)" Lines="5" Variant="Variant.Outlined"
+                      AutoFocus="true" Immediate="true" Error="_invalid" ErrorText="Say how the task was resolved."
+                      HelperText="How the task was resolved: what was done, the fix, the outcome. Use a comment for discussion."
+                      OnKeyDown="KeyDown" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => Dialog.Cancel()">Cancel</MudButton>
+        <MudButton Color="Color.Success" Variant="Variant.Filled" OnClick="Confirm">Mark Done</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = null!;
+
+    [Parameter] public string TaskLabel { get; set; } = "";
+    [Parameter] public string? Notes { get; set; }
+
+    private string? _notes;
+    private bool _invalid;
+
+    protected override void OnInitialized() => _notes = Notes;
+
+    private void Confirm()
+    {
+        if (string.IsNullOrWhiteSpace(_notes))
+        {
+            _invalid = true;
+            return;
+        }
+        Dialog.Close(DialogResult.Ok(_notes));
+    }
+
+    private void KeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && (e.CtrlKey || e.MetaKey)) Confirm();
+    }
+}

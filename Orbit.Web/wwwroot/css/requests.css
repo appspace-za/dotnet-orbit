@@ -1,0 +1,295 @@
+/* Requests (spec §6.20), for the Blazor pages (Components/Pages/Requests and RequestCatalogue). These are site.css's request rules
+   with Bootstrap's colours mapped to MudBlazor's palette (a Blazor page doesn't load Bootstrap or site.css), and the answer buttons
+   redrawn as plain buttons in place of Bootstrap's radio buttons.
+
+   A category's colour sets --request-accent (text-safe on the surface in either theme); the soft tint behind its icons is mixed from
+   it. Tiles and option cards lift a little on hover, not at all under reduced motion. */
+.request-colour-blue { --request-accent: #1864ab; }
+.request-colour-red { --request-accent: #c92a2a; }
+.request-colour-orange { --request-accent: #b35300; }
+.request-colour-green { --request-accent: #2b8a3e; }
+.request-colour-purple { --request-accent: #6741d9; }
+.request-colour-teal { --request-accent: #0b7285; }
+.request-colour-grey { --request-accent: #495057; }
+.orbit-dark .request-colour-blue { --request-accent: #74c0fc; }
+.orbit-dark .request-colour-red { --request-accent: #ff8787; }
+.orbit-dark .request-colour-orange { --request-accent: #ffa94d; }
+.orbit-dark .request-colour-green { --request-accent: #69db7c; }
+.orbit-dark .request-colour-purple { --request-accent: #b197fc; }
+.orbit-dark .request-colour-teal { --request-accent: #66d9e8; }
+.orbit-dark .request-colour-grey { --request-accent: #ced4da; }
+[class*="request-colour-"] { --request-soft: color-mix(in srgb, var(--request-accent) 12%, var(--mud-palette-surface)); }
+.orbit-dark [class*="request-colour-"] { --request-soft: color-mix(in srgb, var(--request-accent) 20%, var(--mud-palette-surface)); }
+
+/* "Needs your action" on the Requests page, edged in the primary colour; a decision's box on a request's page. */
+.orbit-card-primary { border-color: var(--mud-palette-primary) !important; }
+.request-decide { border-top: 1px solid var(--mud-palette-lines-default); }
+
+/* The categories on the Requests page, as a grid of tiles: one column on a phone, up to four. */
+.request-tiles { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(min(15rem, 100%), 1fr)); margin-bottom: 1.5rem; }
+.request-options { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(min(26rem, 100%), 1fr)); margin-bottom: 1rem; }
+
+.request-tile,
+.request-option {
+  color: inherit;
+  text-decoration: none;
+  background: var(--mud-palette-surface);
+  border: 1px solid var(--mud-palette-lines-default);
+  border-radius: .75rem;
+  transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+}
+.request-tile:hover,
+.request-option:hover {
+  color: inherit;
+  transform: translateY(-3px);
+  box-shadow: 0 .6rem 1.25rem rgba(0, 0, 0, .08);
+}
+.orbit-dark .request-tile:hover,
+.orbit-dark .request-option:hover { box-shadow: 0 .6rem 1.25rem rgba(0, 0, 0, .35); }
+.request-tile:focus-visible,
+.request-option:focus-visible { outline: 2px solid var(--request-accent); outline-offset: 2px; }
+.request-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  height: 100%;
+  padding: 1.75rem 1.25rem 1.25rem;
+  border-bottom: 3px solid var(--request-accent);
+}
+.request-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 4.5rem;
+  height: 4.5rem;
+  border-radius: 50%;
+  background: var(--request-soft);
+  color: var(--request-accent);
+}
+.request-tile .request-icon { margin-bottom: 1rem; }
+.request-icon-sm { width: 3.25rem; height: 3.25rem; }
+.request-tile-title { color: var(--request-accent); font-weight: 700; font-size: 1.15rem; margin-bottom: .4rem; }
+.request-tile-text { color: var(--mud-palette-text-secondary); margin-bottom: 1rem; }
+.request-go {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  background: var(--request-soft);
+  color: var(--request-accent);
+}
+.request-tile .request-go { margin-top: auto; }
+.request-option {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  height: 100%;
+  padding: 1rem 1.25rem;
+}
+.request-option:hover { border-color: var(--request-accent); }
+.request-option-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: .6rem;
+  background: var(--request-soft);
+  color: var(--request-accent);
+}
+.request-option-title { font-weight: 600; display: block; }
+.request-option-text { display: block; font-size: .875rem; color: var(--mud-palette-text-secondary); }
+.request-option .request-go { margin-left: auto; }
+@media (prefers-reduced-motion: reduce) {
+  .request-tile, .request-option { transition: none; }
+  .request-tile:hover, .request-option:hover { transform: none; }
+}
+
+/* A page heading with its category's icon beside it. */
+.request-heading { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+
+/* The three steps of logging a request: numbered, the current one filled, the ones behind it ticked. */
+.request-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem 1rem;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1.25rem;
+  font-size: .85rem;
+  color: var(--mud-palette-text-secondary);
+}
+.request-steps li { display: flex; align-items: center; gap: .45rem; }
+.request-steps .request-step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  border: 1px solid var(--mud-palette-lines-default);
+  background: var(--mud-palette-surface);
+  font-weight: 600;
+  font-size: .75rem;
+}
+.request-steps .is-current { color: var(--mud-palette-text-primary); font-weight: 600; }
+.request-steps .is-current .request-step-number { background: var(--mud-palette-primary); border-color: var(--mud-palette-primary); color: var(--mud-palette-primary-text); }
+.request-steps .is-done .request-step-number {
+  background: color-mix(in srgb, var(--mud-palette-success) 15%, var(--mud-palette-surface));
+  border-color: color-mix(in srgb, var(--mud-palette-success) 45%, var(--mud-palette-surface));
+  color: var(--mud-palette-success);
+}
+
+/* The form: one question at a time, a progress bar over it, Back / Next under it, and the answers so far beside it. */
+.request-flow { display: grid; gap: 1.5rem; grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 992px) { .request-flow { grid-template-columns: minmax(0, 3fr) minmax(16rem, 1fr); } }
+.request-flow-head { padding: .75rem 1.25rem; border-bottom: 1px solid var(--mud-palette-lines-default); }
+.request-flow-counter { font-size: .85rem; color: var(--mud-palette-text-secondary); margin-bottom: .35rem; }
+.request-flow-body { padding: 1.25rem; }
+@media (min-width: 768px) { .request-flow-body { padding: 1.5rem; } }
+.request-flow-foot { display: flex; flex-wrap: wrap; gap: .5rem; padding: .75rem 1.25rem; border-top: 1px solid var(--mud-palette-lines-default); }
+.request-flow-foot .request-flow-forward { margin-left: auto; }
+.request-question { min-width: 0; border: 0; padding: 0; margin: 0; }
+.request-question legend, .request-question h2 { font-size: 1.3rem; font-weight: 600; margin: 0 0 .35rem; padding: 0; }
+.request-question legend:focus, .request-question h2:focus { outline: none; }
+.request-question-help { color: var(--mud-palette-text-secondary); margin: 0 0 1rem; }
+.request-question-error { color: var(--mud-palette-error); font-size: .875rem; margin-top: .5rem; min-height: 1.25rem; }
+.request-field-narrow { max-width: 14rem; }
+/* A Files question's button keeps its own width (MudBlazor stretches an input control's children). */
+.request-upload { align-items: flex-start; }
+.request-field-medium { max-width: 28rem; }
+
+/* Answer buttons take as many columns as fit: one on a phone, more as the form widens, none stretched across a wide screen.
+   They read as body text; the chosen one is tinted and outlined in the primary colour. */
+.request-choices { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fill, minmax(min(15rem, 100%), 1fr)); }
+.request-choice {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: .65rem 1rem;
+  font: inherit;
+  color: var(--mud-palette-text-primary);
+  background: var(--mud-palette-surface);
+  border: 1px solid var(--mud-palette-lines-default);
+  border-radius: var(--mud-default-borderradius);
+  cursor: pointer;
+}
+.request-choice:hover { background: var(--mud-palette-action-default-hover); border-color: var(--mud-palette-text-secondary); }
+.request-choice:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 2px; }
+.request-choice.is-chosen {
+  background: color-mix(in srgb, var(--mud-palette-primary) 12%, var(--mud-palette-surface));
+  border-color: var(--mud-palette-primary);
+  box-shadow: inset 0 0 0 1px var(--mud-palette-primary);
+}
+.request-choice-label { display: block; font-weight: 600; }
+.request-choice-detail { display: block; font-size: .875rem; color: var(--mud-palette-text-secondary); }
+.request-choice-none .request-choice-label { font-weight: 400; color: var(--mud-palette-text-secondary); }
+/* An Urgency question's four answers, each edged in its priority's colour: one column, two, then all four in a row, never three
+   and one, so the scale reads in order. */
+@media (min-width: 576px) { .request-choices-urgency { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1200px) { .request-choices-urgency { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.request-urgency-low { border-left: 4px solid var(--mud-palette-lines-default) !important; }
+.request-urgency-medium { border-left: 4px solid var(--mud-palette-info) !important; }
+.request-urgency-high { border-left: 4px solid var(--mud-palette-warning) !important; }
+.request-urgency-critical { border-left: 4px solid var(--mud-palette-error) !important; }
+/* The builder's box per urgency level: the level names line up. */
+.request-urgency-level { min-width: 5.5rem; }
+
+/* Answers read back: on the review, in the panel beside the form, and on a request's page. */
+.request-review { margin: 0; }
+.request-review dt { font-weight: 600; display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem; }
+.request-review dd { white-space: pre-wrap; margin: 0 0 .9rem; overflow-wrap: anywhere; }
+.request-review dd:last-child { margin-bottom: 0; }
+.request-review .request-change { padding: 0; border: 0; background: none; font: inherit; font-size: .85rem; font-weight: 400; color: var(--mud-palette-primary); cursor: pointer; text-decoration: underline; }
+.request-no-answer { color: var(--mud-palette-text-secondary); font-style: italic; }
+
+/* The panel beside a request form: the answers so far (each cut to three lines, the one on show marked) and what follows. */
+.request-aside-section { padding: 1rem 1.25rem; }
+.request-aside-section + .request-aside-section { border-top: 1px solid var(--mud-palette-lines-default); }
+.request-aside-section h2 { font-size: 1rem; font-weight: 600; margin: 0 0 .5rem; }
+.request-answers dt { font-size: .9rem; }
+.request-answers dd {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  margin-bottom: .6rem;
+}
+.request-answers .is-current { border-left: 3px solid var(--mud-palette-primary); padding-left: .5rem; }
+.request-next { padding-left: 1.25rem; margin: 0; }
+/* Stacked under the form on a narrow screen, the answers would only repeat what the review shows. */
+@media (max-width: 991.98px) { .request-answers-panel { display: none; } }
+
+/* A request's page: its steps down a line, each marked with its number (a tick once done) in the colour of its state. */
+.request-timeline { list-style: none; padding: 0; margin: 0; }
+.request-timeline-item { display: flex; gap: 1rem; position: relative; padding-bottom: 1rem; }
+.request-timeline-item::before {
+  content: '';
+  position: absolute;
+  left: .95rem;
+  top: 2rem;
+  bottom: 0;
+  border-left: 2px solid var(--mud-palette-lines-default);
+}
+.request-timeline-item:last-child::before { display: none; }
+.request-timeline-marker {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  border: 2px solid var(--mud-palette-lines-default);
+  background: var(--mud-palette-surface);
+  font-weight: 600;
+  font-size: .8rem;
+  z-index: 1;
+}
+.request-timeline-body { flex: 1 1 auto; min-width: 0; padding: .5rem 1rem; }
+.request-timeline-item.is-ready .request-timeline-marker { border-color: var(--mud-palette-primary); color: var(--mud-palette-primary); }
+.request-timeline-item.is-completed .request-timeline-marker { background: var(--mud-palette-success); border-color: var(--mud-palette-success); color: #fff; }
+.request-timeline-item.is-declined .request-timeline-marker,
+.request-timeline-item.is-failed .request-timeline-marker { border-color: var(--mud-palette-error); color: var(--mud-palette-error); }
+.request-timeline-item.is-skipped .request-timeline-marker,
+.request-timeline-item.is-cancelled .request-timeline-marker { color: var(--mud-palette-text-secondary); text-decoration: line-through; }
+.request-timeline-item.is-pending .request-timeline-body { opacity: .75; }
+.request-output {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .8rem;
+  white-space: pre-wrap;
+  max-height: 14rem;
+  overflow: auto;
+  margin: .5rem 0 0;
+  padding: .5rem;
+  border: 1px solid var(--mud-palette-lines-default);
+  border-radius: var(--mud-default-borderradius);
+  background: var(--mud-palette-background-gray);
+}
+
+/* Configuring request flows: the icon and colour pickers are buttons drawn as tiles and swatches. */
+.request-icon-picker { display: flex; flex-wrap: wrap; gap: .35rem; }
+.request-icon-choice {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
+  color: var(--mud-palette-text-primary);
+  background: var(--mud-palette-surface);
+  border: 1px solid var(--mud-palette-lines-default);
+  border-radius: var(--mud-default-borderradius);
+  cursor: pointer;
+}
+.request-icon-choice:hover { background: var(--mud-palette-action-default-hover); }
+.request-icon-choice:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 2px; }
+.request-icon-choice.is-chosen { border-color: var(--mud-palette-primary); box-shadow: inset 0 0 0 1px var(--mud-palette-primary); color: var(--mud-palette-primary); }
+.request-swatch { display: inline-block; width: .9rem; height: .9rem; border-radius: 50%; background: var(--request-accent); vertical-align: -.1em; }

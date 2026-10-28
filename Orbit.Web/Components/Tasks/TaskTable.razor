@@ -1,0 +1,268 @@
+@* The shared task table (spec §6.2), which replaced the Razor _TaskRows partial with the same columns and rules. Rows
+   the viewer may change get live controls that save at once, with no page reload; Changed tells the page to reload its data. *@
+@if (Tasks.Count == 0)
+{
+    <p class="orbit-empty">@(EmptyMessage ?? "No tasks.")</p>
+}
+else
+{
+    <div class="orbit-table-wrap">
+        <MudSimpleTable Dense="true" Hover="true" Elevation="0" Class="orbit-tasks">
+            <thead>
+                <tr>
+                    @if (Selectable)
+                    {
+                        <th class="orbit-check">
+                            <MudCheckBox T="bool?" TriState="true" Value="AllSelected" ValueChanged="ToggleAllAsync" Size="Size.Small" Dense="true"
+                                         aria-label="Select all" title="Select all" Disabled="Selectables.Count == 0" />
+                        </th>
+                    }
+                    @if (ShowPlanToday)
+                    {
+                        <th class="orbit-today" title="On today's day plan">Today</th>
+                    }
+                    <th>Task</th>
+                    @if (ShowProject) { <th>Project</th> }
+                    @if (ShowDepartment) { <th>Department</th> }
+                    <th>Priority</th>
+                    @if (ShowAssignee) { <th>Assignee</th> }
+                    <th>Due</th>
+                    @if (ShowEstimate) { <th class="text-right" title="Estimated effort">Est.</th> }
+                    @if (ShowSprint) { <th>Sprint</th> }
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var t in Tasks)
+                {
+                    var canView = AccessPolicy.CanViewTask(Actor, t);
+                    var overdue = t.IsOverdue(Today);
+                    var statuses = Ui.AllowedStatuses(Actor, t);
+                    var canEdit = canView && AccessPolicy.CanEditTask(Actor, t);
+                    var quickEdit = QuickEditAssignees is not null && canEdit;
+                    var quickDue = quickEdit || (QuickEditDueDate && canEdit);
+                    <tr @key="t.Id">
+                        @if (Selectable)
+                        {
+                            <td class="orbit-check">
+                                @if (AccessPolicy.CanPlanTask(Actor, t))
+                                {
+                                    var id = t.Id;
+                                    <MudCheckBox T="bool" Value="Selected.Contains(id)" ValueChanged="v => ToggleAsync(id, v)" Size="Size.Small" Dense="true"
+                                                 aria-label="@($"Select {t.Number}")" />
+                                }
+                            </td>
+                        }
+                        @if (ShowPlanToday)
+                        {
+                            <td class="orbit-today">
+                                @if (t.IsOpen && AccessPolicy.CanPlanTask(Actor, t))
+                                {
+                                    <PlanTodayToggle Task="t" Today="Today" Changed="Changed" />
+                                }
+                                else if (t.PlannedFor == Today)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" title="Was on today's plan">Today</MudChip>
+                                }
+                            </td>
+                        }
+                        <td>
+                            <span class="orbit-number" title="Task number">@t.Number</span>
+                            @if (canView)
+                            {
+                                <a href="@($"/Tasks/Details/{t.Id}")" class="@(overdue ? "orbit-title orbit-overdue" : "orbit-title")">@t.Title</a>
+                            }
+                            else
+                            {
+                                <span class="orbit-title">@t.Title</span>
+                            }
+                            @if (t.Type != TaskType.Task)
+                            {
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="TaskLook.Type(t.Type)" Class="@TaskLook.TypeClass(t.Type)" title="Type">@t.Type</MudChip>
+                            }
+                            @if (t.Source != TaskSource.Manual)
+                            {
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="TaskLook.Source(t.Source)" Class="@TaskLook.SourceClass(t.Source)">@Ui.SourceLabel(t.Source)</MudChip>
+                            }
+                            @if (Waiting is not null && Waiting.TryGetValue(t.Id, out var waiting))
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Warning" title="@waiting.Reason">Gated</MudChip>
+                            }
+                            @if (CarryOvers is not null && CarryOvers.TryGetValue(t.Id, out var carried))
+                            {
+                                <MudChip T="string" Size="Size.Small" Variant="@(carried >= DayPlanRules.RepeatedCarryOvers ? Variant.Filled : Variant.Outlined)"
+                                         Color="@(carried >= DayPlanRules.RepeatedCarryOvers ? Color.Error : Color.Default)"
+                                         title="@($"Carried over to a later day's plan {carried} time{(carried == 1 ? "" : "s")}")">Carried over @(carried)&times;</MudChip>
+                            }
+                            @if (t.ParentTask is not null)
+                            {
+                                <div class="orbit-sub" title="Subtask of @t.ParentTask.Title">in: @Ui.Truncate(t.ParentTask.Title, 60)</div>
+                            }
+                            @if (t.Asset is not null)
+                            {
+                                <div class="orbit-sub" title="The asset this task is about">asset: @Ui.Truncate(Ui.AssetLabel(t.Asset), 60)</div>
+                            }
+                        </td>
+                        @if (ShowProject)
+                        {
+                            <td>
+                                @if (t.Project is not null)
+                                {
+                                    <MudLink Href="@($"/Projects/Details/{t.ProjectId}")" Underline="Underline.Hover">@t.Project.Name</MudLink>
+                                }
+                                else
+                                {
+                                    <span class="orbit-muted">-</span>
+                                }
+                            </td>
+                        }
+                        @if (ShowDepartment)
+                        {
+                            <td><MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@t.Department?.Name</MudChip></td>
+                        }
+                        <td>
+                            <MudChip T="string" Size="Size.Small" Color="TaskLook.Priority(t.Priority)"
+                                     Variant="@(t.Priority == TaskPriority.Low ? Variant.Outlined : Variant.Filled)">@t.Priority</MudChip>
+                        </td>
+                        @if (ShowAssignee)
+                        {
+                            var assignees = t.Assignees;
+                            <td>
+                                @if (assignees.Count > 1)
+                                {
+                                    @* Several assignees (§6.2.3) are shown, not edited here: the task page and the edit form change them. *@
+                                    foreach (var u in assignees)
+                                    {
+                                        <div class="orbit-sub">@u.DisplayName</div>
+                                    }
+                                }
+                                else if (quickEdit)
+                                {
+                                    <TaskAssigneeSelect Task="t" Candidates="CandidatesFor(t)" Changed="Changed" />
+                                }
+                                else if (AccessPolicy.CanTakeTask(Actor, t))
+                                {
+                                    <TakeButton Task="t" Changed="Changed" />
+                                }
+                                else
+                                {
+                                    @(t.AssigneeNames ?? "-")
+                                }
+                            </td>
+                        }
+                        <td class="@(overdue ? "orbit-overdue" : null)">
+                            @if (quickDue)
+                            {
+                                <TaskDueDatePicker Task="t" Today="Today" Changed="Changed" />
+                            }
+                            else
+                            {
+                                @Ui.Day(t.DueDate)@(overdue ? " (overdue)" : "")
+                            }
+                        </td>
+                        @if (ShowEstimate)
+                        {
+                            <td class="text-right text-nowrap">
+                                @if (t.EstimateMinutes is int estimate) { @TimeFormat.Minutes(estimate) } else { <span class="orbit-muted" title="No estimate">-</span> }
+                            </td>
+                        }
+                        @if (ShowSprint)
+                        {
+                            <td>
+                                @if (QuickEditSprints is not null && canView && t.IsOpen && AccessPolicy.CanPlanTask(Actor, t))
+                                {
+                                    <TaskSprintSelect Task="t" Sprints="QuickEditSprints" Changed="Changed" />
+                                }
+                                else if (t.Sprint is not null)
+                                {
+                                    <MudLink Href="@($"/Sprints/Details/{t.SprintId}")" Underline="Underline.Hover">@t.Sprint.Name</MudLink>
+                                }
+                                else
+                                {
+                                    <span class="orbit-muted">Backlog</span>
+                                }
+                            </td>
+                        }
+                        <td>
+                            @if (canView && statuses.Count > 1)
+                            {
+                                <TaskStatusSelect Task="t" Statuses="statuses" Changed="Changed" />
+                            }
+                            else
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="TaskLook.Status(t.Status)">@t.Status.Label()</MudChip>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<TaskItem> Tasks { get; set; } = [];
+    [Parameter, EditorRequired] public Actor Actor { get; set; } = null!;
+    [Parameter] public DateOnly Today { get; set; } = DateOnly.FromDateTime(DateTime.UtcNow);
+
+    /// <summary>
+    /// When set, rows the actor may edit get the assignee and due-date controls. Candidates are narrowed per row to the task's
+    /// department plus anyone who sees every department. Null leaves those cells read-only.
+    /// </summary>
+    [Parameter] public IReadOnlyList<UserSummary>? QuickEditAssignees { get; set; }
+    /// <summary>The due-date control without the assignee one (My Tasks, where every row is the viewer's own).</summary>
+    [Parameter] public bool QuickEditDueDate { get; set; }
+    /// <summary>When set (with <see cref="ShowSprint"/>), open rows the actor may plan get the sprint control (§6.3).</summary>
+    [Parameter] public IReadOnlyList<Sprint>? QuickEditSprints { get; set; }
+
+    [Parameter] public bool ShowPlanToday { get; set; }
+    [Parameter] public bool ShowProject { get; set; } = true;
+    [Parameter] public bool ShowDepartment { get; set; } = true;
+    [Parameter] public bool ShowSprint { get; set; }
+    [Parameter] public bool ShowAssignee { get; set; } = true;
+    [Parameter] public bool ShowEstimate { get; set; }
+
+    /// <summary>A checkbox on each row the actor may plan, collected in <see cref="Selected"/>.</summary>
+    [Parameter] public bool Selectable { get; set; }
+    [Parameter] public HashSet<Guid> Selected { get; set; } = [];
+    [Parameter] public EventCallback SelectionChanged { get; set; }
+
+    /// <summary>Tasks whose next move is gated by a dependency (§6.15), for the Gated chip.</summary>
+    [Parameter] public IReadOnlyDictionary<Guid, WaitingSummary>? Waiting { get; set; }
+    /// <summary>How often each task has been carried over on the day plan (§6.12), for the Carried over chip.</summary>
+    [Parameter] public IReadOnlyDictionary<Guid, int>? CarryOvers { get; set; }
+    [Parameter] public string? EmptyMessage { get; set; }
+
+    /// <summary>Raised after a row's control changed its task.</summary>
+    [Parameter] public EventCallback Changed { get; set; }
+
+    private List<Guid> Selectables => Tasks.Where(t => AccessPolicy.CanPlanTask(Actor, t)).Select(t => t.Id).ToList();
+
+    private bool? AllSelected
+    {
+        get
+        {
+            var ids = Selectables;
+            var picked = ids.Count(Selected.Contains);
+            return picked == 0 ? false : picked == ids.Count ? true : null;
+        }
+    }
+
+    private IReadOnlyList<UserSummary> CandidatesFor(TaskItem t) =>
+        QuickEditAssignees!.Where(u => u.DepartmentId == t.DepartmentId || u.CanViewAllTasks).ToList();
+
+    private async Task ToggleAsync(Guid id, bool selected)
+    {
+        if (selected) Selected.Add(id);
+        else Selected.Remove(id);
+        await SelectionChanged.InvokeAsync();
+    }
+
+    private async Task ToggleAllAsync(bool? _)
+    {
+        var ids = Selectables;
+        if (ids.All(Selected.Contains)) Selected.ExceptWith(ids);
+        else Selected.UnionWith(ids);
+        await SelectionChanged.InvokeAsync();
+    }
+}

@@ -1,0 +1,133 @@
+@page "/Requests"
+@page "/Requests/Index"
+@inherits OrbitComponentBase
+@* The Requests page (spec §6.20): the steps waiting for the viewer, every department's request categories as tiles, and the
+   requests the viewer follows. *@
+
+<PageTitle>Requests - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (!Loaded)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    // Department headings only help once more than one department offers requests.
+    var byDepartment = _sections.Count > 1;
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">Log a request</MudText>
+            <div class="orbit-subtitle">Choose what you need. A few questions follow, and your request goes to the team that handles it.</div>
+        </div>
+        @if (_canManage)
+        {
+            <div class="orbit-actions">
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="/Requests/Department">Department requests</MudButton>
+            </div>
+        }
+    </div>
+
+    @if (_waiting.Count > 0)
+    {
+        <MudPaper Outlined="true" Class="orbit-card orbit-card-primary">
+            <div class="orbit-card-header">
+                <span class="orbit-gap-row"><b>Needs your action</b><MudChip T="string" Size="Size.Small" Color="Color.Primary">@_waiting.Count</MudChip></span>
+            </div>
+            @foreach (var w in _waiting)
+            {
+                <div class="orbit-list-item orbit-list-row" @key="w.Step.Id">
+                    <div>
+                        <a href="@($"/Requests/Request/{w.Request.Id}")" class="orbit-title">@w.What</a>
+                        <div class="orbit-small orbit-muted">
+                            <span class="orbit-key">@w.Request.Number</span> @w.Request.Title · logged by @(w.Request.RequesterId == _meId ? "you" : w.Request.Requester.DisplayName)
+                        </div>
+                    </div>
+                    <span class="orbit-small orbit-muted text-nowrap" title="@Ui.When(w.Since)">waiting @Ui.Ago(w.Since)</span>
+                </div>
+            }
+        </MudPaper>
+    }
+
+    <RequestProgressSteps Current="1" />
+
+    @if (_sections.Count == 0)
+    {
+        <MudPaper Outlined="true" Class="orbit-card orbit-card-body" Style="text-align:center">
+            <div class="orbit-muted mb-2"><RequestIcon Name="chat" Size="32" /></div>
+            <p class="mb-1"><b>Nothing to request yet.</b></p>
+            <p class="orbit-muted ma-0">
+                No department has set up its request flows.
+                @if (_canConfigure)
+                {
+                    <span>Set up your department's under Admin &gt; <a href="/RequestCatalogue">Request flows</a>.</span>
+                }
+            </p>
+        </MudPaper>
+    }
+    @foreach (var block in _sections)
+    {
+        @if (byDepartment)
+        {
+            <MudText Typo="Typo.h6" HtmlTag="h2" Class="mt-2 mb-3">@block.Department.Name</MudText>
+        }
+        <div class="request-tiles">
+            @foreach (var c in block.Categories)
+            {
+                <a class="@($"request-tile {RequestIcons.ColourClass(c.Colour)}")" href="@($"/Requests/Category/{c.Id}")" @key="c.Id">
+                    <span class="request-icon"><RequestIcon Name="@c.Icon" Size="32" /></span>
+                    <span class="request-tile-title">@c.Title</span>
+                    @if (!string.IsNullOrWhiteSpace(c.Description))
+                    {
+                        <span class="request-tile-text">@c.Description</span>
+                    }
+                    <span class="request-go"><RequestIcon Name="arrow-right" Size="18" /></span>
+                </a>
+            }
+        </div>
+    }
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        <div class="orbit-card-header"><b>Your requests</b></div>
+        @if (_mine.Count == 0)
+        {
+            <p class="orbit-empty">You haven't logged any requests yet.</p>
+        }
+        else
+        {
+            <RequestTable Requests="_mine" MeId="_meId" ShowDepartment="true" />
+            @if (_mine.Count == MyRequestsShown)
+            {
+                <div class="orbit-card-footer">Showing @MyRequestsShown: your open requests first, then the most recent.</div>
+            }
+        }
+    </MudPaper>
+}
+
+@code {
+    private const int MyRequestsShown = 20;
+
+    private IReadOnlyList<RequestCatalogueSection> _sections = [];
+    private IReadOnlyList<RequestActionItem> _waiting = [];
+    private IReadOnlyList<Request> _mine = [];
+    private Guid? _meId;
+    /// <summary>requests.configure at any scope: an empty page points to Admin > Request flows.</summary>
+    private bool _canConfigure;
+    /// <summary>requests.manage at any scope: a link to the department's requests.</summary>
+    private bool _canManage;
+
+    protected override async Task OnInitializedAsync() => await Load(async s =>
+    {
+        var actor = await s.Get<IActorProvider>().GetAsync();
+        var requests = s.Get<RequestService>();
+        _meId = actor.UserId;
+        _sections = await requests.CatalogueAsync();
+        _waiting = await requests.NeedsMyActionAsync(50);
+        _mine = await requests.MyRequestsAsync(MyRequestsShown);
+        _canConfigure = actor.Has(Permission.RequestsConfigure);
+        _canManage = actor.Has(Permission.RequestsManage);
+    });
+}

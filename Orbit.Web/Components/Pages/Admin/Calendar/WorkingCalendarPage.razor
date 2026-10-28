@@ -1,0 +1,217 @@
+@page "/Admin/Calendar"
+@page "/Admin/Calendar/Index"
+@inherits OrbitComponentBase
+@* Admin > Working Calendar (spec §6.17): the organisation's working week and its dated exceptions - public holidays, shutdown days,
+   exceptional working days - which critical path analysis counts float, lag and the project buffer in, and the Gantt shades. The
+   week is saved with its own button. An exception is added or removed on its own, leaving the week as ticked; a refused change
+   keeps what was typed. *@
+
+<PageTitle>Working calendar - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_exceptions is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">Working calendar</MudText>
+            <div class="orbit-subtitle">
+                The organisation's working week and its exceptions - public holidays, shutdown days, exceptional working days. Critical path analysis
+                counts float, lag and the project buffer in these working days, and the Gantt shades the non-working ones. Nothing moves a date because
+                of it: a task planned across a non-working day stays where it is and the analysis points it out.
+            </div>
+        </div>
+    </div>
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" lg="7">
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Working week</b></div>
+                <div class="orbit-card-body">
+                    <MudGrid Spacing="1">
+                        @foreach (var day in Days)
+                        {
+                            var d = day;
+                            <MudItem xs="6" md="3" @key="d">
+                                <MudSwitch T="bool" Value="@(_week[d])" ValueChanged="@(v => SetDay(d, v))" Label="@d.ToString()" Color="Color.Primary" />
+                            </MudItem>
+                        }
+                    </MudGrid>
+                    <div class="orbit-help mb-3">At least one day must be a working day.</div>
+                    <div class="orbit-gap-row">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="SaveWeekAsync">Save working week</MudButton>
+                        @if (_updatedAt is DateTime updated)
+                        {
+                            <span class="orbit-small orbit-muted">Last saved @Ui.When(updated)</span>
+                        }
+                    </div>
+                </div>
+            </MudPaper>
+
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Calendar exceptions</b></div>
+                <div class="orbit-table-wrap">
+                    <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks">
+                        <thead>
+                            <tr><th>Date</th><th>Day</th><th>Name</th><th>Type</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                            @if (_exceptions.Count == 0)
+                            {
+                                <tr><td colspan="5" class="orbit-muted">No exceptions yet. Add public holidays and shutdown days below.</td></tr>
+                            }
+                            @foreach (var e in _exceptions)
+                            {
+                                var x = e;
+                                <tr @key="x.Id">
+                                    <td class="text-nowrap">@Ui.Day(x.Date)</td>
+                                    <td class="orbit-muted">@x.Date.DayOfWeek</td>
+                                    <td>@x.Name</td>
+                                    <td>
+                                        @if (x.IsWorking)
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Success">Working day</MudChip>
+                                        }
+                                        else
+                                        {
+                                            <MudChip T="string" Size="Size.Small">Non-working</MudChip>
+                                        }
+                                    </td>
+                                    <td class="text-right">
+                                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy"
+                                                   OnClick="@(() => RemoveAsync(x))">Remove</MudButton>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </div>
+                <div class="orbit-card-body" style="border-top: 1px solid var(--mud-palette-lines-default)">
+                    <div class="orbit-form-row">
+                        <MudDatePicker @bind-Date="_newDate" Label="Date" DateFormat="yyyy-MM-dd" Editable="true" AutoClose="true" Required="true"
+                                       RequiredError="A date is required." Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-field-sm" />
+                        <MudTextField T="string" @bind-Value="_newName" Label="Name" Placeholder="e.g. Heritage Day" MaxLength="100" Required="true"
+                                      RequiredError="A name is required, e.g. the holiday's name." Variant="Variant.Outlined" Margin="Margin.Dense"
+                                      Class="orbit-field-grow" />
+                        <MudSelect T="bool" @bind-Value="_newIsWorking" Label="Type" ToStringFunc="TypeLabel" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                   Class="orbit-field-sm">
+                            <MudSelectItem T="bool" Value="false">@TypeLabel(false)</MudSelectItem>
+                            <MudSelectItem T="bool" Value="true">@TypeLabel(true)</MudSelectItem>
+                        </MudSelect>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="_busy" OnClick="AddAsync">Add</MudButton>
+                    </div>
+                </div>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" lg="5">
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>How it is used</b></div>
+                <div class="orbit-card-body orbit-small orbit-muted">
+                    <p class="mt-0 mb-2">
+                        When someone runs a <strong>critical path analysis</strong> on a project (from its Gantt), every task's planned window is measured in
+                        working days, a dependency's lag is rolled forward over non-working days, and the project's required buffer is counted back from the
+                        target date in working days.
+                    </p>
+                    <p class="mt-0 mb-2">
+                        A task planned to start or finish on a non-working day, or whose window includes one of these exceptions, is listed in the analysis's
+                        plan-readiness warnings. Orbit never moves it.
+                    </p>
+                    <p class="my-0">
+                        Changing the working week or an exception near a project's dates marks that project's analysis as out of date until it is run again.
+                    </p>
+                </div>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    private static readonly DayOfWeek[] Days =
+        [DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday];
+
+    /// <summary>The working week as ticked: shown as saved on opening the page and after saving it.</summary>
+    private Dictionary<DayOfWeek, bool> _week = Days.ToDictionary(d => d, _ => false);
+    private IReadOnlyList<WorkingCalendarException>? _exceptions;
+    private DateTime? _updatedAt;
+    private bool _busy;
+
+    // A new exception as typed.
+    private DateTime? _newDate;
+    private string? _newName;
+    private bool _newIsWorking;
+
+    protected override async Task OnParametersSetAsync() => await LoadAsync(resetWeek: true);
+
+    /// <summary>The calendar (defaults until first saved) and its exceptions, date order. The service reads them for anyone, so this checks.</summary>
+    private async Task LoadAsync(bool resetWeek) => await Load(async s =>
+    {
+        var actor = await s.Get<IActorProvider>().GetAsync();
+        AccessPolicy.Require(AccessPolicy.CanManageWorkingCalendar(actor), "You don't have permission to manage the working calendar.");
+        var view = await s.Get<WorkingCalendarService>().GetAsync();
+        if (resetWeek) _week = Days.ToDictionary(d => d, d => view.Calendar.IsWorking(d));
+        _updatedAt = view.Calendar.UpdatedAt;
+        _exceptions = view.Exceptions;
+    });
+
+    private void SetDay(DayOfWeek day, bool working) => _week[day] = working;
+
+    private static string TypeLabel(bool working) => working ? "Working day" : "Non-working day";
+
+    /// <summary>The service refuses a week with no working day; the week stays as ticked.</summary>
+    private async Task SaveWeekAsync()
+    {
+        var input = new WorkingCalendarInput
+        {
+            Monday = _week[DayOfWeek.Monday], Tuesday = _week[DayOfWeek.Tuesday], Wednesday = _week[DayOfWeek.Wednesday],
+            Thursday = _week[DayOfWeek.Thursday], Friday = _week[DayOfWeek.Friday], Saturday = _week[DayOfWeek.Saturday], Sunday = _week[DayOfWeek.Sunday]
+        };
+        _busy = true;
+        if (await Act(async s => await s.Get<WorkingCalendarService>().UpdateAsync(input)))
+        {
+            Success("Working week saved.");
+            await LoadAsync(resetWeek: true);
+        }
+        _busy = false;
+    }
+
+    /// <summary>The service checks the date and name, and refuses a second exception on one date; a refusal keeps what was typed.</summary>
+    private async Task AddAsync()
+    {
+        var input = new CalendarExceptionInput
+        {
+            Date = _newDate is DateTime date ? DateOnly.FromDateTime(date) : null,
+            Name = _newName,
+            IsWorking = _newIsWorking
+        };
+        _busy = true;
+        WorkingCalendarException? added = null;
+        if (await Act(async s => added = await s.Get<WorkingCalendarService>().AddExceptionAsync(input)))
+        {
+            Success($"{added!.Name} ({added.Date:d MMM yyyy}) added as a {(added.IsWorking ? "working" : "non-working")} day.");
+            _newDate = null;
+            _newName = null;
+            _newIsWorking = false;
+            await LoadAsync(resetWeek: false);
+        }
+        _busy = false;
+    }
+
+    private async Task RemoveAsync(WorkingCalendarException exception)
+    {
+        if (!await Confirm("Remove exception", $"Remove {exception.Name} ({Ui.Day(exception.Date)})?", "Remove")) return;
+        _busy = true;
+        if (await Act(async s => await s.Get<WorkingCalendarService>().RemoveExceptionAsync(exception.Id)))
+        {
+            Success("Calendar exception removed.");
+            await LoadAsync(resetWeek: false);
+        }
+        _busy = false;
+    }
+}

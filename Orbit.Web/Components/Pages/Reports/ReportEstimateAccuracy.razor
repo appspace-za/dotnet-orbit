@@ -1,0 +1,120 @@
+@* Estimate accuracy (spec §12): tasks set to Done in the period, by assignee, with the estimate against all time logged on them.
+   An assignee's Done count opens their tasks beneath their row (the Razor page's Bootstrap collapse). *@
+
+@if (Report.Rows.Count == 0)
+{
+    <p class="orbit-empty">No data for the selected filters.</p>
+}
+else
+{
+    <div class="orbit-table-wrap">
+        <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks orbit-report">
+            <thead>
+                <tr>
+                    <th style="width:24%">Assignee</th>
+                    <th class="text-right">Done</th>
+                    <th class="text-right" title="Completed tasks that have an estimate">With estimate</th>
+                    <th class="text-right">Estimated</th>
+                    <th class="text-right" title="All time logged on the estimated tasks, by anyone">Actual</th>
+                    <th class="text-right">Variance</th>
+                    <th class="text-right" title="Tasks whose logged time passed their estimate">Over estimate</th>
+                </tr>
+            </thead>
+            <tbody>
+                @for (var i = 0; i < Report.Rows.Count; i++)
+                {
+                    var r = Report.Rows[i];
+                    var index = i;
+                    var open = _open.Contains(index);
+                    <tr>
+                        <td>@r.Name</td>
+                        <td class="text-right">
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" OnClick="() => Toggle(index)"
+                                       EndIcon="@(open ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                                       aria-expanded="@(open ? "true" : "false")" title="Show the tasks">@r.DoneCount</MudButton>
+                        </td>
+                        <td class="text-right">@r.Estimate.EstimatedTasks</td>
+                        <td class="text-right">@ReportText.Estimated(r.Estimate)</td>
+                        <td class="text-right"><b>@ReportText.Actual(r.Estimate)</b></td>
+                        <td class="text-right @ReportText.VarianceClass(r.Estimate.VarianceMinutes)">@ReportText.Variance(r.Estimate)</td>
+                        <td class="text-right">@r.Estimate.OverTasks</td>
+                    </tr>
+                    @if (open)
+                    {
+                        <tr class="orbit-report-detail">
+                            <td colspan="7" class="pa-0">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th class="orbit-muted ps-10">Task</th>
+                                            <th class="orbit-muted text-right">Estimate</th>
+                                            <th class="orbit-muted text-right">Actual</th>
+                                            <th class="orbit-muted text-right">Variance</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var t in r.Tasks)
+                                        {
+                                            <tr>
+                                                <td class="ps-10"><span class="orbit-number">@t.Number</span><a href="@($"/Tasks/Details/{t.TaskId}")" class="orbit-title">@t.Title</a></td>
+                                                <td class="text-right">@ReportText.Estimate(t.EstimateMinutes)</td>
+                                                <td class="text-right">@TimeFormat.Minutes(t.ActualMinutes)</td>
+                                                @if (t.VarianceMinutes is int v)
+                                                {
+                                                    <td class="text-right @ReportText.VarianceClass(v)">@TimeFormat.Signed(v)</td>
+                                                }
+                                                else
+                                                {
+                                                    <td class="text-right">-</td>
+                                                }
+                                                <td>
+                                                    @if (t.IsOver)
+                                                    {
+                                                        <MudChip T="string" Size="Size.Small" Color="Color.Warning" title="More time has been logged than was estimated">Over estimate</MudChip>
+                                                    }
+                                                    else if (t.EstimateMinutes is null)
+                                                    {
+                                                        <span class="orbit-muted">No estimate</span>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td><b>Overall</b></td>
+                    <td class="text-right"><b>@Report.DoneCount</b></td>
+                    <td class="text-right"><b>@Report.Overall.EstimatedTasks</b></td>
+                    <td class="text-right"><b>@ReportText.Estimated(Report.Overall)</b></td>
+                    <td class="text-right"><b>@ReportText.Actual(Report.Overall)</b></td>
+                    <td class="text-right @ReportText.VarianceClass(Report.Overall.VarianceMinutes)"><b>@ReportText.Variance(Report.Overall)</b></td>
+                    <td class="text-right"><b>@Report.Overall.OverTasks</b></td>
+                </tr>
+            </tfoot>
+        </MudSimpleTable>
+    </div>
+    <div class="orbit-card-footer">
+        Tasks set to Done in the period, under whoever they are assigned to; a task several people share is under each of them
+        and counts once overall. Estimated, actual and variance cover the tasks with an estimate; actual is all time logged on
+        them, by anyone. Click a Done count to see the tasks, largest overrun first.
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public EstimateAccuracyReport Report { get; set; } = null!;
+
+    /// <summary>The rows whose tasks are showing.</summary>
+    private readonly HashSet<int> _open = [];
+
+    private void Toggle(int row)
+    {
+        if (!_open.Remove(row)) _open.Add(row);
+    }
+}

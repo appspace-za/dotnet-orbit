@@ -1,0 +1,3 @@
+@* The working calendar (spec §6.17): every page here needs the Calendar admin permission at some scope, as AuthorizeFolder("/Admin/Calendar") did for the
+   Razor pages. The services apply the rest. *@
+@attribute [RequirePermission(Permission.CalendarManage)]

@@ -1,0 +1,52 @@
+@page "/Requests/Category/{Id:guid}"
+@inherits OrbitComponentBase
+@* One request category's options (spec §6.20): the flows to walk through, each opening its form. *@
+
+<PageTitle>@(_category?.Title ?? "Requests") - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_category is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var c = _category;
+    var colour = RequestIcons.ColourClass(c.Colour);
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Requests">Requests</a><span class="orbit-crumb-sep">/</span><span aria-current="page">@c.Title</span>
+    </nav>
+    <div class="@($"request-heading {colour}")">
+        <span class="request-icon request-icon-sm"><RequestIcon Name="@c.Icon" Size="24" /></span>
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">@c.Title</MudText>
+            <div class="orbit-muted">@(string.IsNullOrWhiteSpace(c.Description) ? "" : $"{c.Description} · ")Handled by @c.Department.Name</div>
+        </div>
+    </div>
+    <RequestProgressSteps Current="1" />
+    <div class="request-options">
+        @foreach (var f in c.Flows)
+        {
+            <a class="@($"request-option {colour}")" href="@($"/Requests/Start/{f.Id}")" @key="f.Id">
+                <span class="request-option-icon"><RequestIcon Name="@c.Icon" Size="20" /></span>
+                <span>
+                    <span class="request-option-title">@f.Title</span>
+                    @if (!string.IsNullOrWhiteSpace(f.Description)) { <span class="request-option-text">@f.Description</span> }
+                </span>
+                <span class="request-go"><RequestIcon Name="arrow-right" Size="16" /></span>
+            </a>
+        }
+    </div>
+    <a href="/Requests" class="orbit-small">&larr; Back to all requests</a>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private RequestCategory? _category;
+
+    protected override async Task OnParametersSetAsync() => await Load(async s => _category = await s.Get<RequestService>().CategoryAsync(Id));
+}

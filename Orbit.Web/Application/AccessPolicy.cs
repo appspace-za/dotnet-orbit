@@ -199,6 +199,12 @@ public static class AccessPolicy
     /// <summary>A department's request categories, flows and steps: requests.configure reaching that department.</summary>
     public static bool CanConfigureRequestsIn(Actor a, Guid departmentId) => a.CanInDepartment(Permission.RequestsConfigure, departmentId);
 
+    /// <summary>
+    /// Configuring request flows at all: requests.configure at any scope. It opens Admin > Request flows and the people search its
+    /// pickers use to name a step's performer, a task's assignees and an approver (REQ-024), whatever the caller's asset rights.
+    /// </summary>
+    public static bool CanConfigureRequests(Actor a) => a.Has(Permission.RequestsConfigure);
+
     /// <summary>The requests filed with a department - seeing them all, cancelling, retrying or skipping a failed step: requests.manage reaching it.</summary>
     public static bool CanManageRequestsIn(Actor a, Guid departmentId) => a.CanInDepartment(Permission.RequestsManage, departmentId);
 

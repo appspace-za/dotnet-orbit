@@ -1,0 +1,36 @@
+@inherits OrbitComponentBase
+@* The inline due-date control (spec §6.2). A picked or typed date is saved at once; clearing it removes the due date. *@
+<MudDatePicker @key="_version" Date="Current" DateChanged="PickedAsync" DateFormat="yyyy-MM-dd" Editable="true" Clearable="true"
+               AutoClose="true" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="_busy" Placeholder="No due date"
+               Class="@(Overdue ? "orbit-inline-date orbit-overdue" : "orbit-inline-date")" aria-label="Due date"
+               title="@(Overdue ? "Overdue" : "Due date")" />
+
+@code {
+    [Parameter, EditorRequired] public TaskItem Task { get; set; } = null!;
+    [Parameter, EditorRequired] public DateOnly Today { get; set; }
+    [Parameter] public EventCallback Changed { get; set; }
+
+    private int _version;
+    private bool _busy;
+
+    private bool Overdue => Task.IsOverdue(Today);
+    private DateTime? Current => Task.DueDate?.ToDateTime(TimeOnly.MinValue);
+
+    private async Task PickedAsync(DateTime? picked)
+    {
+        DateOnly? due = picked is { } d ? DateOnly.FromDateTime(d) : null;
+        if (due == Task.DueDate) return;
+        _busy = true;
+        TaskItem? changed = null;
+        if (await Act(async s => changed = await s.Get<TaskService>().ChangeDueDateAsync(Task.Id, due)))
+        {
+            Success(TaskMessages.DueDateSet(changed!));
+            await Changed.InvokeAsync();
+        }
+        else
+        {
+            _version++;
+        }
+        _busy = false;
+    }
+}

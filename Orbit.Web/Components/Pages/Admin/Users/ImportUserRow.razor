@@ -1,0 +1,93 @@
+@* One directory entry on Import from directory (spec §6.13.1): a tick box when the person can be imported, what the directory
+   holds for them, the Orbit department they would get, their manager (when the agent read managers) and whether they can be
+   imported. A listing can hold 5,000 people, so a row renders again only when its entry, its tick or its manager note changes:
+   ticking one person doesn't redraw every other row. The tick box is a plain checkbox for the same reason: it is far lighter than
+   a MudCheckBox across thousands of rows. *@
+<tr>
+    <td class="orbit-check">
+        @if (Row.CanImport)
+        {
+            <input type="checkbox" class="orbit-tick" checked="@Ticked" @onchange="ChangedAsync" aria-label="@($"Import {Row.DisplayName}")" />
+        }
+    </td>
+    <td class="@Muted">
+        <strong>@Row.DisplayName</strong>
+        @if (Row.Title is not null)
+        {
+            <div class="orbit-sub">@Row.Title</div>
+        }
+    </td>
+    <td class="@Muted">@(Row.Email ?? "-")</td>
+    <td class="@($"orbit-small {Muted}")">@(Row.Account ?? "-")</td>
+    <td class="@Muted">@(Row.DirectoryDepartment ?? "-")</td>
+    <td class="@Muted">
+        @* Only for people who can be imported: for anyone else it isn't what they have, or will have, in Orbit. *@
+        @if (!Row.CanImport)
+        {
+            <span>-</span>
+        }
+        else if (Row.IsLinked)
+        {
+            <span>@Row.DepartmentName</span>
+        }
+        else
+        {
+            <MudChip T="string" Size="Size.Small" Color="Color.Warning" title="Choose a department for it above">Not linked</MudChip>
+        }
+    </td>
+    @if (ManagersRead)
+    {
+        var note = DirectoryImportRules.ManagerNote(Row.Manager, Row.CanImport);
+        <td class="@Muted">
+            <span>@(Row.Manager.Name ?? "-")</span>
+            @if (note is not null)
+            {
+                <div class="orbit-sub">@note</div>
+            }
+            @if (InOrbit is not null)
+            {
+                <div class="orbit-sub">In Orbit: @InOrbit</div>
+            }
+        </td>
+    }
+    <td>
+        @switch (Row.Status)
+        {
+            case DirectoryImportStatus.Ready:
+                <MudChip T="string" Size="Size.Small" Color="Color.Success">Ready</MudChip>
+                break;
+            case DirectoryImportStatus.InOrbit:
+                <MudChip T="string" Size="Size.Small" Color="Color.Secondary" Href="@($"/Admin/Users/Edit/{Row.ExistingUserId}")">Already in Orbit</MudChip>
+                break;
+            default:
+                <MudChip T="string" Size="Size.Small" Color="Color.Secondary">@DirectoryImportRules.StatusLabel(Row.Status)</MudChip>
+                break;
+        }
+    </td>
+</tr>
+
+@code {
+    [Parameter, EditorRequired] public DirectoryImportRow Row { get; set; } = null!;
+    [Parameter] public bool Ticked { get; set; }
+    [Parameter] public EventCallback<bool> TickedChanged { get; set; }
+    /// <summary>The agent that answered read managers, so the table has the Manager column.</summary>
+    [Parameter] public bool ManagersRead { get; set; }
+    /// <summary>For someone already in Orbit, the manager they have there where it isn't the one the directory names.</summary>
+    [Parameter] public string? InOrbit { get; set; }
+
+    private DirectoryImportRow? _row;
+    private bool _ticked, _managersRead, _changed;
+    private string? _inOrbit;
+
+    private string? Muted => Row.CanImport ? null : "orbit-muted";
+
+    protected override void OnParametersSet()
+    {
+        _changed = !ReferenceEquals(Row, _row) || Ticked != _ticked || ManagersRead != _managersRead || InOrbit != _inOrbit;
+        (_row, _ticked, _managersRead, _inOrbit) = (Row, Ticked, ManagersRead, InOrbit);
+    }
+
+    protected override bool ShouldRender() => _changed;
+
+    private Task ChangedAsync(ChangeEventArgs e) => TickedChanged.InvokeAsync(e.Value is true);
+}

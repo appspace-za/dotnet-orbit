@@ -1,0 +1,86 @@
+@page "/Admin/Departments"
+@page "/Admin/Departments/Index"
+@inherits OrbitComponentBase
+@* Admin > Departments (spec §6.6): every department with its manager and headline counts (active users, active projects, open
+   tasks), the active ones first, for whoever manages departments. *@
+
+<PageTitle>Departments - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (!Loaded)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">Departments</MudText>
+            <div class="orbit-subtitle">Every department with its headline counts.</div>
+        </div>
+        <MudButton Href="/Admin/Departments/Create" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">New department</MudButton>
+    </div>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        @if (_departments.Count == 0)
+        {
+            <p class="orbit-empty">No departments yet. Create one, then add users to it.</p>
+        }
+        else
+        {
+            <div class="orbit-table-wrap">
+                <MudSimpleTable Hover="true" Elevation="0" Class="orbit-tasks">
+                    <thead>
+                        <tr>
+                            <th>Department</th><th>Manager</th><th class="text-right">Users</th><th class="text-right">Active projects</th><th class="text-right">Open tasks</th><th>Status</th><th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in _departments)
+                        {
+                            var d = row.Department;
+                            // MudSimpleTable sets each row's colour, so an archived department is muted cell by cell.
+                            var muted = d.IsArchived ? "orbit-muted" : null;
+                            <tr @key="d.Id">
+                                <td>
+                                    <a href="@($"/Admin/Departments/Details/{d.Id}")" class="orbit-title">@d.Name</a>
+                                    @if (!string.IsNullOrWhiteSpace(d.Description))
+                                    {
+                                        <div class="orbit-sub">@Ui.Truncate(d.Description, 120)</div>
+                                    }
+                                </td>
+                                <td class="@muted">@(row.ManagerName ?? "-")</td>
+                                <td class="@($"text-right {muted}")">@row.UserCount</td>
+                                <td class="@($"text-right {muted}")">@row.ActiveProjectCount</td>
+                                <td class="@($"text-right {muted}")">@row.OpenTaskCount</td>
+                                <td>
+                                    @if (d.IsArchived)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Secondary">Archived</MudChip>
+                                    }
+                                    else
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Success">Active</MudChip>
+                                    }
+                                </td>
+                                <td class="text-right">
+                                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Href="@($"/Admin/Departments/Edit/{d.Id}")">Edit</MudButton>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        }
+    </MudPaper>
+}
+
+@code {
+    private IReadOnlyList<DepartmentOverview> _departments = [];
+
+    protected override async Task OnInitializedAsync() =>
+        await Load(async s => _departments = await s.Get<DepartmentService>().GetOverviewAsync());
+}

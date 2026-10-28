@@ -57,7 +57,8 @@ scheme and client addresses it sees are the real ones. **`X-Forwarded-For` is a 
 sign-in throttle (section 8) counts failed sign-ins per client address. Without the header every user looks like
 `127.0.0.1`; Orbit then switches the throttle off and logs a warning, rather than let twenty bad guesses from anyone
 lock the whole company out. With nginx, send both headers - and allow WebSockets on the Orbit Agent hub, which holds a
-long-lived connection (section 7):
+long-lived connection (section 7), and on `/_blazor`, the connection each open page of the app keeps to the server
+(every page is Blazor except sign-in and the account pages):
 
 ```nginx
 location / {
@@ -78,7 +79,21 @@ location /agent/hub {
     proxy_buffering    off;
     client_max_body_size 8m;    # a directory listing for Import from directory, if the agent falls back to long polling
 }
+location /_blazor {
+    proxy_pass         http://127.0.0.1:5000;
+    proxy_http_version 1.1;
+    proxy_set_header   Upgrade $http_upgrade;
+    proxy_set_header   Connection "upgrade";
+    proxy_set_header   Host $host;
+    proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header   X-Forwarded-Proto $scheme;
+    proxy_read_timeout 1h;      # an open page's connection is idle between clicks
+    proxy_buffering    off;
+}
 ```
+
+Without WebSockets a Blazor page still works, more slowly, over long polling. A restart or a deploy drops every open
+page's connection: the page shows a reconnecting notice, then offers to reload once the server is back.
 
 Caddy needs nothing extra. If WebSockets are blocked somewhere along the way the agent still works: SignalR falls
 back to Server-Sent Events or long polling by itself.

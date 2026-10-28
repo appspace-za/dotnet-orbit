@@ -1,0 +1,275 @@
+@page "/Admin/Roles/Create"
+@page "/Admin/Roles/Edit/{Id:guid}"
+@inherits OrbitComponentBase
+@* Creating or editing a role (spec §6.5): its name, description and the permission catalogue grouped, one row per permission with
+   a scope chosen from the ones that permission allows (None / Own / Department / All as radios, an All-only permission as a
+   checkbox). Reserved permissions are shown as "System Administrator only" and never sent. The built-in System Administrator role
+   opens read-only, holding everything at All; any other role can be deleted here while no user or API key has it. RoleService and
+   RoleRules check every grant whatever is sent. *@
+
+<PageTitle>@Title - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (Id is not null && _role?.Role.Id != Id)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else if (_role is null)
+{
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Admin/Roles">Roles</a><span class="orbit-crumb-sep">/</span><span aria-current="page">New</span>
+    </nav>
+    <MudText Typo="Typo.h5" HtmlTag="h1" Class="mb-3">New role</MudText>
+
+    <div class="orbit-form-wide">
+        <MudPaper Outlined="true" Class="orbit-card orbit-card-body">
+            @RoleFields
+            <div class="orbit-help">
+                A grant at a scope covers the narrower ones: <strong>Own</strong> is the user's own tasks (assigned to them, created by them or created for them as the requestee), projects they own and their own time;
+                <strong>Department</strong> is everything in their department; <strong>All departments</strong> is company-wide. A role with any grant at Department scope needs its users and keys to belong to a department.
+            </div>
+        </MudPaper>
+        @Grants(readOnly: false)
+        <div class="orbit-gap-row">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="CreateAsync">Create role</MudButton>
+            <MudButton Variant="Variant.Outlined" Href="/Admin/Roles">Cancel</MudButton>
+        </div>
+    </div>
+}
+else
+{
+    var r = _role;
+    var builtIn = r.Role.IsBuiltIn;
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Admin/Roles">Roles</a><span class="orbit-crumb-sep">/</span><span aria-current="page">@r.Role.Name</span>
+    </nav>
+    <div class="orbit-page-header">
+        <div>
+            <div class="orbit-gap-row">
+                <MudText Typo="Typo.h5" HtmlTag="h1">@r.Role.Name</MudText>
+                <MudChip T="string" Size="Size.Small" Color="RoleLook.Chip(r.Ref)">@RoleLook.Kind(r.Ref)</MudChip>
+            </div>
+            <div class="orbit-subtitle">@r.UserCount user(s) and @r.KeyCount API key(s) have this role.</div>
+        </div>
+        @if (!builtIn)
+        {
+            @* A disabled button shows no tooltip, so the reason sits on the span around it. *@
+            <span title="@(InUse ? "Move its users and API keys to another role first." : "Delete this role")">
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="@(InUse || _busy)" OnClick="DeleteAsync">Delete</MudButton>
+            </span>
+        }
+    </div>
+
+    @if (builtIn)
+    {
+        <MudAlert Severity="Severity.Info" Class="mb-3">
+            The built-in <strong>@r.Role.Name</strong> role always holds every permission for all departments, including permissions added by later versions of Orbit.
+            It can't be edited or deleted, and only its members may manage users, roles and API keys.
+        </MudAlert>
+        <div class="orbit-form-wide">
+            @Grants(readOnly: true)
+            <MudButton Variant="Variant.Outlined" Href="/Admin/Roles">Back</MudButton>
+        </div>
+    }
+    else
+    {
+        <div class="orbit-form-wide">
+            <MudPaper Outlined="true" Class="orbit-card orbit-card-body">
+                @RoleFields
+                <div class="orbit-help">
+                    A grant at a scope covers the narrower ones: <strong>Own</strong> is the user's own tasks (assigned to them, created by them or created for them as the requestee), projects they own and their own time;
+                    <strong>Department</strong> is everything in their department; <strong>All departments</strong> is company-wide. Changes apply to everyone in the role from their next request.
+                </div>
+            </MudPaper>
+            @Grants(readOnly: false)
+            <div class="orbit-gap-row">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="SaveAsync">Save</MudButton>
+                <MudButton Variant="Variant.Outlined" Href="/Admin/Roles">Back</MudButton>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    /// <summary>The role to edit or view; null for a new one.</summary>
+    [Parameter] public Guid? Id { get; set; }
+
+    private RoleListItem? _role;
+    private string? _name, _description;
+    /// <summary>The scope chosen for each grantable permission (None = not granted), keyed by permission; reserved ones are never here.</summary>
+    private Dictionary<string, PermissionScope> _grants = Rows(new Dictionary<string, PermissionScope>());
+    private bool _busy;
+
+    private string Title => Id is null ? "New role" : _role?.Role.Name ?? "Role";
+
+    /// <summary>A role some user or API key has (revoked keys too) can't be deleted (§6.5 rule 5).</summary>
+    private bool InUse => _role is { } r && (r.UserCount > 0 || r.KeyCount > 0);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Creating a role goes on to its edit page, which is this component with an Id, so each page starts afresh.
+        _role = null;
+        if (Id is Guid id)
+        {
+            if (await LoadRoleAsync(id)) ResetForm();
+            return;
+        }
+        _name = _description = null;
+        _grants = Rows(new Dictionary<string, PermissionScope>());
+    }
+
+    private async Task<bool> LoadRoleAsync(Guid id) => await Load(async s => _role = await s.Get<RoleService>().GetAsync(id));
+
+    /// <summary>The form shows the role as stored: on opening the page and after saving it.</summary>
+    private void ResetForm()
+    {
+        var r = _role!;
+        _name = r.Role.Name;
+        _description = r.Role.Description;
+        _grants = Rows(r.Resolved.Permissions);
+    }
+
+    /// <summary>
+    /// One entry per grantable permission, in catalogue order, at the role's scope for it. A stored scope the permission doesn't allow
+    /// shows as None, as the Razor editor's radios and checkboxes did, so saving drops it rather than being refused for it.
+    /// </summary>
+    private static Dictionary<string, PermissionScope> Rows(IReadOnlyDictionary<string, PermissionScope> grants) =>
+        PermissionCatalog.All.Where(p => !p.SystemAdministratorOnly)
+            .ToDictionary(p => p.Key, p => p.Allows(grants.GetValueOrDefault(p.Key)) ? grants.GetValueOrDefault(p.Key) : PermissionScope.None, StringComparer.Ordinal);
+
+    private RenderFragment RoleFields => __builder =>
+    {
+        <MudGrid Spacing="3">
+            <MudItem xs="12" md="4">
+                <MudTextField T="string" @bind-Value="_name" Label="Name" MaxLength="RoleRules.MaxNameLength" Required="true"
+                              RequiredError="A role name is required." Variant="Variant.Outlined" Immediate="true" />
+            </MudItem>
+            <MudItem xs="12" md="8">
+                <MudTextField T="string" @bind-Value="_description" Label="Description" MaxLength="RoleRules.MaxDescriptionLength" Variant="Variant.Outlined" />
+            </MudItem>
+        </MudGrid>
+    };
+
+    /// <summary>
+    /// The catalogue grouped, one row per permission with its description. Read-only for the built-in role: every permission at All,
+    /// reserved ones included. Editable otherwise: a checkbox for an All-only permission, radios over None and its allowed scopes for
+    /// the rest, and the reserved ones shown but not offered.
+    /// </summary>
+    private RenderFragment Grants(bool readOnly) => __builder =>
+    {
+        foreach (var group in PermissionCatalog.Groups)
+        {
+            <MudPaper Outlined="true" Class="orbit-card" @key="group.Key">
+                <div class="orbit-card-header"><b>@group.Key</b></div>
+                <div class="orbit-table-wrap">
+                    <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks">
+                        <thead>
+                            <tr><th style="width:34%">Permission</th><th>Scope</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var p in group)
+                            {
+                                var permission = p.Key;
+                                <tr @key="permission">
+                                    <td>
+                                        <div><b>@p.Label</b> <code class="orbit-key orbit-sub">@p.Key</code></div>
+                                        <div class="orbit-sub">@p.Description</div>
+                                    </td>
+                                    <td>
+                                        @if (readOnly)
+                                        {
+                                            var current = PermissionCatalog.AllAtScopeAll.GetValueOrDefault(permission);
+                                            <MudChip T="string" Size="Size.Small" Color="@(current == PermissionScope.None ? Color.Default : Color.Success)"
+                                                     Variant="@(current == PermissionScope.None ? Variant.Outlined : Variant.Filled)">@current.Label()</MudChip>
+                                        }
+                                        else if (p.SystemAdministratorOnly)
+                                        {
+                                            <em class="orbit-muted" title="Reserved to the built-in role; it can't be granted to another role.">System Administrator only</em>
+                                        }
+                                        else if (p.AllOnly)
+                                        {
+                                            <MudCheckBox T="bool" Value="@(ScopeOf(permission) == PermissionScope.All)" ValueChanged="@((bool on) => SetScope(permission, on ? PermissionScope.All : PermissionScope.None))"
+                                                         Label="Granted (company-wide)" Dense="true" Color="Color.Primary" />
+                                        }
+                                        else
+                                        {
+                                            <MudRadioGroup T="PermissionScope" Value="ScopeOf(permission)" ValueChanged="@((PermissionScope scope) => SetScope(permission, scope))">
+                                                @foreach (var s in p.AllowedScopes.Prepend(PermissionScope.None))
+                                                {
+                                                    <MudRadio T="PermissionScope" Value="s" Color="Color.Primary" Dense="true">@s.Label()</MudRadio>
+                                                }
+                                            </MudRadioGroup>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </div>
+            </MudPaper>
+        }
+    };
+
+    private PermissionScope ScopeOf(string key) => _grants.GetValueOrDefault(key);
+
+    private void SetScope(string key, PermissionScope scope) => _grants[key] = scope;
+
+    private RoleInput Input() => new()
+    {
+        Name = _name ?? string.Empty,
+        Description = _description,
+        Grants = new Dictionary<string, PermissionScope>(_grants, StringComparer.Ordinal)
+    };
+
+    /// <summary>RoleService checks the name, description and every grant (RoleRules); a refusal keeps what was chosen.</summary>
+    private async Task CreateAsync()
+    {
+        var input = Input();
+        _busy = true;
+        ApplicationRole? created = null;
+        if (await Act(async s => created = await s.Get<RoleService>().CreateAsync(input)))
+        {
+            Success($"Role \"{created!.Name}\" created.");
+            Nav.NavigateTo($"/Admin/Roles/Edit/{created.Id}");
+        }
+        _busy = false;
+    }
+
+    /// <summary>
+    /// Saves the role. Besides RoleRules, RoleService refuses a change that makes the role need a department while anyone in it has
+    /// none, giving the counts; what was chosen stays on the form.
+    /// </summary>
+    private async Task SaveAsync()
+    {
+        var id = _role!.Role.Id;
+        var input = Input();
+        _busy = true;
+        ApplicationRole? saved = null;
+        if (await Act(async s => saved = await s.Get<RoleService>().UpdateAsync(id, input)))
+        {
+            Success($"Role \"{saved!.Name}\" saved. It applies to everyone in it from their next request.");
+            if (await LoadRoleAsync(id)) ResetForm();
+        }
+        _busy = false;
+    }
+
+    /// <summary>Only an unused role, and one no request flow names as an approver, can go; RoleService says why otherwise.</summary>
+    private async Task DeleteAsync()
+    {
+        var id = _role!.Role.Id;
+        if (!await Confirm("Delete role", "Delete this role? This can't be undone.")) return;
+        _busy = true;
+        if (await Act(s => s.Get<RoleService>().DeleteAsync(id)))
+        {
+            Success("Role deleted.");
+            Nav.NavigateTo("/Admin/Roles");
+            return;
+        }
+        // Refused: the counts may have changed since the page opened.
+        await LoadRoleAsync(id);
+        _busy = false;
+    }
+}

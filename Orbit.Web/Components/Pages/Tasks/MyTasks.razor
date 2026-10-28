@@ -1,0 +1,68 @@
+@page "/Tasks/My"
+@inherits OrbitComponentBase
+@* My Tasks (spec §6.2): the tasks assigned to the viewer, open ones unless closed are asked for. *@
+
+<PageTitle>My Tasks - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_actor is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var overdue = _tasks.Count(t => t.IsOverdue(_today));
+
+    <div class="orbit-page-header">
+        <MudText Typo="Typo.h5" HtmlTag="h1">My Tasks <span class="orbit-subtitle">@_tasks.Count@(overdue > 0 ? $" · {overdue} overdue" : "")</span></MudText>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudSwitch T="bool" Value="ShowClosed" ValueChanged="IncludeClosedChanged" Color="Color.Primary" Label="Include closed" />
+            @if (_actor.Has(Permission.TasksCreate))
+            {
+                <MudButton Href="/Tasks/Create" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">New task</MudButton>
+            }
+        </MudStack>
+    </div>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        <TaskTable Tasks="_tasks" Actor="_actor" Today="_today" ShowDepartment="false" ShowAssignee="false" ShowSprint="true"
+                   ShowPlanToday="true" QuickEditDueDate="true" QuickEditSprints="_sprints" Waiting="_waiting"
+                   EmptyMessage="Nothing assigned to you." Changed="ReloadAsync" />
+    </MudPaper>
+}
+
+@code {
+    /// <summary>Read as text, as every filter is: a typed parameter would crash the page on a bad value ("?IncludeClosed=1").</summary>
+    [SupplyParameterFromQuery] public string? IncludeClosed { get; set; }
+
+    private bool ShowClosed => FilterQuery.Flag(IncludeClosed);
+
+    private Actor? _actor;
+    private DateOnly _today;
+    private IReadOnlyList<TaskItem> _tasks = [];
+    private IReadOnlyDictionary<Guid, WaitingSummary> _waiting = new Dictionary<Guid, WaitingSummary>();
+    /// <summary>The sprints the inline sprint control offers (§6.3): the planned and active ones.</summary>
+    private IReadOnlyList<Sprint> _sprints = [];
+
+    protected override Task OnParametersSetAsync() => ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        await Load(async s =>
+        {
+            var actor = await s.Get<IActorProvider>().GetAsync();
+            var tasks = await s.Get<TaskService>().GetMyTasksAsync(openOnly: !ShowClosed);
+            _waiting = await s.Get<TaskStructureService>().GetWaitingAsync(tasks);
+            _sprints = await s.Get<SprintService>().ListOpenAsync();
+            _tasks = tasks;
+            _today = DateOnly.FromDateTime(DateTime.UtcNow);
+            _actor = actor;
+        });
+    }
+
+    private void IncludeClosedChanged(bool include) =>
+        Nav.NavigateTo(Nav.GetUriWithQueryParameter("IncludeClosed", include ? true : (bool?)null));
+}

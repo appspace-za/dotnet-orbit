@@ -1,0 +1,114 @@
+@page "/Sprints"
+@page "/Sprints/Index"
+@inherits SprintPageBase
+@* The Sprints list (spec §6.3): company-wide planning windows, one active at a time. *@
+
+<PageTitle>Sprints - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_actor is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var canManage = AccessPolicy.CanManageSprints(_actor);
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">Sprints</MudText>
+            <div class="orbit-subtitle">Company-wide planning windows. Only one sprint is active at a time.</div>
+        </div>
+        @if (canManage)
+        {
+            <MudButton Href="/Sprints/Create" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">New sprint</MudButton>
+        }
+    </div>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        @if (_sprints.Count == 0)
+        {
+            <p class="orbit-empty">No sprints yet.@(canManage ? " Create one to start planning." : "")</p>
+        }
+        else
+        {
+            <div class="orbit-table-wrap">
+                <MudSimpleTable Hover="true" Elevation="0" Class="orbit-tasks">
+                    <thead><tr><th>Sprint</th><th>Status</th><th>Dates</th><th>Tasks (open/total)</th><th>Departments</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var s in _sprints)
+                        {
+                            var sprint = s.Sprint;
+                            var pct = s.TotalTasks == 0 ? 0 : (int)Math.Round(s.DoneTasks * 100.0 / s.TotalTasks);
+                            <tr @key="sprint.Id">
+                                <td>
+                                    <a href="@($"/Sprints/Details/{sprint.Id}")" class="orbit-title">@sprint.Name</a>
+                                    @if (!string.IsNullOrWhiteSpace(sprint.Goal))
+                                    {
+                                        <div class="orbit-sub">@Ui.Truncate(sprint.Goal, 100)</div>
+                                    }
+                                </td>
+                                <td><MudChip T="string" Size="Size.Small" Color="StatusLook.Sprint(sprint.Status)">@sprint.Status</MudChip></td>
+                                <td class="text-nowrap">@Ui.Day(sprint.StartDate) - @Ui.Day(sprint.EndDate)</td>
+                                <td>
+                                    @s.OpenTasks / @s.TotalTasks
+                                    <MudProgressLinear Value="pct" Color="Color.Success" Rounded="true" Class="orbit-progress-sm mt-1" />
+                                </td>
+                                <td>
+                                    @foreach (var d in s.ByDepartment)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@d.Name @d.Count</MudChip>
+                                    }
+                                </td>
+                                <td class="text-right text-nowrap">
+                                    @if (sprint.Status == SprintStatus.Active)
+                                    {
+                                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Href="@($"/Sprints/Board/{sprint.Id}")">Board</MudButton>
+                                    }
+                                    @if (canManage && sprint.Status == SprintStatus.Planned)
+                                    {
+                                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Success" Disabled="_busy" OnClick="() => StartAsync(sprint)">Start</MudButton>
+                                    }
+                                    @if (canManage && sprint.Status == SprintStatus.Active)
+                                    {
+                                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="_busy" OnClick="() => CompleteAsync(sprint)">Complete</MudButton>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        }
+    </MudPaper>
+}
+
+@code {
+    private Actor? _actor;
+    private IReadOnlyList<SprintListItem> _sprints = [];
+    private bool _busy;
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    private async Task ReloadAsync() => await Load(async s =>
+    {
+        _sprints = await s.Get<SprintService>().ListAsync();
+        _actor = await s.Get<IActorProvider>().GetAsync();
+    });
+
+    private async Task StartAsync(Sprint sprint)
+    {
+        _busy = true;
+        if (await StartSprintAsync(sprint)) await ReloadAsync();
+        _busy = false;
+    }
+
+    private async Task CompleteAsync(Sprint sprint)
+    {
+        _busy = true;
+        if (await CompleteSprintAsync(sprint)) await ReloadAsync();
+        _busy = false;
+    }
+}

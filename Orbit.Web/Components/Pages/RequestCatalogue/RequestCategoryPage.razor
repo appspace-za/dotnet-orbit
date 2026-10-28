@@ -1,0 +1,266 @@
+@page "/RequestCatalogue/Category/{Id:guid}"
+@inherits OrbitComponentBase
+@* One request category (spec §6.20): its fields, archive/restore and delete; its flows in order, each moved up or down, switched
+   on or off (not while archived), archived or restored, each badged; and a form to add a flow, which opens the flow's page. The
+   category's fields show it as stored on opening and after saving; the other changes reload the page and leave them as typed. *@
+
+<PageTitle>@(_category is null ? "Request category" : $"Configure {_category.Title}") - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (!Loaded || _category is null || _category.Id != Id)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var c = _category;
+    var flows = c.Flows.ToList();
+    var liveCount = flows.Count(RequestFlowRules.IsLive);
+    var offered = !c.IsArchived && !c.Department.IsArchived && liveCount > 0;
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/RequestCatalogue">Request flows</a><span class="orbit-crumb-sep">/</span><span aria-current="page">@c.Title</span>
+    </nav>
+    <div class="orbit-page-header">
+        <div class="@($"request-heading mb-0 {RequestIcons.ColourClass(c.Colour)}")">
+            <span class="request-icon request-icon-sm"><RequestIcon Name="@c.Icon" Size="24" /></span>
+            <div>
+                <div class="orbit-gap-row">
+                    <MudText Typo="Typo.h5" HtmlTag="h1">@c.Title</MudText>
+                    @if (c.IsArchived) { <MudChip T="string" Size="Size.Medium">Archived</MudChip> }
+                </div>
+                <div class="orbit-subtitle">A request category of <strong>@c.Department.Name</strong>: requests logged under it are filed with @c.Department.Name.</div>
+            </div>
+        </div>
+        @if (offered && _canSubmit)
+        {
+            <MudButton Href="@($"/Requests/Category/{c.Id}")" Variant="Variant.Outlined" Size="Size.Small">See it on the Requests page</MudButton>
+        }
+    </div>
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" lg="5">
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Category</b></div>
+                <div class="orbit-card-body orbit-form">
+                    <RequestCategoryFields Form="_form" />
+                    <div><MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="SaveAsync">Save</MudButton></div>
+                </div>
+                <MudDivider />
+                <div class="orbit-card-body orbit-actions">
+                    @if (c.IsArchived)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Success" Disabled="_busy" OnClick="() => SetArchivedAsync(false)">Restore category</MudButton>
+                    }
+                    else
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="_busy" OnClick="() => SetArchivedAsync(true)">Archive category</MudButton>
+                    }
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="DeleteAsync">Delete category</MudButton>
+                </div>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" lg="7">
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><span><b>Flows</b> <span class="orbit-muted">(@flows.Count, @liveCount offered)</span></span></div>
+                @if (flows.Count == 0)
+                {
+                    <p class="orbit-empty">No flows yet. The category is offered once it has one that is switched on and set up.</p>
+                }
+                @for (var i = 0; i < flows.Count; i++)
+                {
+                    var f = flows[i];
+                    var first = i == 0;
+                    var last = i == flows.Count - 1;
+                    <div class="orbit-list-item orbit-gap-row" @key="f.Id">
+                        @* An archived or switched-off flow is muted (§6.20); its badges say why. *@
+                        <div class="@(f.IsArchived || !f.IsEnabled ? "orbit-grow orbit-muted" : "orbit-grow")" style="min-width: 12rem">
+                            <span class="orbit-gap-row">
+                                <a href="@($"/RequestCatalogue/Flow/{f.Id}")"><b>@f.Title</b></a>
+                                <RequestFlowBadges Flow="f" />
+                            </span>
+                            <div class="orbit-small orbit-muted">@StepKinds(f)</div>
+                        </div>
+                        <div class="orbit-gap-row">
+                            <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small" Variant="Variant.Outlined" Disabled="@(_busy || first)"
+                                           OnClick="() => MoveFlowAsync(f.Id, -1)" title="Move up" aria-label="@($"Move {f.Title} up")" />
+                            <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small" Variant="Variant.Outlined" Disabled="@(_busy || last)"
+                                           OnClick="() => MoveFlowAsync(f.Id, 1)" title="Move down" aria-label="@($"Move {f.Title} down")" />
+                            @if (!f.IsArchived)
+                            {
+                                if (f.IsEnabled)
+                                {
+                                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Success" Disabled="_busy" OnClick="() => SetFlowEnabledAsync(f.Id, false)"
+                                               title="Switch it off" aria-label="@($"{f.Title} is on: switch it off")">On</MudButton>
+                                }
+                                else
+                                {
+                                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="_busy" OnClick="() => SetFlowEnabledAsync(f.Id, true)"
+                                               title="Switch it on" aria-label="@($"{f.Title} is off: switch it on")">Off</MudButton>
+                                }
+                            }
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="_busy" OnClick="() => SetFlowArchivedAsync(f.Id, !f.IsArchived)">@(f.IsArchived ? "Restore" : "Archive")</MudButton>
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Href="@($"/RequestCatalogue/Flow/{f.Id}")">Edit and steps</MudButton>
+                        </div>
+                    </div>
+                }
+            </MudPaper>
+
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Add a flow</b></div>
+                <div class="orbit-card-body orbit-form">
+                    <MudTextField T="string" @bind-Value="_newFlow.Title" Label="Title" Placeholder="e.g. New product code" MaxLength="RequestFlowRules.MaxFlowTitleLength"
+                                  Required="true" RequiredError="A title is required." Variant="Variant.Outlined" Immediate="true" />
+                    <MudTextField T="string" @bind-Value="_newFlow.Description" Label="Description (optional)" Placeholder="Shown under the title on the Requests page"
+                                  MaxLength="RequestFlowRules.MaxDescriptionLength" Variant="Variant.Outlined" />
+                    <div><MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="AddFlowAsync">Add flow</MudButton></div>
+                </div>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private RequestCategory? _category;
+    /// <summary>Whether the link to the category on the Requests page (requests.submit) would open.</summary>
+    private bool _canSubmit;
+    private bool _busy;
+    private CategoryForm _form = new();
+    private FlowForm _newFlow = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Another category's page is this component with a new Id, so each starts afresh.
+        _category = null;
+        _newFlow = new FlowForm();
+        if (await LoadCategoryAsync()) _form = CategoryForm.From(_category!);
+    }
+
+    /// <summary>The category with its department, and its flows in order with their steps (the badges and the offered count read them).</summary>
+    private async Task<bool> LoadCategoryAsync()
+    {
+        var id = Id;
+        return await Load(async s =>
+        {
+            var actor = await s.Get<IActorProvider>().GetAsync();
+            var category = await s.Get<RequestCatalogueService>().GetCategoryAsync(id);
+            _canSubmit = AccessPolicy.CanSubmitRequests(actor);
+            _category = category;
+        });
+    }
+
+    /// <summary>The line under a flow: how many steps it has, and their kinds in order.</summary>
+    private static string StepKinds(RequestFlow f)
+    {
+        var count = f.Steps.Count;
+        var text = count == 1 ? "1 step" : $"{count} steps";
+        if (count > 0) text += ": " + string.Join(" · ", f.Steps.OrderBy(s => s.DisplayOrder).Select(s => s.Kind.Label()));
+        return text;
+    }
+
+    private async Task SaveAsync()
+    {
+        var id = _category!.Id;
+        var input = _form.ToInput();
+        _busy = true;
+        RequestCategory? saved = null;
+        if (await Act(async s => saved = await s.Get<RequestCatalogueService>().UpdateCategoryAsync(id, input)))
+        {
+            Success($"Category \"{saved!.Title}\" saved.");
+            if (await LoadCategoryAsync()) _form = CategoryForm.From(_category!);
+        }
+        _busy = false;
+    }
+
+    /// <summary>Archive: the category and its flows stop being offered; nothing is deleted. Restoring doesn't ask.</summary>
+    private async Task SetArchivedAsync(bool archived)
+    {
+        var id = _category!.Id;
+        if (archived && !await Confirm("Archive category", "Archive this category? It and its flows stop being offered; nothing is deleted.", "Archive")) return;
+        _busy = true;
+        if (await Act(s => s.Get<RequestCatalogueService>().SetCategoryArchivedAsync(id, archived)))
+        {
+            Success(archived ? "Category archived: it and its flows are no longer offered. Nothing is deleted." : "Category restored.");
+            await LoadCategoryAsync();
+        }
+        _busy = false;
+    }
+
+    /// <summary>Delete the category with its flows and their steps; the service refuses once a request was logged through them.</summary>
+    private async Task DeleteAsync()
+    {
+        var c = _category!;
+        var id = c.Id;
+        var count = c.Flows.Count;
+        var message = count == 0
+            ? $"Delete the category \"{c.Title}\"?"
+            : $"Delete the category \"{c.Title}\" with its {count} {(count == 1 ? "flow" : "flows")} and their steps? Only possible while no request was logged through them.";
+        if (!await Confirm("Delete category", message)) return;
+        _busy = true;
+        string? title = null;
+        var flows = 0;
+        if (await Act(async s =>
+            {
+                var catalogue = s.Get<RequestCatalogueService>();
+                title = (await catalogue.GetCategoryAsync(id)).Title;
+                flows = await catalogue.DeleteCategoryAsync(id);
+            }))
+        {
+            Success(flows == 0 ? $"Category \"{title}\" deleted." : $"Category \"{title}\" deleted, with its {flows} {(flows == 1 ? "flow" : "flows")}.");
+            Nav.NavigateTo("/RequestCatalogue");
+        }
+        _busy = false;
+    }
+
+    private async Task AddFlowAsync()
+    {
+        var id = _category!.Id;
+        var input = _newFlow.ToInput();
+        _busy = true;
+        RequestFlow? added = null;
+        if (await Act(async s => added = await s.Get<RequestCatalogueService>().AddFlowAsync(id, input)))
+        {
+            Success($"Flow \"{added!.Title}\" added. Add its steps, then switch it on: it is offered once it is on and every step is set up.");
+            Nav.NavigateTo($"/RequestCatalogue/Flow/{added.Id}");
+        }
+        _busy = false;
+    }
+
+    /// <summary>Moves a flow one place up (-1) or down (+1); the Razor page said nothing either, the new order shows it.</summary>
+    private async Task MoveFlowAsync(Guid flowId, int direction)
+    {
+        _busy = true;
+        if (await Act(s => s.Get<RequestCatalogueService>().MoveFlowAsync(flowId, direction))) await LoadCategoryAsync();
+        _busy = false;
+    }
+
+    /// <summary>Archive or restore a flow. As on the Razor page, neither asks here; the flow's own page asks before archiving.</summary>
+    private async Task SetFlowArchivedAsync(Guid flowId, bool archived)
+    {
+        _busy = true;
+        if (await Act(s => s.Get<RequestCatalogueService>().SetFlowArchivedAsync(flowId, archived)))
+        {
+            Success(archived ? "Flow archived: no longer offered. Requests in progress carry on." : "Flow restored.");
+            await LoadCategoryAsync();
+        }
+        _busy = false;
+    }
+
+    /// <summary>Switch a flow on or off (§6.20); the message says whether it is offered now.</summary>
+    private async Task SetFlowEnabledAsync(Guid flowId, bool enabled)
+    {
+        _busy = true;
+        RequestFlow? flow = null;
+        if (await Act(async s => flow = await s.Get<RequestCatalogueService>().SetFlowEnabledAsync(flowId, enabled)))
+        {
+            Success(FlowSwitch.Message(flow!));
+            await LoadCategoryAsync();
+        }
+        _busy = false;
+    }
+}

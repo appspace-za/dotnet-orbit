@@ -1,0 +1,731 @@
+@page "/Admin/Users/Import"
+@inherits OrbitComponentBase
+@inject IJSRuntime JS
+@* Import from directory (spec §6.13.1): list the directory's users through an agent (Who to list), tick people, choose a
+   department for each directory department Orbit couldn't link, pick one role, import. The same list offers the directory's
+   manager to the people already in Orbit whose manager differs: tick, Update ticked managers. As on the Razor page, each button
+   reads the directory once and nothing read is kept beyond what the page shows: Import and Update send the query the list was
+   read with, so they read it exactly as listed, and each keeps what was ticked and chosen for the other, refused or not. A
+   directory that can't be read leaves no list; the admin loads again. Every button ends at the top of the page, where its
+   result or refusal is, as the Razor page's post did. *@
+
+<PageTitle>Import from directory - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_setup is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var setup = _setup;
+    var p = _preview;
+    var o = _outcome;
+    var mo = _managersOutcome;
+    var emailSource = p?.EmailSource ?? setup.EmailSource;
+    var working = _pending is not null;
+
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Admin/Users">Users</a><span class="orbit-crumb-sep">/</span><span aria-current="page">Import from directory</span>
+    </nav>
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">Import from directory</MudText>
+            <div class="orbit-subtitle">
+                Creates Orbit accounts for people in your company directory (Active Directory), who then sign in with their directory password.
+                An <a href="/Admin/Agents/Index">Orbit Agent</a> reads the directory; you choose who is imported, their role and their department,
+                and each person gets the manager the directory names when that manager is in Orbit. People already in Orbit whose manager differs
+                from the directory's are listed for you to update. Nothing happens by itself: Orbit follows the directory only when you do it here.
+            </div>
+        </div>
+    </div>
+
+    @if (!setup.DirectoryEnabled)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mb-3">
+            <b>Directory sign-in isn't enabled.</b> Imported people sign in with it, so set it up under <a href="/Admin/Directory/Index">Admin &gt; Directory</a> first.
+        </MudAlert>
+    }
+    else if (setup.AgentsAbleToList == 0)
+    {
+        var (lead, rest) = NoListingAgent(setup.AgentsConnected);
+        <MudAlert Severity="Severity.Warning" Class="mb-3">
+            <b>@lead</b> @rest <a href="/Admin/Agents/Index">Manage agents</a>
+        </MudAlert>
+    }
+    else if (setup.AgentsAbleToReadManagers == 0)
+    {
+        <MudAlert Severity="Severity.Info" Class="mb-3">
+            <b>Managers aren't read.</b> @OldAgentsText(setup.AgentsAbleToList) <a href="/Admin/Agents/Index">Manage agents</a>
+        </MudAlert>
+    }
+
+    @if (_problem is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-3">@_problem</MudAlert>
+    }
+
+    @if (o is not null)
+    {
+        <MudPaper Outlined="true" Class="orbit-card" @key="o">
+            <div class="orbit-card-header"><b>@ImportHeading(o)</b></div>
+            <div class="orbit-card-body">
+                @if (o.Imported.Count > 0)
+                {
+                    <p class="orbit-small mt-0 mb-2">They can sign in now with their directory email and password. Each account is recorded in the activity log as imported from the directory.</p>
+                    @if (!o.ManagersRead && setup.AgentsAbleToReadManagers > 0)
+                    {
+                        <p class="orbit-small orbit-warn mt-0 mb-2">Their managers weren't read: the agent that answered this time is older than version 1.4. Load the directory again and set them with <b>Update ticked managers</b>.</p>
+                    }
+                    <details class="mb-2" open="@(o.Imported.Count <= 20)">
+                        <summary class="orbit-small"><b>Imported</b></summary>
+                        <div class="orbit-table-wrap mt-2" style="max-height:24rem">
+                            <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th><th>Email</th><th>Department</th>
+                                        @if (o.ManagersRead)
+                                        {
+                                            <th>Manager</th>
+                                        }
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var u in o.Imported)
+                                    {
+                                        <tr>
+                                            <td><a href="@($"/Admin/Users/Edit/{u.Id}")">@u.DisplayName</a></td>
+                                            <td>@u.Email</td>
+                                            <td>@(u.DepartmentName ?? "-")</td>
+                                            @if (o.ManagersRead)
+                                            {
+                                                <td>
+                                                    <span class="orbit-gap-row">
+                                                        <span>@(u.ManagerName ?? "-")</span>
+                                                        @if (u.ManagerNote is not null)
+                                                        {
+                                                            <span class="orbit-sub">(@u.ManagerNote)</span>
+                                                        }
+                                                    </span>
+                                                </td>
+                                            }
+                                        </tr>
+                                    }
+                                </tbody>
+                            </MudSimpleTable>
+                        </div>
+                    </details>
+                }
+                @Skipped(o.Skipped)
+            </div>
+        </MudPaper>
+    }
+
+    @if (mo is not null)
+    {
+        <MudPaper Outlined="true" Class="orbit-card" @key="mo">
+            <div class="orbit-card-header"><b>@ManagersHeading(mo)</b></div>
+            <div class="orbit-card-body">
+                @if (mo.Updated.Count > 0)
+                {
+                    <p class="orbit-small mt-0 mb-2">Each change is recorded in the activity log as made from the directory. Nobody was signed out.</p>
+                    <details class="mb-2" open="@(mo.Updated.Count <= 20)">
+                        <summary class="orbit-small"><b>Changed</b></summary>
+                        <div class="orbit-table-wrap mt-2" style="max-height:24rem">
+                            <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks">
+                                <thead><tr><th>Name</th><th>Manager was</th><th>Manager is now</th></tr></thead>
+                                <tbody>
+                                    @foreach (var u in mo.Updated)
+                                    {
+                                        <tr>
+                                            <td><a href="@($"/Admin/Users/Edit/{u.UserId}")">@u.DisplayName</a></td>
+                                            <td>@(u.FromName ?? "-")</td>
+                                            <td>@u.ToName</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </MudSimpleTable>
+                        </div>
+                    </details>
+                }
+                @Skipped(mo.Skipped)
+            </div>
+        </MudPaper>
+    }
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        <div class="orbit-card-header"><b>Who to list</b></div>
+        <div class="orbit-card-body orbit-form orbit-form-wide">
+            <div>
+                <MudTextField T="string" @bind-Value="_query.Filter" Label="Filter" MaxLength="DirectoryImportRules.MaxFilterLength" Variant="Variant.Outlined"
+                              Class="orbit-code" Immediate="true" OnKeyDown="LoadOnEnterAsync" spellcheck="false" autocomplete="off" />
+                <div class="orbit-help">
+                    An LDAP filter. The default is your sign-in filter with <code>*</code> in place of <code>{0}</code>, so it lists the people who could sign in.
+                    To import one group, add e.g. <code>(memberOf=CN=Finance,OU=Groups,DC=corp,DC=example,DC=com)</code> inside the <code>(&amp;...)</code>.
+                </div>
+            </div>
+            <div class="orbit-form-row">
+                <MudTextField T="string" @bind-Value="_query.SearchBase" Label="Search base" MaxLength="DirectoryImportRules.MaxSearchBaseLength"
+                              Placeholder="(the search base under Admin > Directory)" HelperText="Narrow it to one OU to import a part of the organisation at a time."
+                              Variant="Variant.Outlined" Class="orbit-field-grow" Immediate="true" OnKeyDown="LoadOnEnterAsync" spellcheck="false" autocomplete="off" />
+                <MudTextField T="string" @bind-Value="_query.DepartmentAttribute" Label="Department attribute" MaxLength="64" Placeholder="department"
+                              HelperText="Matched to Orbit department names, ignoring case and spacing." Variant="Variant.Outlined" Class="orbit-field-lg"
+                              Immediate="true" OnKeyDown="LoadOnEnterAsync" spellcheck="false" autocomplete="off" />
+            </div>
+            <div class="orbit-gap-row">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="working" OnClick="LoadDirectoryAsync">
+                    @(_pending == Pending.Load ? "Reading the directory..." : "Load directory users")
+                </MudButton>
+                <span class="orbit-small orbit-muted">Reads up to @DirectoryImportService.MaxUsers.ToString("N0") entries. Nothing is created until you import.</span>
+            </div>
+            @if (working)
+            {
+                <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+            }
+        </div>
+    </MudPaper>
+
+    @if (p is not null)
+    {
+        var linked = p.Rows.Count(r => r.CanImport && r.IsLinked);
+        var users = ShownUsers();
+        var changes = ShownChanges();
+        var importable = users.Where(l => l.Row.CanImport).ToList();
+
+        <div class="orbit-chips mb-3">
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@FoundText(p)</MudChip>
+            <MudChip T="string" Size="Size.Small" Color="Color.Success">@p.ReadyCount ready to import</MudChip>
+            @if (p.ReadyCount > 0)
+            {
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@linked linked to a department</MudChip>
+                @if (p.UnlinkedCount > 0)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning">@p.UnlinkedCount not linked</MudChip>
+                }
+            }
+            <MudChip T="string" Size="Size.Small" Color="Color.Secondary">@p.InOrbitCount already in Orbit</MudChip>
+            @if (p.ManagerChanges.Count > 0)
+            {
+                <MudChip T="string" Size="Size.Small" Color="Color.Info">@p.ManagerChanges.Count with another manager in the directory</MudChip>
+            }
+            @if (p.BlockedCount > 0)
+            {
+                <MudChip T="string" Size="Size.Small" Color="Color.Secondary">@p.BlockedCount can't be imported</MudChip>
+            }
+        </div>
+        @if (p.Truncated)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">
+                The directory has more entries than the @DirectoryImportService.MaxUsers.ToString("N0") read. Narrow the filter or the search base, and import in parts. A manager among the entries not read shows as "Not in this list".
+            </MudAlert>
+        }
+        @if (!p.ManagersRead && setup.AgentsAbleToReadManagers > 0)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">
+                Agent "@p.AgentName" answered this time, and it is older than version 1.4, so managers weren't read. Load the directory again to ask a newer agent.
+            </MudAlert>
+        }
+        <div class="orbit-small orbit-muted mb-3">
+            <div>Emails come from each person's <code>@emailSource.Attribute</code> attribute, the one your sign-in filter looks people up by.</div>
+            @if (emailSource.Warning is not null)
+            {
+                <div class="orbit-warn">@emailSource.Warning</div>
+            }
+        </div>
+
+        @if (p.ManagerChanges.Count > 0)
+        {
+            <MudPaper Outlined="true" Class="orbit-card orbit-card-primary">
+                <div class="orbit-card-header">
+                    <div class="orbit-gap-row">
+                        <b>Managers that differ from the directory</b>
+                        <MudTextField T="string" Value="_managerFilter" ValueChanged="ManagerFilterChanged" Placeholder="Filter by name..." DebounceInterval="250"
+                                      Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-field-sm" aria-label="Filter the managers" />
+                        <span class="orbit-small orbit-muted">@TickedChanges ticked</span>
+                    </div>
+                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Disabled="working" OnClick="UpdateManagersAsync">
+                        @(_pending == Pending.Managers ? "Updating..." : "Update ticked managers")
+                    </MudButton>
+                </div>
+                <p class="orbit-small orbit-muted px-4 pt-3 mt-0 mb-2">
+                    These people are already in Orbit, and the directory names another manager for them who is in Orbit too. Tick the ones to change.
+                    Nobody else is touched: a manager the directory leaves blank, or names but Orbit can't match, never removes one set in Orbit.
+                </p>
+                <div class="orbit-table-wrap" style="max-height:28rem">
+                    <MudSimpleTable Dense="true" Hover="true" Elevation="0" Class="orbit-tasks">
+                        <thead>
+                            <tr>
+                                <th class="orbit-check">
+                                    <input type="checkbox" class="orbit-tick" checked="@(changes.Count > 0 && changes.All(c => _managerTicks.Contains(c.Change.Tick)))"
+                                           @onchange="TickAllChanges" disabled="@(changes.Count == 0)" title="Tick everyone shown" aria-label="Tick all managers" />
+                                </th>
+                                <th>Person</th><th>Manager in Orbit</th><th>Manager in the directory</th><th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var c in changes)
+                            {
+                                var tick = c.Change.Tick;
+                                <ImportManagerRow Change="c.Change" Ticked="_managerTicks.Contains(tick)" TickedChanged="v => TickChange(tick, v)" />
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </div>
+            </MudPaper>
+        }
+
+        @if (p.Unlinked.Count > 0)
+        {
+            <MudPaper Outlined="true" Class="orbit-card orbit-card-warning">
+                <div class="orbit-card-header"><b>Departments that couldn't be linked</b></div>
+                <div class="orbit-card-body">
+                    <p class="orbit-small orbit-muted mt-0">
+                        No Orbit department has these names. Choose one for each, or leave them without a department (which the role must allow).
+                        This applies to this import only; to link them automatically next time, rename the Orbit department to match or <a href="/Admin/Departments/Index">add it</a>.
+                    </p>
+                    <div class="orbit-table-wrap">
+                        <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks">
+                            <thead><tr><th>In the directory</th><th class="text-right">People</th><th style="min-width:16rem">Orbit department</th></tr></thead>
+                            <tbody>
+                                @foreach (var u in p.Unlinked)
+                                {
+                                    var key = u.Key;
+                                    <tr>
+                                        <td>
+                                            @if (u.IsBlank)
+                                            {
+                                                <i>(no department in the directory)</i>
+                                            }
+                                            else
+                                            {
+                                                <span>@u.Value</span>
+                                            }
+                                            @if (u.ArchivedMatch is not null)
+                                            {
+                                                <div class="orbit-sub">Matches the archived department "@u.ArchivedMatch".</div>
+                                            }
+                                        </td>
+                                        <td class="text-right">@u.Count</td>
+                                        <td>
+                                            <MudSelect T="Guid" Value="MappedTo(key)" ValueChanged="v => MapTo(key, v)" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                                       Class="orbit-inline" ToStringFunc="MappingName" aria-label="@MappingLabel(u)">
+                                                <MudSelectItem T="Guid" Value="Guid.Empty">(leave without a department)</MudSelectItem>
+                                                @foreach (var d in _departments)
+                                                {
+                                                    <MudSelectItem T="Guid" Value="d.Id">@d.Name</MudSelectItem>
+                                                }
+                                            </MudSelect>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    </div>
+                </div>
+            </MudPaper>
+        }
+
+        <MudPaper Outlined="true" Class="orbit-card">
+            <div class="orbit-card-header">
+                <div class="orbit-gap-row">
+                    <MudTextField T="string" Value="_userFilter" ValueChanged="UserFilterChanged" Placeholder="Filter by name, email, department..." DebounceInterval="250"
+                                  Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-field-lg" aria-label="Filter the list" />
+                    <span class="orbit-small orbit-muted">@TickedUsers ticked</span>
+                </div>
+                <div class="orbit-gap-row">
+                    <MudSelect T="Guid" @bind-Value="_roleId" Label="Role" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-field-lg" ToStringFunc="RoleText">
+                        @foreach (var r in _roles)
+                        {
+                            <MudSelectItem T="Guid" Value="r.Id" title="@r.Description">@RoleText(r.Id)</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(working || p.ReadyCount == 0)" OnClick="ImportAsync">
+                        @(_pending == Pending.Import ? "Importing..." : "Import ticked")
+                    </MudButton>
+                </div>
+            </div>
+            <div class="orbit-table-wrap">
+                <MudSimpleTable Hover="true" Elevation="0" Class="orbit-tasks">
+                    <thead>
+                        <tr>
+                            <th class="orbit-check">
+                                <input type="checkbox" class="orbit-tick" checked="@(importable.Count > 0 && importable.All(l => _selected.Contains(l.Row.Key)))"
+                                       @onchange="TickAllUsers" disabled="@(importable.Count == 0)" title="Tick everyone shown who can be imported" aria-label="Tick all" />
+                            </th>
+                            <th>Name</th><th>Email</th><th>Account</th><th>Directory department</th><th>Orbit department</th>
+                            @if (p.ManagersRead)
+                            {
+                                <th>Manager in the directory</th>
+                            }
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var line in users)
+                        {
+                            var key = line.Row.Key;
+                            <ImportUserRow Row="line.Row" Ticked="_selected.Contains(key)" TickedChanged="v => TickUser(key, v)"
+                                           ManagersRead="p.ManagersRead" InOrbit="line.InOrbit" />
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+            @if (p.Rows.Count == 0)
+            {
+                <p class="orbit-empty">Nothing under the search base matches the filter.</p>
+            }
+        </MudPaper>
+    }
+}
+
+@code {
+    private enum Pending { Load, Import, Managers }
+
+    /// <summary>A directory entry as the list shows it: the "In Orbit" manager note, and its text for the type-to-filter box.</summary>
+    private sealed record UserLine(DirectoryImportRow Row, string? InOrbit, string Text);
+
+    private sealed record ChangeLine(DirectoryManagerChange Change, string Text);
+
+    private DirectoryImportSetup? _setup;
+    private IReadOnlyList<RolePickerItem> _roles = [];
+    private IReadOnlyList<Department> _departments = [];
+    /// <summary>The Who to list fields. The list itself was read with <see cref="DirectoryImportPreview.Query"/>.</summary>
+    private DirectoryImportQuery _query = new();
+    private DirectoryImportPreview? _preview;
+    private DirectoryImportOutcome? _outcome;
+    private DirectoryManagersOutcome? _managersOutcome;
+    /// <summary>Why the last button was refused, or the directory couldn't be read (the Razor page's validation summary).</summary>
+    private string? _problem;
+    private Guid _roleId;
+    private Pending? _pending;
+    private string? _userFilter, _managerFilter;
+    private IReadOnlyList<UserLine> _lines = [];
+    private IReadOnlyList<ChangeLine> _changes = [];
+
+    /// <summary>The ticked people, by <see cref="DirectoryImportRow.Key"/>.</summary>
+    private readonly HashSet<string> _selected = new(StringComparer.Ordinal);
+    /// <summary>The ticked manager changes, each a <see cref="DirectoryManagerChange.Tick"/>: the person and the manager shown.</summary>
+    private readonly HashSet<string> _managerTicks = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>The department chosen for each unlinked directory value, by its key ("" is "no department in the directory").</summary>
+    private readonly Dictionary<string, Guid?> _map = new(StringComparer.Ordinal);
+
+    protected override async Task OnInitializedAsync() => await Load(async s =>
+    {
+        await LookupsAsync(s);
+        _query = Copy(_setup!.Defaults);
+        _roleId = UserForm.DefaultRole(_roles);
+    });
+
+    /// <summary>What the page shows around the list, read afresh for each button as the Razor page did for each post.</summary>
+    private async Task LookupsAsync(IServiceProvider s)
+    {
+        _setup = await s.Get<DirectoryImportService>().GetSetupAsync();
+        _roles = await s.Get<RoleService>().ListForPickerAsync();
+        _departments = await s.Get<DepartmentService>().ListAsync(false);
+    }
+
+    private async Task LoadOnEnterAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await LoadDirectoryAsync();
+    }
+
+    /// <summary>Load directory users: a fresh list, with nothing ticked or chosen.</summary>
+    private async Task LoadDirectoryAsync()
+    {
+        if (_pending is not null) return;
+        _pending = Pending.Load;
+        var query = Copy(_query);
+        DirectoryImportPreview? preview = null;
+        string? problem = null;
+        var done = await Act(async s =>
+        {
+            await LookupsAsync(s);
+            try
+            {
+                preview = await s.Get<DirectoryImportService>().PreviewAsync(query);
+            }
+            catch (ValidationException ex)
+            {
+                problem = ex.Message;
+            }
+        });
+        if (done)
+        {
+            _selected.Clear();
+            _map.Clear();
+            _managerTicks.Clear();
+            Show(problem, preview, null, null);
+            if (_roleId == Guid.Empty) _roleId = UserForm.DefaultRole(_roles);
+            await ScrollToTopAsync();
+        }
+        _pending = null;
+    }
+
+    private async Task ImportAsync()
+    {
+        var listed = _preview;
+        if (_pending is not null || listed is null) return;
+        if (!await Confirm("Import from directory", "Create Orbit accounts for the ticked people?", "Import")) return;
+        _pending = Pending.Import;
+        var request = new DirectoryImportRequest
+        {
+            Query = Copy(listed.Query),
+            Selected = listed.Rows.Where(r => r.CanImport && _selected.Contains(r.Key)).Select(r => r.Key).ToList(),
+            RoleId = _roleId,
+            Mappings = listed.Unlinked.Select(u => new DirectoryImportMapping(u.Key, _map.GetValueOrDefault(u.Key))).ToList()
+        };
+        DirectoryImportOutcome? outcome = null;
+        DirectoryImportPreview? preview = null;
+        string? problem = null;
+        var done = await Act(async s =>
+        {
+            await LookupsAsync(s);
+            try
+            {
+                outcome = await s.Get<DirectoryImportService>().ImportAsync(request);
+                preview = outcome.Preview;
+            }
+            catch (DirectoryImportRefusedException ex)
+            {
+                // Nothing was created: the list again with the admin's ticks and choices, so they can fix what was refused.
+                problem = ex.Message;
+                preview = ex.Preview;
+            }
+            catch (ValidationException ex)
+            {
+                // The directory couldn't be read, so there is no list to show. It isn't tried a second time.
+                problem = ex.Message;
+            }
+        });
+        if (done)
+        {
+            // The department choices, the role and any manager ticks stay, for the next people ticked.
+            if (outcome is not null) _selected.Clear();
+            _query = Copy(listed.Query);
+            Show(problem, preview, outcome, null);
+            await ScrollToTopAsync();
+        }
+        _pending = null;
+    }
+
+    private async Task UpdateManagersAsync()
+    {
+        var listed = _preview;
+        if (_pending is not null || listed is null) return;
+        if (!await Confirm("Update managers", "Change the manager of the ticked people to the one the directory names?", "Update")) return;
+        _pending = Pending.Managers;
+        var request = new DirectoryManagersRequest
+        {
+            Query = Copy(listed.Query),
+            Selected = listed.ManagerChanges.Where(c => _managerTicks.Contains(c.Tick)).Select(c => c.Tick).ToList()
+        };
+        DirectoryManagersOutcome? outcome = null;
+        DirectoryImportPreview? preview = null;
+        string? problem = null;
+        var done = await Act(async s =>
+        {
+            await LookupsAsync(s);
+            try
+            {
+                outcome = await s.Get<DirectoryImportService>().UpdateManagersAsync(request);
+                preview = outcome.Preview;
+            }
+            catch (DirectoryImportRefusedException ex)
+            {
+                // Nothing was changed: the list again with every tick, so the admin can fix what was refused.
+                problem = ex.Message;
+                preview = ex.Preview;
+            }
+            catch (ValidationException ex)
+            {
+                // The directory couldn't be read, so there is no list to show. It isn't tried a second time.
+                problem = ex.Message;
+            }
+        });
+        if (done)
+        {
+            // The import's ticks, department choices and role stay.
+            if (outcome is not null) _managerTicks.Clear();
+            _query = Copy(listed.Query);
+            Show(problem, preview, null, outcome);
+            if (_roleId == Guid.Empty) _roleId = UserForm.DefaultRole(_roles);
+            await ScrollToTopAsync();
+        }
+        _pending = null;
+    }
+
+    /// <summary>A button's answer: the result card (or the refusal), and the list as it now stands, or none.</summary>
+    private void Show(string? problem, DirectoryImportPreview? preview, DirectoryImportOutcome? outcome, DirectoryManagersOutcome? managersOutcome)
+    {
+        _problem = problem;
+        _outcome = outcome;
+        _managersOutcome = managersOutcome;
+        _userFilter = _managerFilter = null;
+        _preview = preview;
+        _lines = [];
+        _changes = [];
+        if (preview is null) return;
+        _query = Copy(preview.Query);
+        var changing = new Dictionary<Guid, DirectoryManagerChange>();
+        foreach (var c in preview.ManagerChanges) changing.TryAdd(c.UserId, c);
+        _lines = preview.Rows.Select(r => Line(r, changing, preview.ManagersRead)).ToList();
+        _changes = preview.ManagerChanges.Select(c => new ChangeLine(c, ChangeText(c))).ToList();
+    }
+
+    private async Task ScrollToTopAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("scrollTo", 0, 0);
+        }
+        catch (JSException)
+        {
+            // Not worth failing the page over.
+        }
+    }
+
+    private static DirectoryImportQuery Copy(DirectoryImportQuery q) =>
+        new() { Filter = q.Filter, SearchBase = q.SearchBase, DepartmentAttribute = q.DepartmentAttribute };
+
+    // ------------------------------------------------------------------ the list's rows, ticks and filter boxes
+
+    private static UserLine Line(DirectoryImportRow r, IReadOnlyDictionary<Guid, DirectoryManagerChange> changing, bool managersRead)
+    {
+        // For someone already in Orbit: the manager they have there, wherever it isn't the one named here.
+        var inOrbit = !managersRead ? null
+            : r.ExistingUserId is Guid uid && changing.TryGetValue(uid, out var change) ? change.CurrentManagerName ?? "none"
+            : r.Manager.Status != DirectoryManagerStatus.Resolved ? r.OrbitManagerName
+            : null;
+        // What the row shows, which is what the Razor page's type-to-filter matched.
+        var parts = new List<string?>
+        {
+            r.DisplayName, r.Title, r.Email ?? "-", r.Account ?? "-", r.DirectoryDepartment ?? "-",
+            !r.CanImport ? "-" : r.IsLinked ? r.DepartmentName : "Not linked"
+        };
+        if (managersRead)
+        {
+            parts.Add(r.Manager.Name ?? "-");
+            parts.Add(DirectoryImportRules.ManagerNote(r.Manager, r.CanImport));
+            if (inOrbit is not null) parts.Add($"In Orbit: {inOrbit}");
+        }
+        parts.Add(DirectoryImportRules.StatusLabel(r.Status));
+        return new UserLine(r, inOrbit, Text(parts));
+    }
+
+    private static string ChangeText(DirectoryManagerChange c) => Text(
+    [
+        c.DisplayName, c.Email, c.CurrentManagerName ?? "-", c.CurrentManagerInactive ? "(deactivated)" : null, c.ManagerName,
+        c.Kind == ManagerChangeKind.Set ? "Sets a manager" : "Replaces"
+    ]);
+
+    private static string Text(IEnumerable<string?> parts) =>
+        string.Join(" ", parts.Where(p => !string.IsNullOrEmpty(p))).ToLowerInvariant();
+
+    /// <summary>The rows whose text holds every word typed in the box (all of them for none), as the Razor page's filter hid the rest.</summary>
+    private static List<T> Shown<T>(IReadOnlyList<T> lines, string? filter, Func<T, string> text)
+    {
+        var words = (filter ?? string.Empty).ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        return words.Length == 0 ? lines.ToList() : lines.Where(l => words.All(w => text(l).Contains(w, StringComparison.Ordinal))).ToList();
+    }
+
+    private List<UserLine> ShownUsers() => Shown(_lines, _userFilter, l => l.Text);
+
+    private List<ChangeLine> ShownChanges() => Shown(_changes, _managerFilter, c => c.Text);
+
+    private void UserFilterChanged(string? value) => _userFilter = value;
+
+    private void ManagerFilterChanged(string? value) => _managerFilter = value;
+
+    /// <summary>Ticked people who can be imported, hidden by the filter or not: what Import sends.</summary>
+    private int TickedUsers => _lines.Count(l => l.Row.CanImport && _selected.Contains(l.Row.Key));
+
+    private int TickedChanges => _changes.Count(c => _managerTicks.Contains(c.Change.Tick));
+
+    private void TickUser(string key, bool on)
+    {
+        if (on) _selected.Add(key);
+        else _selected.Remove(key);
+    }
+
+    private void TickChange(string tick, bool on)
+    {
+        if (on) _managerTicks.Add(tick);
+        else _managerTicks.Remove(tick);
+    }
+
+    /// <summary>"Tick all": every person shown who can be imported; rows the filter hides are left alone, so all means all shown.</summary>
+    private void TickAllUsers(ChangeEventArgs e)
+    {
+        var keys = ShownUsers().Where(l => l.Row.CanImport).Select(l => l.Row.Key);
+        if (e.Value is true) _selected.UnionWith(keys);
+        else _selected.ExceptWith(keys);
+    }
+
+    private void TickAllChanges(ChangeEventArgs e)
+    {
+        var ticks = ShownChanges().Select(c => c.Change.Tick);
+        if (e.Value is true) _managerTicks.UnionWith(ticks);
+        else _managerTicks.ExceptWith(ticks);
+    }
+
+    private Guid MappedTo(string key) => _map.GetValueOrDefault(key) ?? Guid.Empty;
+
+    private void MapTo(string key, Guid departmentId) => _map[key] = departmentId == Guid.Empty ? null : departmentId;
+
+    private string MappingName(Guid id) =>
+        id == Guid.Empty ? "(leave without a department)" : _departments.FirstOrDefault(d => d.Id == id)?.Name ?? "";
+
+    private static string MappingLabel(UnlinkedDepartment u) =>
+        $"Orbit department for {(u.IsBlank ? "people with no department" : u.Value)}";
+
+    private string RoleText(Guid id) =>
+        _roles.FirstOrDefault(r => r.Id == id) is { } role ? role.Name + (role.RequiresDepartment ? " (needs a department)" : "") : "";
+
+    // ------------------------------------------------------------------ wording
+
+    private static string People(int n) => n == 1 ? "1 person" : $"{n} people";
+
+    private static string ImportHeading(DirectoryImportOutcome o) =>
+        (o.Imported.Count == 0 ? "Nobody was imported" : $"Imported {People(o.Imported.Count)} as {o.RoleName}")
+        + (o.Skipped.Count == 0 ? "" : $", {o.Skipped.Count} skipped");
+
+    private static string ManagersHeading(DirectoryManagersOutcome mo) =>
+        (mo.Updated.Count == 0 ? "No manager was changed" : $"Changed the manager of {People(mo.Updated.Count)}")
+        + (mo.Skipped.Count == 0 ? "" : $", {mo.Skipped.Count} skipped");
+
+    private static string FoundText(DirectoryImportPreview p) =>
+        $"{p.Rows.Count} found" + (p.AgentName is null ? "" : $" by agent \"{p.AgentName}\"");
+
+    private static (string Lead, string Remainder) NoListingAgent(int connected) => connected == 0
+        ? ("No Orbit Agent is connected,", "so there is nothing inside the network to read the directory.")
+        : ($"The connected Orbit Agent{(connected == 1 ? " is" : "s are")} too old to list directory users.",
+           $"Update {(connected == 1 ? "it" : "them")} to version 1.1 or later; sign-in keeps working meanwhile.");
+
+    private static string OldAgentsText(int agents) =>
+        $"The connected Orbit Agent{(agents == 1 ? " is" : "s are")} older than version 1.4, so people are imported without a manager and managers can't be updated from the directory. Everything else on this page works as before.";
+
+    /// <summary>Who an import or an update left out, and why: the same table in both results.</summary>
+    private RenderFragment Skipped(IReadOnlyList<SkippedUser> skipped) => __builder =>
+    {
+        if (skipped.Count > 0)
+        {
+            <details open>
+                <summary class="orbit-small"><b>Skipped</b></summary>
+                <div class="orbit-table-wrap mt-2" style="max-height:24rem">
+                    <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks">
+                        <thead><tr><th>Name</th><th>Email</th><th>Why</th></tr></thead>
+                        <tbody>
+                            @foreach (var u in skipped)
+                            {
+                                <tr><td>@u.DisplayName</td><td>@(u.Email ?? "-")</td><td>@u.Reason</td></tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </div>
+            </details>
+        }
+    };
+}

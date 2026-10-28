@@ -1,0 +1,25 @@
+@* A flow's state (spec §6.20), on the category's list and the flow's page. Archived says it all; otherwise Off and Not set up,
+   either or both. Large beside a page title. *@
+@if (Flow.IsArchived)
+{
+    <MudChip T="string" Size="ChipSize">Archived</MudChip>
+}
+else
+{
+    if (!Flow.IsEnabled)
+    {
+        <MudChip T="string" Size="ChipSize" title="Switched off: not offered until someone switches it on">Off</MudChip>
+    }
+    if (!RequestFlowRules.IsReady(Flow))
+    {
+        <MudChip T="string" Size="ChipSize" Color="Color.Warning" title="A flow is offered once it has at least one step and every step is set up">Not set up</MudChip>
+    }
+}
+
+@code {
+    /// <summary>The flow, with its steps and what they hold loaded (RequestFlowRules.IsReady reads them).</summary>
+    [Parameter, EditorRequired] public RequestFlow Flow { get; set; } = null!;
+    [Parameter] public bool Large { get; set; }
+
+    private Size ChipSize => Large ? Size.Medium : Size.Small;
+}

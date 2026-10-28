@@ -1,0 +1,142 @@
+@page "/Projects"
+@page "/Projects/Index"
+@inherits OrbitListPage
+@* The Projects list (spec §6.1): every project the viewer may see, with progress. A department-scoped viewer also sees other
+   departments' projects that have tasks for their department, marked Shared (§6.2.1). The filters live in the address, in the
+   Razor page's keys, and are remembered for the browser session (OrbitListPage). *@
+
+<PageTitle>Projects - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_actor is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var seesAll = _actor.CanAnywhere(Permission.ProjectsView);
+    var hasShared = !seesAll && _projects.Any(p => p.Project.DepartmentId != _actor.DepartmentId);
+    var showDepartment = seesAll || hasShared;
+
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">Projects <span class="orbit-subtitle">@_projects.Count</span></MudText>
+            @if (hasShared)
+            {
+                <div class="orbit-subtitle">Projects marked <MudChip T="string" Size="Size.Small" Color="Color.Info">Shared</MudChip> are owned by another department but have tasks for yours.</div>
+            }
+        </div>
+        @if (_actor.Has(Permission.ProjectsCreate))
+        {
+            <MudButton Href="/Projects/Create" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">New project</MudButton>
+        }
+    </div>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        <div class="orbit-filters">
+            <MudTextField T="string" Value="Search" ValueChanged="v => GoAsync(nameof(Search), v)" Label="Search" DebounceInterval="500"
+                          Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-filter orbit-filter-wide" />
+            @if (seesAll)
+            {
+                <FilterSelect Label="Department" Value="@DepartmentId" ValueChanged="v => GoAsync(nameof(DepartmentId), v)" Options="_departments" />
+            }
+            <FilterSelect Label="Status" Value="@StatusChoice" ValueChanged="v => GoAsync(StatusKey, v)" Options="StatusOptions" />
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="ResetAsync"
+                       title="Clear the filters - they are remembered for this browser session until you reset them">Reset</MudButton>
+        </div>
+    </MudPaper>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        @if (_projects.Count == 0)
+        {
+            <p class="orbit-empty">No projects.</p>
+        }
+        else
+        {
+            <div class="orbit-table-wrap">
+                <MudSimpleTable Hover="true" Elevation="0" Class="orbit-tasks">
+                    <thead>
+                        <tr>
+                            <th>Project</th>
+                            @if (showDepartment) { <th>Department</th> }
+                            <th>Status</th><th>Owner</th><th>Tasks (open/total)</th><th class="orbit-col-progress">Progress</th><th>Target</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var p in _projects)
+                        {
+                            var project = p.Project;
+                            var shared = !seesAll && project.DepartmentId != _actor.DepartmentId;
+                            <tr @key="project.Id">
+                                <td><span class="orbit-number" title="Project number">@project.Number</span><a href="@($"/Projects/Details/{project.Id}")" class="orbit-title">@project.Name</a></td>
+                                @if (showDepartment)
+                                {
+                                    <td>
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@project.Department.Name</MudChip>
+                                        @if (shared) { <MudChip T="string" Size="Size.Small" Color="Color.Info">Shared</MudChip> }
+                                    </td>
+                                }
+                                <td><MudChip T="string" Size="Size.Small" Color="StatusLook.Project(project.Status)">@project.Status.Label()</MudChip></td>
+                                <td>@project.Owner.DisplayName</td>
+                                <td>@p.OpenTasks / @p.TotalTasks</td>
+                                <td>
+                                    <div class="orbit-gap-row">
+                                        <MudProgressLinear Value="p.PercentDone" Color="Color.Success" Rounded="true" Class="orbit-grow" />
+                                        <span class="orbit-small orbit-muted text-nowrap">@p.DoneTasks/@p.TotalTasks</span>
+                                    </div>
+                                </td>
+                                <td class="text-nowrap">@Ui.Day(project.TargetDate)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        }
+    </MudPaper>
+}
+
+@code {
+    private const string StatusKey = "Status";
+
+    /// <summary>The filter fields remembered for the session (§6.1, §6.2), in the Razor page's keys.</summary>
+    private static readonly string[] RememberedFilters = [nameof(Search), nameof(DepartmentId), StatusKey, nameof(IncludeArchived)];
+
+    protected override string MemoryKey => "projects";
+    protected override IReadOnlyList<string> FilterKeys => RememberedFilters;
+
+    [SupplyParameterFromQuery] public string? Search { get; set; }
+    [SupplyParameterFromQuery] public string? DepartmentId { get; set; }
+    [SupplyParameterFromQuery(Name = StatusKey)] public string? StatusChoice { get; set; }
+    [SupplyParameterFromQuery] public string? IncludeArchived { get; set; }
+    [SupplyParameterFromQuery] public string? Reset { get; set; }
+
+    private static readonly IReadOnlyList<(string Value, string Text)> StatusOptions =
+        [("", "All (not archived)"), .. Enum.GetValues<ProjectStatus>().Select(s => (s.ToString(), s.Label()))];
+
+    private Actor? _actor;
+    private IReadOnlyList<ProjectListItem> _projects = [];
+    private IReadOnlyList<(string Value, string Text)> _departments = [];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (await GoToRememberedAsync(FilterQuery.Flag(Reset))) return;
+        await Load(async s =>
+        {
+            var actor = await s.Get<IActorProvider>().GetAsync();
+            _projects = await s.Get<ProjectService>().ListAsync(new ProjectFilter
+            {
+                Search = Search,
+                DepartmentId = FilterChoice.Id(DepartmentId),
+                Status = FilterQuery.Enum<ProjectStatus>(StatusChoice),
+                IncludeArchived = FilterQuery.Flag(IncludeArchived)
+            });
+            _departments = actor.CanAnywhere(Permission.ProjectsView)
+                ? [("", "All"), .. (await s.Get<DepartmentService>().ListAsync(true)).Select(d => (d.Id.ToString(), d.Name))]
+                : [];
+            _actor = actor;
+        });
+    }
+}

@@ -1,0 +1,25 @@
+@inherits OrbitComponentBase
+@* "Take" on an unassigned task (spec §6.5): assigns it to the current user. *@
+<MudButton Size="Size.Small" Variant="Variant" Color="Color.Primary" Disabled="_busy" OnClick="TakeAsync"
+           title="Unassigned - assign this task to yourself">@Text</MudButton>
+
+@code {
+    [Parameter, EditorRequired] public TaskItem Task { get; set; } = null!;
+    [Parameter] public EventCallback Changed { get; set; }
+    [Parameter] public string Text { get; set; } = "Take";
+    [Parameter] public Variant Variant { get; set; } = Variant.Outlined;
+
+    private bool _busy;
+
+    private async Task TakeAsync()
+    {
+        _busy = true;
+        TaskItem? changed = null;
+        if (await Act(async s => changed = await s.Get<TaskService>().TakeAsync(Task.Id)))
+        {
+            Success(TaskMessages.Taken(changed!));
+            await Changed.InvokeAsync();
+        }
+        _busy = false;
+    }
+}

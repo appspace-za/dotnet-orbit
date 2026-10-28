@@ -1,0 +1,101 @@
+@page "/Admin/Nagios"
+@page "/Admin/Nagios/Index"
+@inherits OrbitComponentBase
+@* Nagios monitoring (spec §6.21, Admin > Nagios): the instances Orbit watches, each with how it last answered, its problems (with a
+   task, watched, held back), its agent - flagged when offline or too old to read Nagios - and the department its tasks go to. *@
+
+<PageTitle>Nagios - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (!Loaded)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">Nagios</MudText>
+            <div class="orbit-subtitle">
+                Orbit watches these Nagios Core instances through an <a href="/Admin/Agents/Index">Orbit Agent</a> inside your network, and raises a
+                task for each host or service that stays down longer than the instance allows. One down event raises one task, and Orbit notes on
+                it when Nagios reports it well again. Orbit only reads Nagios; it changes nothing there.
+            </div>
+        </div>
+        <MudButton Href="/Admin/Nagios/Edit" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">New instance</MudButton>
+    </div>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        @if (_items.Count == 0)
+        {
+            <p class="orbit-empty">No Nagios instances yet.</p>
+        }
+        else
+        {
+            <div class="orbit-table-wrap">
+                <MudSimpleTable Hover="true" Elevation="0" Class="orbit-tasks">
+                    <thead>
+                        <tr><th>Instance</th><th>Last check</th><th>Problems</th><th>Agent</th><th>Tasks go to</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in _items)
+                        {
+                            var n = item.Instance;
+                            <tr @key="n.Id">
+                                <td>
+                                    <a href="@($"/Admin/Nagios/Details/{n.Id}")" class="orbit-title">@n.Name</a>
+                                    <div class="orbit-sub orbit-break">@n.BaseUrl</div>
+                                </td>
+                                <td><NagiosHealth Instance="n" /></td>
+                                <td class="orbit-small">
+                                    @if (item.OpenIncidents == 0)
+                                    {
+                                        <span class="orbit-muted">none</span>
+                                    }
+                                    else
+                                    {
+                                        <span>@item.Raised with a task<span class="orbit-muted"> · @(item.OpenIncidents - item.Raised) watched</span></span>
+                                    }
+                                    @if (n.HeldBack > 0)
+                                    {
+                                        <div class="orbit-warn">@n.HeldBack held back</div>
+                                    }
+                                </td>
+                                <td class="orbit-small">
+                                    @if (n.Agent is null)
+                                    {
+                                        <MudText Typo="Typo.inherit" Color="Color.Error" HtmlTag="span">none chosen</MudText>
+                                    }
+                                    else
+                                    {
+                                        <span class="orbit-gap-row">
+                                            <span>@n.Agent.Name</span>
+                                            @if (!item.AgentOnline)
+                                            {
+                                                <MudChip T="string" Size="Size.Small" Color="Color.Error">Offline</MudChip>
+                                            }
+                                            else if (!item.AgentQueriesNagios)
+                                            {
+                                                <MudChip T="string" Size="Size.Small" Color="Color.Warning" title="Update the agent to version 1.3 or later">Too old</MudChip>
+                                            }
+                                        </span>
+                                    }
+                                </td>
+                                <td class="orbit-small">@n.Department.Name</td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        }
+    </MudPaper>
+}
+
+@code {
+    private IReadOnlyList<NagiosInstanceListItem> _items = [];
+
+    protected override async Task OnParametersSetAsync() => await Load(async s => _items = await s.Get<NagiosService>().ListAsync());
+}

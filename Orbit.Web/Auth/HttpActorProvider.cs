@@ -12,8 +12,14 @@ namespace Orbit.Auth;
 /// database on every request: an API key through the role id in its claims, a cookie user by re-reading the user, their
 /// role and its grants - so a role edit, a department change or a deactivation takes effect on the next request rather
 /// than when the cookie refreshes. A principal whose role can't be resolved gets no grants at all.
+/// <para>
+/// A Blazor operation has no request of its own: it runs in a short-lived scope whose <see cref="ActorPrincipal"/> carries the
+/// circuit's user (<see cref="Orbit.Components.Infrastructure.OrbitRunner"/>), so the actor is still read once per operation.
+/// The circuit's own long-lived scope can't build this provider at all: its database context is refused there
+/// (<see cref="CircuitScopeGuard"/>).
+/// </para>
 /// </summary>
-public sealed class HttpActorProvider(IHttpContextAccessor accessor, ApplicationDbContext db) : IActorProvider
+public sealed class HttpActorProvider(IHttpContextAccessor accessor, ActorPrincipal current, ApplicationDbContext db) : IActorProvider
 {
     private Actor? _cached;
 
@@ -21,7 +27,7 @@ public sealed class HttpActorProvider(IHttpContextAccessor accessor, Application
     {
         if (_cached is not null) return _cached;
 
-        var principal = accessor.HttpContext?.User;
+        var principal = current.User ?? accessor.HttpContext?.User;
         if (principal?.Identity?.IsAuthenticated != true)
             throw new ForbiddenException("Sign in required.");
 

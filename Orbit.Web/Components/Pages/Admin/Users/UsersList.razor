@@ -1,0 +1,90 @@
+@page "/Admin/Users"
+@page "/Admin/Users/Index"
+@inherits OrbitComponentBase
+@* Admin > Users (spec §6.5, §6.13): every account but the system ones, active first, with role, department, manager, sign-in
+   method and status - a locked-out account is flagged, to be unlocked from its page. Self-registration is disabled, so accounts
+   are created here one at a time or imported from the directory (§6.13.1). The list has no filters. *@
+
+<PageTitle>Users - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_users is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">Users</MudText>
+            <div class="orbit-subtitle">Self-registration is disabled; accounts are created here.</div>
+        </div>
+        <div class="orbit-actions">
+            <MudButton Href="/Admin/Users/Import" Variant="Variant.Outlined" Color="Color.Primary"
+                       title="Create accounts for people in your company directory (Active Directory)">Import from directory</MudButton>
+            <MudButton Href="/Admin/Users/Create" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">Create user</MudButton>
+        </div>
+    </div>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        <div class="orbit-table-wrap">
+            <MudSimpleTable Hover="true" Elevation="0" Class="orbit-tasks">
+                <thead>
+                    <tr><th>Name</th><th>Email</th><th>Role</th><th>Department</th><th>Manager</th><th>Status</th><th>Created</th><th></th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var u in _users)
+                    {
+                        // MudSimpleTable sets each row's colour, so a deactivated user is muted cell by cell.
+                        var muted = u.IsActive ? null : "orbit-muted";
+                        <tr @key="u.Id">
+                            <td class="@muted"><strong>@u.DisplayName</strong></td>
+                            <td class="@muted">
+                                <span class="orbit-gap-row">
+                                    <span>@u.Email</span>
+                                    @if (u.AuthSource == AuthSource.Ldap)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Info" title="Signs in with the company directory">LDAP</MudChip>
+                                    }
+                                </span>
+                            </td>
+                            <td><MudChip T="string" Size="Size.Small" Color="RoleLook.Chip(u.Role)">@u.Role.Name</MudChip></td>
+                            <td class="@muted">@(u.DepartmentName ?? "-")</td>
+                            <td class="@muted">@(u.ManagerName ?? "-")</td>
+                            <td>
+                                <span class="orbit-gap-row">
+                                    @if (u.IsActive)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Success">Active</MudChip>
+                                    }
+                                    else
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Secondary">Deactivated</MudChip>
+                                    }
+                                    @if (u.IsLockedOut)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Warning" title="Too many wrong passwords. Unlock from the user's page.">Locked out</MudChip>
+                                    }
+                                </span>
+                            </td>
+                            <td class="@($"text-nowrap {muted}")">@Ui.Day(DateOnly.FromDateTime(u.CreatedAt))</td>
+                            <td class="text-right">
+                                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Href="@($"/Admin/Users/Edit/{u.Id}")">Manage</MudButton>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </div>
+    </MudPaper>
+}
+
+@code {
+    private IReadOnlyList<UserSummary>? _users;
+
+    protected override async Task OnParametersSetAsync() => await Load(async s => _users = await s.Get<UserAdminService>().ListAsync());
+
+}

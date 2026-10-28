@@ -1,0 +1,415 @@
+@page "/Projects/Gantt/{Id:guid}"
+@inherits OrbitComponentBase
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@* The Gantt view of one project (spec §6.16): what §6.15 records, drawn (Helpers/GanttChart), with drag-to-reschedule
+   (orbit.gantt in orbit-interop.js, which calls RescheduleAsync) and the project's last critical path analysis (§6.17) drawn
+   over it, with the button that runs a new one. Its styles are css/gantt.css, the Razor page's, copied. *@
+
+<PageTitle>@(_project is null ? "Gantt" : $"{_project.Name} - Gantt") - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_project is null || _chart is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var p = _project;
+    var g = _chart;
+    var analysis = _analysis;
+    var result = analysis?.Result;
+    var sched = result?.Schedule;
+    <div class="orbit-gantt-page">
+        <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+            <a href="/Projects">Projects</a><span class="orbit-crumb-sep">/</span><a href="@($"/Projects/Details/{p.Id}")">@p.Name</a><span class="orbit-crumb-sep">/</span><span aria-current="page">Gantt</span>
+        </nav>
+
+        <div class="orbit-page-header">
+            <div>
+                <MudText Typo="Typo.h5" HtmlTag="h1">@p.Name <span class="orbit-subtitle">Gantt</span></MudText>
+                <div class="orbit-subtitle">
+                    @g.Rows.Count task(s), @g.DatedCount on the chart · @When(g.From) to @When(g.To)
+                    @if (result is not null && sched is not null && analysis is not null)
+                    {
+                        <text> · </text><span class="gantt-cp">CP</span><text> @result.CriticalTaskCount critical, @result.NearCriticalTaskCount near-critical · planned completion @WhenY(sched.PlannedCompletion)</text>
+                        @if (sched.BufferStatus != BufferStatus.NotAvailable)
+                        {
+                            <text> · buffer </text><MudChip T="string" Size="Size.Small" Color="StatusLook.Buffer(sched.BufferStatus)">@sched.BufferStatus.Label()</MudChip>
+                        }
+                        <text> · analysed @Ui.Ago(analysis.Analysis.RunAt)</text>
+                        @if (analysis.IsStale)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Warning">out of date</MudChip>
+                        }
+                    }
+                    else
+                    {
+                        <text> · no critical path analysis yet</text>
+                    }
+                    <br />Drag a bar to move it, or drag its end to change one date; the change saves at once. Links are edited on each task's page.
+                </div>
+            </div>
+            <div class="orbit-actions">
+                <MudCheckBox T="bool" Value="HideClosedOn" ValueChanged="HideClosedChanged" Label="Hide done and cancelled" Dense="true" Color="Color.Primary" />
+                @if (_canRunAnalysis)
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="RunAnalysisAsync"
+                               title="Validate the plan, find the critical and near-critical tasks and measure the project buffer. Nothing is rescheduled.">Run critical path analysis</MudButton>
+                }
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@($"/Projects/Details/{p.Id}")">Back to project</MudButton>
+            </div>
+        </div>
+
+        @if (analysis is not null && analysis.IsStale)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">
+                <div class="orbit-list-row">
+                    <div>
+                        <b>Critical path analysis out of date.</b>
+                        The project schedule - dates, dependencies, target date, buffer or the working calendar - has changed since it was analysed on @Ui.When(analysis.Analysis.RunAt). The chart still shows that analysis.
+                    </div>
+                    @if (_canRunAnalysis)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Warning" Disabled="_busy" OnClick="RunAnalysisAsync">Run analysis again</MudButton>
+                    }
+                </div>
+            </MudAlert>
+        }
+
+        <div class="gantt-legend orbit-small orbit-muted orbit-gap-row orbit-gap-lg mb-2">
+            <span><span class="gantt-swatch status-todo"></span> To do</span>
+            <span><span class="gantt-swatch status-inprogress"></span> In progress</span>
+            <span><span class="gantt-swatch status-waiting"></span> Waiting</span>
+            <span><span class="gantt-swatch status-blocked"></span> Blocked</span>
+            <span><span class="gantt-swatch status-done"></span> Done</span>
+            <span><span class="gantt-swatch status-cancelled"></span> Cancelled</span>
+            <span><span class="gantt-swatch gantt-swatch-milestone status-todo"></span> Due date only</span>
+            <span><span class="gantt-swatch gantt-swatch-summary"></span> Span of subtasks</span>
+            <span><span class="gantt-swatch gantt-swatch-overdue"></span> Overdue edge</span>
+            <span><span class="gantt-swatch gantt-swatch-critical"></span> Critical path</span>
+            <span><span class="gantt-swatch gantt-swatch-near-critical"></span> Near-critical</span>
+            <span><span class="gantt-swatch gantt-swatch-arrow"></span> Dependency</span>
+            <span><span class="gantt-swatch gantt-swatch-arrow-critical"></span> Driving link</span>
+            <span><span class="gantt-swatch gantt-swatch-conflict"></span> Dates conflict</span>
+            <span><span class="gantt-swatch gantt-swatch-today"></span> Today</span>
+            <span><span class="gantt-swatch gantt-swatch-nonworking"></span> Non-working day</span>
+            <span><span class="gantt-swatch gantt-swatch-holiday"></span> Holiday / shutdown</span>
+            @if (g.Overlay is not null)
+            {
+                <span><span class="gantt-swatch gantt-swatch-line-completion"></span> Planned completion</span>
+                <span><span class="gantt-swatch gantt-swatch-line-target"></span> Target date</span>
+                <span><span class="gantt-swatch gantt-swatch-buffer"></span> Project buffer</span>
+            }
+        </div>
+
+        @if (g.Rows.Count == 0)
+        {
+            <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-muted">No tasks to show@(HideClosedOn ? " - every task on this project is closed" : "").</MudPaper>
+        }
+        else
+        {
+            <div class="gantt">
+                <div class="gantt-labels">
+                    <div class="gantt-head orbit-small orbit-muted">Task</div>
+                    @foreach (var r in g.Rows)
+                    {
+                        var t = r.Task;
+                        var dates = r.Bar is not null ? $"{When(r.Bar.Start)} → {When(r.Bar.End)}"
+                            : r.Milestone is not null ? $"due {When(r.Milestone.Start)}"
+                            : "unscheduled";
+                        <div class="gantt-label" style="padding-left:@(8 + r.Depth * 18)px" title="@t.Title" @key="t.Id">
+                            <div class="orbit-gantt-label-text">
+                                <div class="orbit-ellipsis">
+                                    @if (r.ChildCount > 0)
+                                    {
+                                        <span class="orbit-muted" title="@($"{r.ChildCount} subtask(s)")">▸ </span>
+                                    }
+                                    @if (AccessPolicy.CanViewTask(_actor!, t))
+                                    {
+                                        <span class="orbit-number" title="Task number">@t.Number</span>
+                                        <a href="@($"/Tasks/Details/{t.Id}")" class="orbit-title">@t.Title</a>
+                                    }
+                                    else
+                                    {
+                                        <b>@t.Title</b>
+                                    }
+                                </div>
+                                <div class="orbit-muted gantt-sub orbit-ellipsis">@dates@(t.IsUnassigned ? "" : $" · {t.AssigneeNames}")@(_isCrossDepartment ? $" · {t.Department.Name}" : "")</div>
+                            </div>
+                            @if (r.Critical)
+                            {
+                                <span class="gantt-cp" title="On the critical path">CP</span>
+                            }
+                            else if (r.NearCritical)
+                            {
+                                <span class="gantt-nc" title="Near-critical: within the near-critical threshold of float">NC</span>
+                            }
+                            <MudChip T="string" Size="Size.Small" Color="TaskLook.Status(t.Status)">@t.Status.Label()</MudChip>
+                        </div>
+                    }
+                </div>
+                <div class="gantt-timeline">
+                    <div class="gantt-canvas" @ref="_canvas" style="width:@(g.Width)px;height:@(g.Height)px">
+                        @foreach (var m in g.Months)
+                        {
+                            <div class="gantt-month" style="left:@(m.Left)px;width:@(m.Width)px">@m.Label</div>
+                        }
+                        @foreach (var d in g.Days)
+                        {
+                            if (d.NonWorking)
+                            {
+                                var dayTitle = d.ExceptionName is null ? $"{d.Date:ddd d MMM yyyy} - non-working day" : $"{d.ExceptionName} - {d.Date:ddd d MMM yyyy}, non-working";
+                                <div class="gantt-nonworking @(d.ExceptionName is null ? "" : "gantt-holiday")" style="left:@(d.Left)px;width:@(g.PxPerDay)px" title="@dayTitle"></div>
+                            }
+                            else if (d.ExceptionName is not null)
+                            {
+                                <div class="gantt-workday-exception" style="left:@(d.Left)px;width:@(g.PxPerDay)px" title="@($"{d.ExceptionName} - {d.Date:ddd d MMM yyyy}, exceptional working day")"></div>
+                            }
+                            if (g.ShowDayNumbers)
+                            {
+                                <div class="gantt-day" style="left:@(d.Left)px;width:@(g.PxPerDay)px" title="@d.Date.ToString("ddd d MMM yyyy")">@d.Date.Day</div>
+                            }
+                            else if (g.ShowWeekMarks && d.WeekStart)
+                            {
+                                <div class="gantt-day" style="left:@(d.Left)px;width:@(g.PxPerDay * 7)px" title="@($"Week of {d.Date:d MMM yyyy}")">@d.Date.Day</div>
+                            }
+                            if (g.ShowDayNumbers || d.WeekStart)
+                            {
+                                <div class="gantt-grid" style="left:@(d.Left)px"></div>
+                            }
+                        }
+                        @foreach (var r in g.Rows)
+                        {
+                            <div class="gantt-row" style="top:@(r.Y)px"></div>
+                        }
+                        @if (g.Overlay is { } ov)
+                        {
+                            if (ov.InternalCompletion is DateOnly ic && ov.TargetDate is DateOnly tg && tg > ic && tg >= g.From && ic <= g.To)
+                            {
+                                <div class="gantt-buffer" style="left:@(g.EndX(ic))px;width:@(g.EndX(tg) - g.EndX(ic))px" title="@($"Project buffer: after {When(ic)} up to the target, {When(tg)}")"></div>
+                            }
+                            if (ov.PlannedCompletion is DateOnly pc && pc >= g.From && pc <= g.To)
+                            {
+                                <div class="gantt-line gantt-line-completion" style="left:@(g.EndX(pc))px" title="@($"Planned completion {WhenY(pc)}")"></div>
+                                <div class="gantt-line-label gantt-line-label-left" style="left:@(g.EndX(pc))px">Planned completion @When(pc)</div>
+                            }
+                            if (ov.TargetDate is DateOnly td && td >= g.From && td <= g.To)
+                            {
+                                <div class="gantt-line gantt-line-target" style="left:@(g.EndX(td))px" title="@($"Target date {WhenY(td)}")"></div>
+                                <div class="gantt-line-label" style="left:@(g.EndX(td))px">Target @When(td)</div>
+                            }
+                        }
+                        @if (g.TodayVisible)
+                        {
+                            <div class="gantt-today" style="left:@(g.TodayX)px" title="@($"Today, {When(g.Today)}")"></div>
+                        }
+                        @foreach (var r in g.Rows)
+                        {
+                            var t = r.Task;
+                            var overdue = r.Overdue ? ", overdue" : "";
+                            var critical = r.Critical ? ", on the critical path" : r.NearCritical ? ", near-critical" : "";
+                            var cpClass = r.Critical ? "gantt-critical" : r.NearCritical ? "gantt-near-critical" : "";
+                            var canEdit = AccessPolicy.CanEditTask(_actor!, t);
+                            var hint = canEdit ? " - drag to reschedule" : "";
+                            if (r.Summary is not null)
+                            {
+                                <div class="gantt-summary" style="left:@(r.Summary.Left)px;top:@(r.Y + GanttChart.SummaryTop)px;width:@(r.Summary.Width)px"
+                                     title="@($"Subtasks of {t.Title}: {When(r.Summary.Start)} to {When(r.Summary.End)}")"></div>
+                            }
+                            if (r.Bar is not null)
+                            {
+                                <div class="gantt-bar @r.StatusClass @(r.Overdue ? "gantt-overdue" : "") @cpClass @(canEdit ? "gantt-editable" : "")"
+                                     style="left:@(r.Bar.Left)px;top:@(r.Y + GanttChart.BarTop)px;width:@(r.Bar.Width)px"
+                                     data-task="@t.Id" data-start="@Iso(t.StartDate)" data-end="@Iso(t.DueDate)" data-editable="@(canEdit ? "true" : null)"
+                                     title="@($"{t.Title}: {When(r.Bar.Start)} to {When(r.Bar.End)} ({t.Status.Label()}{overdue}{critical}){hint}")"></div>
+                            }
+                            else if (r.Milestone is not null)
+                            {
+                                <div class="gantt-milestone @r.StatusClass @(r.Overdue ? "gantt-overdue" : "") @cpClass @(canEdit ? "gantt-editable" : "")"
+                                     style="left:@(r.Milestone.Left + g.PxPerDay / 2 - GanttChart.MilestoneSize / 2)px;top:@(r.Y + GanttChart.BarTop + 1)px"
+                                     data-task="@t.Id" data-start="@Iso(t.StartDate)" data-end="@Iso(t.DueDate)" data-editable="@(canEdit ? "true" : null)"
+                                     title="@($"{t.Title}: due {When(r.Milestone.Start)} ({t.Status.Label()}{overdue}{critical}){hint}")"></div>
+                            }
+                        }
+                        <svg class="gantt-arrows" width="@g.Width" height="@g.Height" aria-hidden="true">
+                            <defs>
+                                <marker id="gantt-head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                                    <path class="gantt-arrowhead" d="M0,0 L10,5 L0,10 z" />
+                                </marker>
+                                <marker id="gantt-head-critical" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                                    <path class="gantt-arrowhead gantt-arrowhead-critical" d="M0,0 L10,5 L0,10 z" />
+                                </marker>
+                                <marker id="gantt-head-conflict" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                                    <path class="gantt-arrowhead gantt-arrowhead-conflict" d="M0,0 L10,5 L0,10 z" />
+                                </marker>
+                            </defs>
+                            @foreach (var a in g.Arrows)
+                            {
+                                var head = a.Conflict ? "gantt-head-conflict" : a.Critical ? "gantt-head-critical" : "gantt-head";
+                                <path class="gantt-arrow @(a.Critical ? "gantt-arrow-critical" : "") @(a.Conflict ? "gantt-arrow-conflict" : "")" d="@a.Path" marker-end="@($"url(#{head})")"><title>@a.Title</title></path>
+                            }
+                        </svg>
+                        <div class="gantt-drag-label" @ref="_dragLabel" hidden></div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (g.Rows.Count > 0 && g.DatedCount == 0)
+        {
+            <p class="orbit-muted orbit-small mt-2">Nothing is on the chart yet: give tasks a start and/or due date to place them.</p>
+        }
+        @if (g.UndrawnLinks.Count > 0)
+        {
+            <div class="orbit-small orbit-muted mt-2">
+                <b>Not drawn</b> (a task has no dates):
+                @foreach (var l in g.UndrawnLinks)
+                {
+                    <span class="mr-2">"@l.Successor.Title" waits on "@l.Predecessor.Title" (@l.Type.Code())</span>
+                }
+            </div>
+        }
+
+        <CriticalPathPanel Analysis="analysis" TasksById="_tasksById" CanRun="_canRunAnalysis" Busy="_busy" Run="RunAnalysisAsync" />
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    [SupplyParameterFromQuery] public string? HideClosed { get; set; }
+
+    private Actor? _actor;
+    private Project? _project;
+    private GanttChart? _chart;
+    private CriticalPathView? _analysis;
+    private IReadOnlyDictionary<Guid, TaskItem> _tasksById = new Dictionary<Guid, TaskItem>();
+    /// <summary>Show each row's department when tasks from more than one department are filed under the project (§6.2.1).</summary>
+    private bool _isCrossDepartment, _canRunAnalysis, _busy;
+    private ElementReference _canvas, _dragLabel;
+    private IJSObjectReference? _drag;
+    private DotNetObjectReference<ProjectGantt>? _self;
+    private bool _attaching, _disposed;
+
+    private bool HideClosedOn => FilterQuery.Flag(HideClosed);
+
+    private static string When(DateOnly d) => d.ToString("d MMM");
+    private static string WhenY(DateOnly? d) => d?.ToString("d MMM yyyy") ?? "-";
+    private static string Iso(DateOnly? d) => d?.ToString("yyyy-MM-dd") ?? string.Empty;
+
+    protected override Task OnParametersSetAsync() => ReloadAsync();
+
+    private async Task ReloadAsync() => await Load(async s =>
+    {
+        var actor = await s.Get<IActorProvider>().GetAsync();
+        var project = await s.Get<ProjectService>().GetAsync(Id); // enforces who may see the project
+        var links = await s.Get<TaskStructureService>().ListForProjectAsync(Id);
+        var analysis = await s.Get<CriticalPathService>().GetLatestAsync(Id);
+        var overlay = analysis is null ? null : new GanttOverlay(
+            analysis.Result.CriticalIds, analysis.Result.NearCriticalIds, analysis.Result.DrivingLinkIds.ToHashSet(),
+            analysis.Result.Schedule.PlannedCompletion, analysis.Result.Schedule.TargetDate, analysis.Result.Schedule.InternalCompletion);
+        _chart = GanttChart.Build(project.Tasks, links, DateOnly.FromDateTime(DateTime.UtcNow), HideClosedOn, overlay,
+            await s.Get<WorkingCalendarService>().BuildAsync());
+        _isCrossDepartment = project.Tasks.Any(t => t.DepartmentId != project.DepartmentId);
+        _tasksById = project.Tasks.ToDictionary(t => t.Id);
+        _canRunAnalysis = AccessPolicy.CanRunCriticalPath(actor, project);
+        _analysis = analysis;
+        _actor = actor;
+        _project = project;
+    });
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // The drag script works on the canvas while there is one; the canvas comes and goes with the rows (Hide closed). Renders
+        // don't wait for this one, so _attaching keeps a render that comes while the script call is out from attaching a second
+        // time - which would make every drag reschedule twice.
+        var hasCanvas = _chart is { Rows.Count: > 0 };
+        if (hasCanvas && _drag is null && !_attaching)
+        {
+            _attaching = true;
+            try
+            {
+                _self ??= DotNetObjectReference.Create(this);
+                var drag = await JS.InvokeAsync<IJSObjectReference>("orbit.gantt.attach", _canvas, _dragLabel, _chart!.PxPerDay, _self);
+                // The page went, or the rows did, while the call was out.
+                if (_disposed || _chart is not { Rows.Count: > 0 }) await DetachAsync(drag);
+                else _drag = drag;
+            }
+            finally
+            {
+                _attaching = false;
+            }
+        }
+        else if (!hasCanvas && _drag is not null)
+        {
+            var drag = _drag;
+            _drag = null;
+            await DetachAsync(drag);
+        }
+    }
+
+    /// <summary>
+    /// Drag-to-reschedule (§6.16): the dragged task's new planned dates. Only that task moves - successors are never shifted - and
+    /// the same rights, validation and audit apply as on the task form. False tells the script to put the bar back.
+    /// </summary>
+    [JSInvokable]
+    public async Task<bool> RescheduleAsync(string taskId, string? startDate, string? dueDate)
+    {
+        if (!Guid.TryParse(taskId, out var id)) return false;
+        TaskItem? task = null;
+        var ok = await Act(async s => task = await s.Get<TaskService>().ChangeDatesAsync(id, FilterQuery.Date(startDate), FilterQuery.Date(dueDate)));
+        if (ok)
+        {
+            var when = task!.StartDate is DateOnly st && task.DueDate is DateOnly du ? $"{st:d MMM} to {du:d MMM}"
+                : task.DueDate is DateOnly due ? $"due {due:d MMM}"
+                : task.StartDate is DateOnly start ? $"starts {start:d MMM}"
+                : "no dates";
+            Success($"\"{Ui.Truncate(task.Title, 40)}\" rescheduled: {when}.");
+            await ReloadAsync();
+        }
+        StateHasChanged();
+        return ok;
+    }
+
+    /// <summary>Run Critical Path Analysis (§6.17): a deliberate action, never automatic. A blocked run stores nothing and says why.</summary>
+    private async Task RunAnalysisAsync()
+    {
+        _busy = true;
+        CriticalPathResult? result = null;
+        if (await Act(async s => result = await s.Get<CriticalPathService>().RunAsync(Id)))
+        {
+            if (result!.Blocked) Error(CriticalPathText.Blocked(result));
+            else Success(CriticalPathText.Describe(result));
+            await ReloadAsync();
+        }
+        _busy = false;
+    }
+
+    private void HideClosedChanged(bool hide) =>
+        Nav.NavigateTo(Nav.GetUriWithQueryParameter(nameof(HideClosed), hide ? "true" : null));
+
+    private static async Task DetachAsync(IJSObjectReference? drag)
+    {
+        if (drag is null) return;
+        try
+        {
+            await drag.InvokeVoidAsync("dispose");
+            await drag.DisposeAsync();
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        var drag = _drag;
+        _drag = null;
+        await DetachAsync(drag);
+        _self?.Dispose();
+    }
+}

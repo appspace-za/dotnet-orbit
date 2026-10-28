@@ -1,0 +1,176 @@
+@inherits OrbitComponentBase
+@* An asset type's properties (spec §6.19): the extra fields every asset of the type carries, in display order. Each is renamed,
+   retyped, made required or given its Choice options in place, moved up or down, or deleted with the values assets hold for it,
+   after a confirmation that says how many. The service refuses a change of type while any asset has a value for the property,
+   and the removal of a Choice option an asset holds. Every change reloads the type (Changed), so as on the Razor page, edits not
+   yet saved in the other rows are dropped. *@
+<MudPaper Outlined="true" Class="orbit-card">
+    <div class="orbit-card-header"><span><b>Properties</b> <span class="orbit-muted">(@Properties.Count)</span></span></div>
+    <div class="orbit-card-body">
+        <p class="orbit-help mt-0 mb-3">
+            Extra fields every asset of this type carries, in this order. A property's type can change only while no asset has a value for it,
+            and a Choice option only be removed while no asset holds it.
+        </p>
+        @for (var i = 0; i < _drafts.Count; i++)
+        {
+            var d = _drafts[i];
+            var first = i == 0;
+            var last = i == _drafts.Count - 1;
+            <MudPaper @key="d.Id" Outlined="true" Class="pa-2 mb-2">
+                @Fields(d)
+                <div class="orbit-list-row mt-2">
+                    <div class="orbit-gap-row">
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Disabled="_busy" OnClick="() => SaveAsync(d)">Save</MudButton>
+                        <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small" Variant="Variant.Outlined" Disabled="@(_busy || first)"
+                                       OnClick="() => MoveAsync(d, -1)" title="Move up" aria-label="Move up" />
+                        <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small" Variant="Variant.Outlined" Disabled="@(_busy || last)"
+                                       OnClick="() => MoveAsync(d, 1)" title="Move down" aria-label="Move down" />
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="() => DeleteAsync(d)">Delete</MudButton>
+                    </div>
+                    <span class="orbit-small orbit-muted">@(d.ValueCount == 0 ? "No values yet" : $"{d.ValueCount} {(d.ValueCount == 1 ? "asset has" : "assets have")} a value")</span>
+                </div>
+            </MudPaper>
+        }
+
+        <MudText Typo="Typo.subtitle2" HtmlTag="h2" Class="mt-3 mb-1">Add a property</MudText>
+        <MudPaper Outlined="true" Class="pa-2">
+            @Fields(_new, add: true)
+        </MudPaper>
+    </div>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public Guid TypeId { get; set; }
+    /// <summary>The type's properties in display order. Only a new list (the page reloaded the type) replaces the rows being edited.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<AssetTypeProperty> Properties { get; set; } = [];
+    /// <summary>How many assets hold a value for each property; the delete confirmation says so (§6.19).</summary>
+    [Parameter, EditorRequired] public IReadOnlyDictionary<Guid, int> ValueCounts { get; set; } = new Dictionary<Guid, int>();
+    /// <summary>Raised after a property was added, saved, moved or deleted, for the page to reload the type.</summary>
+    [Parameter] public EventCallback Changed { get; set; }
+
+    private IReadOnlyList<AssetTypeProperty>? _shown;
+    private List<PropertyDraft> _drafts = [];
+    private PropertyDraft _new = new();
+    private bool _busy;
+
+    protected override void OnParametersSet()
+    {
+        // The page re-renders this card whenever its own state changes (a busy flag, the type's fields); rebuilding the rows then
+        // would throw away what is being typed in them.
+        if (ReferenceEquals(Properties, _shown)) return;
+        _shown = Properties;
+        _drafts = Properties.Select(p => PropertyDraft.From(p, ValueCounts.GetValueOrDefault(p.Id))).ToList();
+    }
+
+    /// <summary>A property's name, type, required flag and, for a Choice, its options; <paramref name="add"/> is the new property's row.</summary>
+    private RenderFragment Fields(PropertyDraft d, bool add = false) => __builder =>
+    {
+        <div class="orbit-form-row">
+            <MudTextField T="string" @bind-Value="d.Name" Label="Name" Placeholder="@(add ? "e.g. RAM (GB)" : null)" MaxLength="100"
+                          Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-field-grow" />
+            <MudSelect T="AssetPropertyType" @bind-Value="d.PropertyType" Label="Type" ToStringFunc="@(pt => pt.Label())"
+                       Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Class="orbit-field-sm">
+                @foreach (var type in Enum.GetValues<AssetPropertyType>())
+                {
+                    <MudSelectItem T="AssetPropertyType" Value="type">@type.Label()</MudSelectItem>
+                }
+            </MudSelect>
+            <MudCheckBox T="bool" @bind-Value="d.IsRequired" Label="Required" Dense="true" Color="Color.Primary" />
+            @if (add)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="AddAsync">Add</MudButton>
+            }
+        </div>
+        @if (d.PropertyType == AssetPropertyType.Choice)
+        {
+            <MudTextField T="string" @bind-Value="d.Options" Label="Options, one per line" Placeholder="@(add ? "Windows\nLinux\nmacOS" : null)" Lines="3"
+                          Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-2" />
+        }
+    };
+
+    private async Task AddAsync()
+    {
+        _busy = true;
+        var input = _new.ToInput();
+        AssetTypeProperty? added = null;
+        if (await Act(async s => added = await s.Get<AssetTypeService>().AddPropertyAsync(TypeId, input)))
+        {
+            Success($"Property \"{added!.Name}\" added.");
+            _new = new PropertyDraft();
+            await Changed.InvokeAsync();
+        }
+        _busy = false;
+    }
+
+    private async Task SaveAsync(PropertyDraft d)
+    {
+        _busy = true;
+        var input = d.ToInput();
+        AssetTypeProperty? saved = null;
+        if (await Act(async s => saved = await s.Get<AssetTypeService>().UpdatePropertyAsync(TypeId, d.Id, input)))
+        {
+            Success($"Property \"{saved!.Name}\" saved.");
+            await Changed.InvokeAsync();
+        }
+        _busy = false;
+    }
+
+    /// <summary>Moves a property one place up (-1) or down (+1); the Razor page said nothing either, the new order shows it.</summary>
+    private async Task MoveAsync(PropertyDraft d, int direction)
+    {
+        _busy = true;
+        if (await Act(s => s.Get<AssetTypeService>().MovePropertyAsync(TypeId, d.Id, direction))) await Changed.InvokeAsync();
+        _busy = false;
+    }
+
+    /// <summary>Deletes a property and, with it, the values assets hold for it - never without saying how many (§6.19).</summary>
+    private async Task DeleteAsync(PropertyDraft d)
+    {
+        var count = d.ValueCount;
+        var message = count == 0
+            ? $"Delete the property \"{d.SavedName}\"?"
+            : $"Delete the property \"{d.SavedName}\"? {count} {(count == 1 ? "asset has" : "assets have")} a value for it, and those values are deleted too.";
+        if (!await Confirm("Delete property", message)) return;
+        _busy = true;
+        var values = 0;
+        if (await Act(async s => values = await s.Get<AssetTypeService>().DeletePropertyAsync(TypeId, d.Id)))
+        {
+            Success(values == 0 ? "Property deleted." : $"Property deleted, with the values {values} {(values == 1 ? "asset" : "assets")} held for it.");
+            await Changed.InvokeAsync();
+        }
+        _busy = false;
+    }
+
+    /// <summary>One property as typed on the page. <see cref="SavedName"/> is its stored name, which the delete confirmation uses.</summary>
+    private sealed class PropertyDraft
+    {
+        /// <summary>Empty for the property being added.</summary>
+        public Guid Id { get; init; }
+        public string SavedName { get; init; } = string.Empty;
+        public int ValueCount { get; init; }
+        public string? Name { get; set; }
+        public AssetPropertyType PropertyType { get; set; } = AssetPropertyType.Text;
+        public bool IsRequired { get; set; }
+        /// <summary>A Choice property's options, one per line. Kept while another type is chosen; the service ignores them then.</summary>
+        public string? Options { get; set; }
+
+        public static PropertyDraft From(AssetTypeProperty p, int valueCount) => new()
+        {
+            Id = p.Id,
+            SavedName = p.Name,
+            ValueCount = valueCount,
+            Name = p.Name,
+            PropertyType = p.PropertyType,
+            IsRequired = p.IsRequired,
+            Options = string.Join("\n", p.Options)
+        };
+
+        public AssetPropertyInput ToInput() => new()
+        {
+            Name = Name ?? string.Empty,
+            PropertyType = PropertyType,
+            IsRequired = IsRequired,
+            Options = (Options ?? string.Empty).Split('\n').Select(o => o.Trim()).Where(o => o.Length > 0).ToList()
+        };
+    }
+}

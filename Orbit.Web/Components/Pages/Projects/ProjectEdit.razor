@@ -1,0 +1,8 @@
+@page "/Projects/Edit/{Id:guid}"
+@* Editing a project (spec §6.1). There is no page door: the service checks the right to edit this project. *@
+<PageTitle>Edit project - Orbit</PageTitle>
+<ProjectEditor ProjectId="Id" />
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+}

@@ -1,0 +1,271 @@
+@* Project status (spec §12): every project open or active in the period, closed ones included, with its status over the period,
+   tasks, time, estimate and schedule. "People and tasks" opens a project's people and tasks beneath its row (the Razor page's
+   Bootstrap collapse). *@
+
+@if (Report.Rows.Count == 0)
+{
+    <p class="orbit-empty">No projects in the selected period.</p>
+}
+else
+{
+    <div class="orbit-list-item orbit-small">@ReportText.StatusCounts(Report)</div>
+    <div class="orbit-table-wrap">
+        <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks orbit-report">
+            <thead>
+                <tr>
+                    <th>Project</th>
+                    <th title="The status at the end of the period, and any changes during it">Status</th>
+                    <th style="width:10%">Progress</th>
+                    <th class="text-right" title="Open tasks now">Open</th>
+                    <th class="text-right" title="Tasks created in the period">Created</th>
+                    <th class="text-right" title="Tasks set to Done in the period">Done</th>
+                    <th class="text-right" title="Time logged in the period, and all time logged to date">Logged</th>
+                    <th class="text-right" title="The estimates of the project's tasks that have one (cancelled tasks aside)">Estimated</th>
+                    <th class="text-right" title="All time logged on the estimated tasks to date, against their estimates">Variance</th>
+                    <th class="ps-6" title="Target date, and the project buffer at the latest critical path analysis">Schedule</th>
+                </tr>
+            </thead>
+            <tbody>
+                @for (var i = 0; i < Report.Rows.Count; i++)
+                {
+                    var r = Report.Rows[i];
+                    var p = r.Project;
+                    var t = r.Tasks;
+                    var index = i;
+                    var expandable = r.People.Count > 0 || r.TaskRows.Count > 0;
+                    var open = expandable && _open.Contains(index);
+                    <tr>
+                        <td>
+                            <span class="orbit-number">@p.Number</span><a href="@($"/Projects/Details/{p.Id}")" class="orbit-title">@p.Name</a>
+                            <div class="orbit-sub">@p.DepartmentName · @(p.OwnerName)@(r.CreatedInPeriod ? $" · created {p.CreatedAt:yyyy-MM-dd}" : "")</div>
+                            @if (expandable)
+                            {
+                                <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" OnClick="() => Toggle(index)"
+                                           EndIcon="@(open ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                                           aria-expanded="@(open ? "true" : "false")">People and tasks</MudButton>
+                            }
+                        </td>
+                        <td>
+                            <MudChip T="string" Size="Size.Small" Color="StatusLook.Project(r.Status.AtEnd)">@r.Status.AtEnd.Label()</MudChip>
+                            @foreach (var c in r.Status.Changes)
+                            {
+                                <div class="orbit-sub text-nowrap">@ReportText.Change(c)</div>
+                            }
+                            @if (r.Status.Current != r.Status.AtEnd)
+                            {
+                                <div class="orbit-sub">now @r.Status.Current.Label()</div>
+                            }
+                        </td>
+                        <td>
+                            <div class="orbit-small">@ReportText.Progress(t)</div>
+                            @if (t.Total > 0)
+                            {
+                                <MudProgressLinear Value="t.PercentDone" Color="Color.Success" Rounded="true" title="@($"{t.PercentDone}% done")" />
+                            }
+                        </td>
+                        <td class="text-right">
+                            @t.Open
+                            @if (t.Overdue > 0)
+                            {
+                                <div class="orbit-sub mud-error-text">@t.Overdue overdue</div>
+                            }
+                            @if (t.Blocked > 0)
+                            {
+                                <div class="orbit-sub mud-error-text">@t.Blocked blocked</div>
+                            }
+                        </td>
+                        <td class="text-right">@t.CreatedInPeriod</td>
+                        <td class="text-right">@t.DoneInPeriod</td>
+                        <td class="text-right">
+                            <b>@TimeFormat.Minutes(r.LoggedInPeriodMinutes)</b>
+                            <div class="orbit-sub text-nowrap">@TimeFormat.Minutes(r.LoggedToDateMinutes) to date</div>
+                        </td>
+                        <td class="text-right">@ReportText.Estimated(r.Estimate)</td>
+                        <td class="text-right">
+                            <span class="@ReportText.VarianceClass(r.Estimate.VarianceMinutes)">@ReportText.Variance(r.Estimate)</span>
+                            @if (r.Estimate.OverTasks > 0)
+                            {
+                                <div class="orbit-sub">@r.Estimate.OverTasks over estimate</div>
+                            }
+                        </td>
+                        <td class="ps-6">
+                            @if (p.TargetDate is DateOnly target)
+                            {
+                                @if (r.IsPastTarget)
+                                {
+                                    <b class="mud-error-text" title="Target date">@ReportText.Date(target)</b>
+                                    <div class="orbit-sub mud-error-text">past target</div>
+                                }
+                                else
+                                {
+                                    <span title="Target date">@ReportText.Date(target)</span>
+                                }
+                            }
+                            else
+                            {
+                                <span class="orbit-muted">No target</span>
+                            }
+                            @if (r.Schedule is { } s)
+                            {
+                                <div>
+                                    <MudChip T="string" Size="Size.Small" Color="StatusLook.Buffer(s.BufferStatus)"
+                                             title="@($"Project buffer at the critical path analysis of {s.RunAt:yyyy-MM-dd}")">Buffer @s.BufferStatus.Label()</MudChip>
+                                </div>
+                                @if (s.PlannedCompletion is DateOnly planned)
+                                {
+                                    <div class="orbit-sub text-nowrap">planned @ReportText.Date(planned)</div>
+                                }
+                                @if (s.IsStale)
+                                {
+                                    <div class="orbit-sub" title="The schedule has changed since the analysis was run">analysis out of date</div>
+                                }
+                            }
+                        </td>
+                    </tr>
+                    @if (open)
+                    {
+                        <tr class="orbit-report-detail">
+                            <td colspan="10" class="pa-0">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th class="orbit-muted ps-10">Person</th>
+                                            <th class="orbit-muted text-right" title="Open tasks assigned to them now. A task several people share counts for each of them, and once in the total.">Open tasks</th>
+                                            <th class="orbit-muted text-right" title="Their tasks set to Done in the period. A shared task counts for each of its assignees.">Done in period</th>
+                                            <th class="orbit-muted text-right" title="The estimates of the tasks assigned to them (cancelled tasks aside). A shared task's estimate counts in full for each of its assignees, and once in the total.">Estimated</th>
+                                            <th class="orbit-muted text-right" title="Their time on the project in the period">Logged in period</th>
+                                            <th class="orbit-muted text-right" title="Their time on the project to date">Logged to date</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var x in r.People)
+                                        {
+                                            <tr>
+                                                @* The Unassigned row (no person) reads apart from the people. *@
+                                                <td class="@(x.UserId is null ? "ps-10 orbit-muted" : "ps-10")">
+                                                    @if (x.UserId is null)
+                                                    {
+                                                        <i>@x.Name</i>
+                                                    }
+                                                    else
+                                                    {
+                                                        @x.Name
+                                                    }
+                                                </td>
+                                                <td class="text-right">@x.OpenTasks</td>
+                                                <td class="text-right">@x.DoneInPeriod</td>
+                                                <td class="text-right">@ReportText.Estimated(x)</td>
+                                                <td class="text-right">@TimeFormat.Minutes(x.LoggedInPeriodMinutes)</td>
+                                                <td class="text-right">@TimeFormat.Minutes(x.LoggedToDateMinutes)</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                    <tfoot>
+                                        <tr>
+                                            <td class="ps-10"><b>Total</b></td>
+                                            <td class="text-right"><b>@t.Open</b></td>
+                                            <td class="text-right"><b>@t.DoneInPeriod</b></td>
+                                            <td class="text-right"><b>@ReportText.Estimated(r.Estimate)</b></td>
+                                            <td class="text-right"><b>@TimeFormat.Minutes(r.LoggedInPeriodMinutes)</b></td>
+                                            <td class="text-right"><b>@TimeFormat.Minutes(r.LoggedToDateMinutes)</b></td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                                @if (r.TaskRows.Count > 0)
+                                {
+                                    <table class="orbit-report-tasks">
+                                        <thead>
+                                            <tr>
+                                                <th class="orbit-muted ps-10">Task</th>
+                                                <th class="orbit-muted">Status</th>
+                                                <th class="orbit-muted">Assignee</th>
+                                                <th class="orbit-muted">Due</th>
+                                                <th class="orbit-muted text-right">Estimate</th>
+                                                <th class="orbit-muted text-right" title="Everyone's time on the task in the period">Logged in period</th>
+                                                <th class="orbit-muted text-right" title="All time logged on the task to date, by anyone">Logged to date</th>
+                                                <th></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var x in r.TaskRows)
+                                            {
+                                                <tr>
+                                                    <td class="ps-10"><span class="orbit-number">@x.Number</span><a href="@($"/Tasks/Details/{x.TaskId}")" class="orbit-title">@x.Title</a></td>
+                                                    <td><MudChip T="string" Size="Size.Small" Color="TaskLook.Status(x.Status)">@x.Status.Label()</MudChip></td>
+                                                    <td>@x.Assignee</td>
+                                                    <td class="@(x.IsOverdue ? "text-nowrap orbit-overdue" : "text-nowrap")" title="@(x.IsOverdue ? "Overdue" : null)">@ReportText.Date(x.DueDate)</td>
+                                                    <td class="text-right">@ReportText.Estimate(x.EstimateMinutes)</td>
+                                                    <td class="text-right">@TimeFormat.Minutes(x.PeriodMinutes)</td>
+                                                    <td class="text-right">@TimeFormat.Minutes(x.TotalMinutes)</td>
+                                                    <td>
+                                                        @if (x.IsOver)
+                                                        {
+                                                            <MudChip T="string" Size="Size.Small" Color="Color.Warning" title="More time has been logged than was estimated">Over estimate</MudChip>
+                                                        }
+                                                        else if (ReportText.Marker(x.Status, x.EstimateMinutes, x.IsOver) is { Length: > 0 } note)
+                                                        {
+                                                            <span class="orbit-muted">@note</span>
+                                                        }
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                }
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td><b>All projects</b></td>
+                    <td></td>
+                    <td class="orbit-small"><b>@ReportText.Progress(Report.Total.Tasks)</b></td>
+                    <td class="text-right">
+                        <b>@Report.Total.Tasks.Open</b>
+                        @if (Report.Total.Tasks.Overdue > 0)
+                        {
+                            <div class="orbit-sub mud-error-text">@Report.Total.Tasks.Overdue overdue</div>
+                        }
+                        @if (Report.Total.Tasks.Blocked > 0)
+                        {
+                            <div class="orbit-sub mud-error-text">@Report.Total.Tasks.Blocked blocked</div>
+                        }
+                    </td>
+                    <td class="text-right"><b>@Report.Total.Tasks.CreatedInPeriod</b></td>
+                    <td class="text-right"><b>@Report.Total.Tasks.DoneInPeriod</b></td>
+                    <td class="text-right">
+                        <b>@TimeFormat.Minutes(Report.Total.LoggedInPeriodMinutes)</b>
+                        <div class="orbit-sub text-nowrap">@TimeFormat.Minutes(Report.Total.LoggedToDateMinutes) to date</div>
+                    </td>
+                    <td class="text-right"><b>@ReportText.Estimated(Report.Total.Estimate)</b></td>
+                    <td class="text-right @ReportText.VarianceClass(Report.Total.Estimate.VarianceMinutes)"><b>@ReportText.Variance(Report.Total.Estimate)</b></td>
+                    <td></td>
+                </tr>
+            </tfoot>
+        </MudSimpleTable>
+    </div>
+    <div class="orbit-card-footer">
+        Every project open at some point in the period, or with a task created or completed or time logged in it, closed
+        ones included. Status is the project's at the end of the period, with any changes during it and, if it has changed
+        since, what it is now. Progress, open, overdue and blocked are as things stand now; created and done count the
+        period. Estimated and variance compare the estimated tasks (cancelled ones aside) with all time logged on them to
+        date. The buffer is from the project's latest critical path analysis, shown while the project is open. Open
+        <em>People and tasks</em> for estimated and logged time by person, and the tasks that are open or were worked on in
+        the period. The owner and assignee filters pick the projects a person owns or has a task on (cancelled ones aside);
+        the figures still cover the whole project.
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public ProjectStatusReport Report { get; set; } = null!;
+
+    /// <summary>The projects whose people and tasks are showing.</summary>
+    private readonly HashSet<int> _open = [];
+
+    private void Toggle(int row)
+    {
+        if (!_open.Remove(row)) _open.Add(row);
+    }
+}

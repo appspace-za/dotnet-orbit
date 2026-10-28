@@ -1,0 +1,165 @@
+@page "/Admin/Agents"
+@page "/Admin/Agents/Index"
+@inherits OrbitComponentBase
+@using Microsoft.Extensions.Options
+@inject IOptions<AppOptions> AppSettings
+@* Orbit Agents (spec §6.14, Admin > Agents): each agent with its status (Online, Offline, Waiting for configure, Token expired,
+   Revoked), machine, version, last seen, source address and created date. Online comes from the in-memory registry of connected
+   agents (§8.2), read when the list loads. New token on an agent never configured shows its setup command here, once; Revoke
+   disconnects an active agent at once, and Delete removes a pending or revoked one. *@
+
+<PageTitle>Agents - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (!Loaded)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var now = DateTime.UtcNow;
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">Agents</MudText>
+            <div class="orbit-subtitle">
+                An Orbit Agent runs inside your network and connects out to Orbit, so Orbit can reach what it otherwise couldn't - check sign-ins against
+                your directory (Active Directory / LDAP), run request actions, read Nagios - without any inbound firewall ports. Agents hold no settings of
+                their own: those live under <a href="/Admin/Directory/Index">Directory</a> and <a href="/Admin/Nagios/Index">Nagios</a>.
+            </div>
+        </div>
+        <MudButton Href="/Admin/Agents/Create" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">New agent</MudButton>
+    </div>
+
+    @if (_setup is not null)
+    {
+        <AgentSetupPanel Created="_setup" BaseUrl="@AppSettings.Value.BaseUrl" />
+    }
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        @if (_agents.Count == 0)
+        {
+            <p class="orbit-empty">No agents yet.</p>
+        }
+        else
+        {
+            <div class="orbit-table-wrap">
+                <MudSimpleTable Hover="true" Elevation="0" Class="orbit-tasks">
+                    <thead>
+                        <tr><th>Name</th><th>Status</th><th>Machine</th><th>Version</th><th>Last seen</th><th>Address</th><th>Created</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in _agents)
+                        {
+                            var a = item.Agent;
+                            var tokenExpired = a.Status == AgentStatus.Pending && a.RegistrationExpiresAt <= now;
+                            // MudSimpleTable sets each row's colour, so a revoked agent is muted cell by cell.
+                            var muted = a.Status == AgentStatus.Revoked ? "orbit-muted" : null;
+                            <tr @key="a.Id">
+                                <td class="@muted"><b>@a.Name</b></td>
+                                <td>
+                                    @if (item.IsOnline)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Success">Online</MudChip>
+                                    }
+                                    else if (a.Status == AgentStatus.Active)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Error">Offline</MudChip>
+                                    }
+                                    else if (a.Status == AgentStatus.Revoked)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Secondary">Revoked @Ui.Day(DateOnly.FromDateTime(a.RevokedAt ?? now))</MudChip>
+                                    }
+                                    else if (tokenExpired)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Secondary">Token expired</MudChip>
+                                    }
+                                    else
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Warning"
+                                                 title="@($"Waiting for 'Orbit.Agent configure'. Token expires {Ui.When(a.RegistrationExpiresAt)}")">Waiting for configure</MudChip>
+                                    }
+                                </td>
+                                <td class="@muted">
+                                    @(a.MachineName ?? "-")
+                                    <div class="orbit-sub">@a.OsDescription</div>
+                                </td>
+                                <td class="@muted">@(a.Version ?? "-")</td>
+                                <td class="@($"text-nowrap {muted}")">@(item.IsOnline ? "now" : Ui.When(a.LastSeenAt))</td>
+                                <td class="@muted">@(a.LastIpAddress ?? "-")</td>
+                                <td class="@($"text-nowrap {muted}")">@Ui.Day(DateOnly.FromDateTime(a.CreatedAt))</td>
+                                <td class="text-right text-nowrap">
+                                    <span class="orbit-gap-row" style="justify-content: flex-end">
+                                        @if (a.Status == AgentStatus.Pending)
+                                        {
+                                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Disabled="_busy" OnClick="@(() => RegenerateAsync(a.Id))">New token</MudButton>
+                                        }
+                                        @if (a.Status == AgentStatus.Active)
+                                        {
+                                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="@(() => RevokeAsync(a.Id))">Revoke</MudButton>
+                                        }
+                                        else
+                                        {
+                                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="_busy" OnClick="@(() => DeleteAsync(a.Id))">Delete</MudButton>
+                                        }
+                                    </span>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        }
+    </MudPaper>
+}
+
+@code {
+    private IReadOnlyList<AgentListItem> _agents = [];
+    /// <summary>The agent just given a new token, with the token: shown until the next action or visit, never stored.</summary>
+    private CreatedAgent? _setup;
+    private bool _busy;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // A fresh visit (the setup panel's own "Agents" link included) shows no token, as a fresh Razor page didn't.
+        _setup = null;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync() => await Load(async s => _agents = await s.Get<AgentService>().ListAsync());
+
+    /// <summary>The new token exists only in this page's memory and is never stored; on a refusal the list is read again, as the Razor page redirected.</summary>
+    private async Task RegenerateAsync(Guid id)
+    {
+        _busy = true;
+        _setup = null;
+        CreatedAgent? created = null;
+        if (await Act(async s => created = await s.Get<AgentService>().RegenerateTokenAsync(id))) _setup = created;
+        await LoadAsync();
+        _busy = false;
+    }
+
+    private async Task RevokeAsync(Guid id)
+    {
+        if (!await Confirm("Revoke agent",
+                "Revoke this agent? It is disconnected immediately and its credential stops working. If it is your only agent, directory users won't be able to sign in; a Nagios instance checked through it stops being checked.",
+                "Revoke")) return;
+        _busy = true;
+        _setup = null;
+        if (await Act(async s => await s.Get<AgentService>().RevokeAsync(id))) Success("Agent revoked and disconnected.");
+        await LoadAsync();
+        _busy = false;
+    }
+
+    private async Task DeleteAsync(Guid id)
+    {
+        if (!await Confirm("Delete agent", "Delete this agent from the list?")) return;
+        _busy = true;
+        _setup = null;
+        if (await Act(async s => await s.Get<AgentService>().DeleteAsync(id))) Success("Agent deleted.");
+        await LoadAsync();
+        _busy = false;
+    }
+}

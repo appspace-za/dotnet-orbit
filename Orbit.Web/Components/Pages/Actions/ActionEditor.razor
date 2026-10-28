@@ -1,0 +1,293 @@
+@page "/Actions/Edit"
+@page "/Actions/Edit/{Id:guid}"
+@inherits OrbitComponentBase
+@using Microsoft.Extensions.Options
+@inject IOptions<ActionOptions> ActionSettings
+@* Writing an action (spec §6.20): its name and description, where it runs (the server, or an Orbit Agent - any that can run
+   scripts, or a named one), its parameters (one per line, "Label" or "key | Label") and its C# script, which the service compiles
+   when it is saved. "Check it compiles" compiles it without saving. Beside it, what a script sees, and the steps that run it; only
+   an action no step runs can be deleted. *@
+
+<PageTitle>@Title - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (!Loaded || (Id is not null && _item?.Id != Id))
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var a = _item;
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Actions">Actions</a><span class="orbit-crumb-sep">/</span><span aria-current="page">@(a?.Name ?? "New action")</span>
+    </nav>
+    <div class="orbit-page-header">
+        <MudText Typo="Typo.h5" HtmlTag="h1">@(a?.Name ?? "New action")</MudText>
+        @if (a is not null)
+        {
+            <div class="orbit-actions">
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="@(_busy || a.Steps.Count > 0)"
+                           title="@(a.Steps.Count > 0 ? "In use by a flow" : null)" OnClick="DeleteAsync">Delete</MudButton>
+            </div>
+        }
+    </div>
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" lg="8">
+            <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-form orbit-form-wide">
+                @if (_checked && _checkResult.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Success" Dense="true">The script compiles.</MudAlert>
+                }
+                else if (_checked)
+                {
+                    <MudAlert Severity="Severity.Error" Dense="true">
+                        <div><b>The script doesn't compile:</b></div>
+                        <ul class="mt-1 mb-0">
+                            @foreach (var e in _checkResult)
+                            {
+                                <li>@e</li>
+                            }
+                        </ul>
+                    </MudAlert>
+                }
+                <div class="orbit-form-row">
+                    <MudTextField T="string" @bind-Value="_form.Name" Label="Name" MaxLength="RequestFlowRules.MaxActionNameLength" Required="true"
+                                  RequiredError="The action needs a name." Variant="Variant.Outlined" Class="orbit-field-grow" />
+                    <MudTextField T="string" @bind-Value="_form.Description" Label="Description (optional)" Placeholder="What it does, for whoever places it in a flow"
+                                  MaxLength="RequestFlowRules.MaxDescriptionLength" Variant="Variant.Outlined" Class="orbit-field-grow" />
+                </div>
+                <div class="orbit-form-row">
+                    <MudSelect T="ActionRunsOn" @bind-Value="_form.RunsOn" Label="Runs" ToStringFunc="@(w => w.Label())" Variant="Variant.Outlined" Class="orbit-field-lg">
+                        @foreach (var place in Enum.GetValues<ActionRunsOn>())
+                        {
+                            <MudSelectItem T="ActionRunsOn" Value="place">@place.Label()</MudSelectItem>
+                        }
+                    </MudSelect>
+                    @if (_form.RunsOn == ActionRunsOn.Agent)
+                    {
+                        <MudSelect T="Guid" @bind-Value="AgentChoice" Label="On which agent" ToStringFunc="AgentLabel" Variant="Variant.Outlined" Class="orbit-field-lg">
+                            <MudSelectItem T="Guid" Value="Guid.Empty">@AgentLabel(Guid.Empty)</MudSelectItem>
+                            @foreach (var c in _agents)
+                            {
+                                <MudSelectItem T="Guid" Value="c.Agent.Id">@AgentLabel(c.Agent.Id)</MudSelectItem>
+                            }
+                        </MudSelect>
+                    }
+                </div>
+                <div>
+                    <MudTextField T="string" @bind-Value="_form.Parameters" Label="Parameters (one per line, optional)" Placeholder="@ParametersExample" Lines="3"
+                                  Variant="Variant.Outlined" Class="orbit-code" spellcheck="false" />
+                    <div class="orbit-help">
+                        A label, or <code>key | Label</code>. Each flow step that runs the action binds a value to every parameter; the script reads them as
+                        <code>Inputs["key"]</code>.
+                    </div>
+                </div>
+                <MudTextField T="string" @bind-Value="_form.Script" Label="Script (C#)" Lines="18" Variant="Variant.Outlined" Class="orbit-code" spellcheck="false" />
+                <div class="orbit-gap-row">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="SaveAsync">Save</MudButton>
+                    <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="CheckAsync">Check it compiles</MudButton>
+                </div>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" lg="4">
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>What a script sees</b></div>
+                <div class="orbit-card-body orbit-small">
+                    <dl class="mt-0 mb-2">
+                        <dt class="orbit-key">Request</dt>
+                        <dd class="orbit-muted ml-0 mb-2">Number, Title, Requester (Id, Name, Email), Department, Category, Flow.</dd>
+                        <dt class="orbit-key">Values["step.field"]</dt>
+                        <dd class="orbit-muted ml-0 mb-2">Every value of the request: a form's answers, a task's number, an approval's outcome. Also <code>Value("step.field")</code>.</dd>
+                        <dt class="orbit-key">Inputs["key"]</dt>
+                        <dd class="orbit-muted ml-0 mb-2">The parameters as the step bound them. Also <code>Input("key")</code>.</dd>
+                        <dt class="orbit-key">Connections.Open("name")</dt>
+                        <dd class="orbit-muted ml-0 mb-2">
+                            A <code>DbConnection</code> (Npgsql or SqlClient) from the connections configured where the script runs; disposed when the run ends.
+                            On the server: <code>@string.Join(", ", _webConnections)</code>. On an agent: its <code>actions.json</code>.
+                        </dd>
+                        <dt class="orbit-key">Http</dt>
+                        <dd class="orbit-muted ml-0 mb-2">An <code>HttpClient</code>.</dd>
+                        <dt class="orbit-key">Log("...")</dt>
+                        <dd class="orbit-muted ml-0 mb-2">A line of output, shown on the request page; the return value is appended.</dd>
+                        <dt class="orbit-key">Ct</dt>
+                        <dd class="orbit-muted ml-0 mb-2">Cancelled when the time limit is reached.</dd>
+                    </dl>
+                    <p class="orbit-muted mt-0 mb-1">
+                        Usings: System, System.Linq, System.Collections.Generic, System.Threading.Tasks, System.Data.Common, System.Net.Http, System.Text.Json,
+                        Npgsql, Microsoft.Data.SqlClient. <code>await</code> works at the top level; <code>using var</code> doesn't (write
+                        <code>var db = Connections.Open(...)</code>).
+                    </p>
+                    <MudText Typo="Typo.body2" Color="Color.Error">
+                        A script runs as the Orbit server or the agent's service account, with no sandbox. An exception fails the step, which a manager can
+                        retry or skip.
+                    </MudText>
+                </div>
+            </MudPaper>
+            @if (a is not null && a.Steps.Count > 0)
+            {
+                <MudPaper Outlined="true" Class="orbit-card">
+                    <div class="orbit-card-header"><b>Used by</b></div>
+                    @foreach (var step in a.Steps)
+                    {
+                        <div class="orbit-list-item orbit-small" @key="step.Id">
+                            <a href="@($"/RequestCatalogue/Step/{step.Id}")">@step.Flow.Category.Title › @step.Flow.Title › @step.Title</a>
+                        </div>
+                    }
+                </MudPaper>
+            }
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    /// <summary>The action to edit; null for a new one.</summary>
+    [Parameter] public Guid? Id { get; set; }
+
+    private const string ParametersExample = "product-code | Product code\nReason";
+
+    /// <summary>A new action's script, saying what is in scope.</summary>
+    private const string Template =
+        "// The request's values are in scope: Request.Number, Request.Requester.Name, Values[\"step.field\"], Inputs[\"parameter\"].\n" +
+        "// Log(...) writes to the step's output; the return value is appended to it. Connections.Open(\"name\") opens a configured database.\n" +
+        "Log($\"Running for {Request.Number} ({Request.Requester.Name})\");\n" +
+        "return \"done\";";
+
+    private RequestAction? _item;
+    private ActionDraft _form = new();
+    private IReadOnlyList<ActionAgentChoice> _agents = [];
+    /// <summary>The web-side connection names a script may open, from configuration.</summary>
+    private IReadOnlyList<string> _webConnections = [];
+    private IReadOnlyList<string> _checkResult = [];
+    private bool _checked, _busy;
+
+    private string Title => _item?.Name ?? (Id is null ? "New action" : "Action");
+
+    private Guid AgentChoice { get => _form.AgentId ?? Guid.Empty; set => _form.AgentId = value == Guid.Empty ? null : value; }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Creating an action goes on to its edit page, which is this component with an Id, so each page starts afresh.
+        _item = null;
+        _checked = false;
+        _checkResult = [];
+        if (await LoadAsync()) ResetForm();
+    }
+
+    private async Task<bool> LoadAsync() => await Load(async s =>
+    {
+        var actions = s.Get<RequestActionService>();
+        var item = Id is Guid id ? await actions.GetAsync(id) : null;
+        _agents = await actions.AgentsAsync();
+        _webConnections = [.. ActionSettings.Value.Connections.Keys.Order(), ActionOptions.OrbitConnection];
+        _item = item;
+    });
+
+    /// <summary>
+    /// The form shows the action as stored, or a new one's template script. As the Razor page's select could only show the agents it
+    /// offered, an agent that is no longer active shows - and saves - as any connected agent.
+    /// </summary>
+    private void ResetForm()
+    {
+        _form = _item is null ? new ActionDraft { Script = Template } : ActionDraft.From(_item);
+        if (_form.AgentId is Guid agentId && _agents.All(c => c.Agent.Id != agentId)) _form.AgentId = null;
+    }
+
+    private string AgentLabel(Guid id) =>
+        _agents.FirstOrDefault(x => x.Agent.Id == id) is { } c
+            ? $"{c.Agent.Name} ({(c.Online ? c.RunsScripts ? "connected" : "connected, too old to run scripts" : "not connected")})"
+            : "Any connected agent that can run scripts";
+
+    private async Task SaveAsync()
+    {
+        var id = Id;
+        var input = _form.ToInput();
+        _checked = false;
+        _busy = true;
+        RequestAction? saved = null;
+        if (await Act(async s =>
+            {
+                var actions = s.Get<RequestActionService>();
+                saved = id is Guid existing ? await actions.UpdateAsync(existing, input) : await actions.CreateAsync(input);
+            }))
+        {
+            Success($"Action \"{saved!.Name}\" saved.");
+            if (id is null) Nav.NavigateTo($"/Actions/Edit/{saved.Id}");
+            else if (await LoadAsync()) ResetForm();
+        }
+        _busy = false;
+    }
+
+    /// <summary>Compiles the script as typed, without saving it; the result shows above the form until the next save.</summary>
+    private async Task CheckAsync()
+    {
+        var script = _form.Script;
+        _busy = true;
+        IReadOnlyList<string> result = [];
+        if (await Act(async s => result = await s.Get<RequestActionService>().CheckAsync(script)))
+        {
+            _checkResult = result;
+            _checked = true;
+        }
+        _busy = false;
+    }
+
+    /// <summary>Only an action no step runs can go; the service says which flows use it otherwise.</summary>
+    private async Task DeleteAsync()
+    {
+        var item = _item!;
+        if (!await Confirm("Delete action", $"Delete the action \"{item.Name}\"?")) return;
+        _busy = true;
+        string? name = null;
+        if (await Act(async s =>
+            {
+                var actions = s.Get<RequestActionService>();
+                name = (await actions.GetAsync(item.Id)).Name;
+                await actions.DeleteAsync(item.Id);
+            }))
+        {
+            Success($"Action \"{name}\" deleted.");
+            Nav.NavigateTo("/Actions");
+        }
+        _busy = false;
+    }
+
+    /// <summary>An action as typed (§6.20): its parameters one per line, "Label" or "key | Label".</summary>
+    private sealed class ActionDraft
+    {
+        public string? Name { get; set; }
+        public string? Description { get; set; }
+        public ActionRunsOn RunsOn { get; set; } = ActionRunsOn.Web;
+        /// <summary>Kept while the action runs on the server; the service ignores it then.</summary>
+        public Guid? AgentId { get; set; }
+        public string? Parameters { get; set; }
+        public string? Script { get; set; }
+
+        public RequestActionInput ToInput() => new()
+        {
+            Name = Name ?? string.Empty,
+            Description = Description,
+            RunsOn = RunsOn,
+            AgentId = RunsOn == ActionRunsOn.Agent ? AgentId : null,
+            Script = Script ?? string.Empty,
+            Parameters = (Parameters ?? string.Empty).Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).Select(l =>
+            {
+                var bar = l.IndexOf('|');
+                return bar < 0 ? new RequestActionParameterInput(null, l) : new RequestActionParameterInput(l[..bar].Trim(), l[(bar + 1)..].Trim());
+            }).ToList()
+        };
+
+        public static ActionDraft From(RequestAction a) => new()
+        {
+            Name = a.Name,
+            Description = a.Description,
+            RunsOn = a.RunsOn,
+            AgentId = a.AgentId,
+            Script = a.Script,
+            Parameters = string.Join("\n", a.Parameters.OrderBy(p => p.DisplayOrder).Select(p => $"{p.Key} | {p.Label}"))
+        };
+    }
+}

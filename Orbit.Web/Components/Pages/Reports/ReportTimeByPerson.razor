@@ -1,0 +1,143 @@
+@* Time by person (spec §12): each person's time in the period and, for the tasks they worked on, the estimate against all time
+   logged on them to date. A person's task count opens their tasks beneath their row (the Razor page's Bootstrap collapse). *@
+
+@if (Report.Rows.Count == 0)
+{
+    <p class="orbit-empty">No data for the selected filters.</p>
+}
+else
+{
+    var max = Report.Rows.Max(r => r.LoggedMinutes);
+    <div class="orbit-table-wrap">
+        <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks orbit-report">
+            <thead>
+                <tr>
+                    <th style="width:22%">Person</th>
+                    <th style="width:10%" class="text-right">Logged</th>
+                    <th></th>
+                    <th style="width:12%" class="text-right">Tasks</th>
+                    <th style="width:10%" class="text-right" title="The estimates of the tasks they worked on that have one (cancelled tasks aside)">Estimated</th>
+                    <th style="width:12%" class="text-right" title="All time logged on those estimated tasks to date, by anyone">Actual to date</th>
+                    <th style="width:15%" class="text-right">Variance</th>
+                </tr>
+            </thead>
+            <tbody>
+                @for (var i = 0; i < Report.Rows.Count; i++)
+                {
+                    var r = Report.Rows[i];
+                    var index = i;
+                    if (r.TaskCount == 0)
+                    {
+                        @* No time in the period: muted, with nothing to expand. The table sets each row's colour, so the class goes on each cell. *@
+                        <tr title="No time logged in the period">
+                            <td class="orbit-muted">@r.Name</td>
+                            <td class="text-right orbit-muted">@TimeFormat.Minutes(r.LoggedMinutes)</td>
+                            <td></td>
+                            <td class="text-right orbit-muted">0</td>
+                            <td class="text-right orbit-muted">@ReportText.Estimated(r.Estimate)</td>
+                            <td class="text-right orbit-muted">@ReportText.Actual(r.Estimate)</td>
+                            <td class="text-right orbit-muted">@ReportText.Variance(r.Estimate)</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        var open = _open.Contains(index);
+                        <tr>
+                            <td>@r.Name</td>
+                            <td class="text-right"><b>@TimeFormat.Minutes(r.LoggedMinutes)</b></td>
+                            <td><MudProgressLinear Value="@ReportText.Share(r.LoggedMinutes, max)" Color="Color.Primary" Rounded="true" Size="Size.Medium" /></td>
+                            <td class="text-right">
+                                <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" OnClick="() => Toggle(index)"
+                                           EndIcon="@(open ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                                           aria-expanded="@(open ? "true" : "false")" title="Show the tasks">@r.TaskCount</MudButton>
+                                @if (r.UnestimatedTasks > 0)
+                                {
+                                    <div class="orbit-sub">@r.UnestimatedTasks unestimated</div>
+                                }
+                            </td>
+                            <td class="text-right">@ReportText.Estimated(r.Estimate)</td>
+                            <td class="text-right">@ReportText.Actual(r.Estimate)</td>
+                            <td class="text-right @ReportText.VarianceClass(r.Estimate.VarianceMinutes)">@ReportText.Variance(r.Estimate)</td>
+                        </tr>
+                        @if (open)
+                        {
+                            <tr class="orbit-report-detail">
+                                <td colspan="7" class="pa-0">
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th class="orbit-muted ps-10">Task</th>
+                                                <th class="orbit-muted">Status</th>
+                                                <th class="orbit-muted text-right">Estimate</th>
+                                                <th class="orbit-muted text-right" title="@($"{r.Name}'s time on the task in the period")">Logged</th>
+                                                <th class="orbit-muted text-right" title="All time logged on the task to date, by anyone">Actual to date</th>
+                                                <th></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var t in r.Tasks)
+                                            {
+                                                <tr>
+                                                    <td class="ps-10"><span class="orbit-number">@t.Number</span><a href="@($"/Tasks/Details/{t.TaskId}")" class="orbit-title">@t.Title</a></td>
+                                                    <td><MudChip T="string" Size="Size.Small" Color="TaskLook.Status(t.Status)">@t.Status.Label()</MudChip></td>
+                                                    <td class="text-right">@ReportText.Estimate(t.EstimateMinutes)</td>
+                                                    <td class="text-right">@TimeFormat.Minutes(t.LoggedMinutes)</td>
+                                                    <td class="text-right">@TimeFormat.Minutes(t.TotalMinutes)</td>
+                                                    <td>
+                                                        @if (t.IsOver)
+                                                        {
+                                                            <MudChip T="string" Size="Size.Small" Color="Color.Warning" title="More time has been logged than was estimated">Over estimate</MudChip>
+                                                        }
+                                                        else if (ReportText.Marker(t.Status, t.EstimateMinutes, t.IsOver) is { Length: > 0 } note)
+                                                        {
+                                                            <span class="orbit-muted">@note</span>
+                                                        }
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </td>
+                            </tr>
+                        }
+                    }
+                }
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td><b>Total</b></td>
+                    <td class="text-right"><b>@TimeFormat.Minutes(Report.TotalLoggedMinutes)</b></td>
+                    <td></td>
+                    <td class="text-right">
+                        <b>@Report.TotalTasks</b>
+                        @if (Report.TotalUnestimatedTasks > 0)
+                        {
+                            <div class="orbit-sub">@Report.TotalUnestimatedTasks unestimated</div>
+                        }
+                    </td>
+                    <td class="text-right"><b>@ReportText.Estimated(Report.Total)</b></td>
+                    <td class="text-right"><b>@ReportText.Actual(Report.Total)</b></td>
+                    <td class="text-right @ReportText.VarianceClass(Report.Total.VarianceMinutes)"><b>@ReportText.Variance(Report.Total)</b></td>
+                </tr>
+            </tfoot>
+        </MudSimpleTable>
+    </div>
+    <div class="orbit-card-footer">
+        Logged is each person's time in the period. Estimated, actual and variance compare the estimated tasks they worked on
+        (cancelled tasks aside) with all time logged on them to date, by anyone. A task several people worked on shows under
+        each of them but counts once in the total. Click a task count to see the tasks. Active people in the department
+        reported on who logged nothing in the period are listed last, greyed out.
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public TimeByPersonReport Report { get; set; } = null!;
+
+    /// <summary>The rows whose tasks are showing.</summary>
+    private readonly HashSet<int> _open = [];
+
+    private void Toggle(int row)
+    {
+        if (!_open.Remove(row)) _open.Add(row);
+    }
+}

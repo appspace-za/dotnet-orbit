@@ -1,0 +1,34 @@
+@inherits OrbitComponentBase
+@inject IJSRuntime JS
+@* A Copy button for something shown once, such as a new API key, an agent's setup command or a password reset link (decision 112).
+   It copies Text and says "Copied" for a moment. If the browser refuses (no secure context, say), it says so, and the text can
+   still be selected and copied by hand. *@
+<MudButton Variant="Variant.Outlined" Size="Size" StartIcon="@StartIcon" OnClick="CopyAsync">@(_copied ? "Copied" : "Copy")</MudButton>
+
+@code {
+    [Parameter, EditorRequired] public string? Text { get; set; }
+    /// <summary>What is copied, for the message when the browser refuses: "key", "command", "link".</summary>
+    [Parameter] public string What { get; set; } = "text";
+    [Parameter] public Size Size { get; set; } = Size.Medium;
+    [Parameter] public string? StartIcon { get; set; }
+
+    private bool _copied;
+
+    private async Task CopyAsync()
+    {
+        if (string.IsNullOrEmpty(Text)) return;
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", Text);
+        }
+        catch (JSException)
+        {
+            Error($"The {What} couldn't be copied. Select it and copy it yourself.");
+            return;
+        }
+        _copied = true;
+        StateHasChanged();
+        await Task.Delay(1500);
+        _copied = false;
+    }
+}

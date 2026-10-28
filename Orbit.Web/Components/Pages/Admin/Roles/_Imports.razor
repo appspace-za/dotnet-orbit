@@ -1,0 +1,3 @@
+@* Roles (spec §6.5): every page here needs the Roles admin permission at some scope, as AuthorizeFolder("/Admin/Roles") did for the
+   Razor pages. The services apply the rest. *@
+@attribute [RequirePermission(Permission.RolesManage)]

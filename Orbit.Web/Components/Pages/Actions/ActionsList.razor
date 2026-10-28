@@ -1,0 +1,72 @@
+@page "/Actions"
+@page "/Actions/Index"
+@inherits OrbitComponentBase
+@* The action library (spec §6.20, Admin > Actions): the scripts request flows' Action steps run, each with where it runs, its
+   parameters and the flows that use it. *@
+
+<PageTitle>Actions - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_items is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">Actions</MudText>
+            <div class="orbit-subtitle orbit-max-42">
+                Scripts a request flow's Action step runs - C# that updates a database, calls a service, or anything else - with the request's
+                values and the parameters the step binds. Written here; placed in flows by whoever configures them.
+            </div>
+        </div>
+        <MudButton Href="/Actions/Edit" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">New action</MudButton>
+    </div>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        @if (_items.Count == 0)
+        {
+            <p class="orbit-empty">No actions yet.</p>
+        }
+        else
+        {
+            <div class="orbit-table-wrap">
+                <MudSimpleTable Hover="true" Elevation="0" Class="orbit-tasks">
+                    <thead>
+                        <tr><th>Action</th><th>Runs</th><th>Parameters</th><th>Used by</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var a in _items)
+                        {
+                            <tr @key="a.Id">
+                                <td>
+                                    <a href="@($"/Actions/Edit/{a.Id}")" class="orbit-title">@a.Name</a>
+                                    @if (!string.IsNullOrWhiteSpace(a.Description))
+                                    {
+                                        <div class="orbit-sub">@Ui.Truncate(a.Description, 100)</div>
+                                    }
+                                </td>
+                                <td class="orbit-small">@Runs(a)</td>
+                                <td class="orbit-small orbit-key">@string.Join(", ", a.Parameters.Select(p => p.Key))</td>
+                                <td class="orbit-small">@(a.Steps.Count == 0 ? "nobody yet" : string.Join(", ", a.Steps.Select(s => s.Flow.Title).Distinct()))</td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        }
+    </MudPaper>
+}
+
+@code {
+    private IReadOnlyList<RequestAction>? _items;
+
+    protected override async Task OnParametersSetAsync() => await Load(async s => _items = await s.Get<RequestActionService>().ListAsync());
+
+    /// <summary>Where it runs, and on which agent when it names one.</summary>
+    private static string Runs(RequestAction a) => a.Agent is null ? a.RunsOn.Label() : $"{a.RunsOn.Label()} · {a.Agent.Name}";
+}

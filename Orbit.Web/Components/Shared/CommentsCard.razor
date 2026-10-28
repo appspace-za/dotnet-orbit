@@ -1,0 +1,48 @@
+@inherits OrbitComponentBase
+@* A comment thread (spec §6.2, §6.1): a task's or a project's, oldest first, web addresses as links, Claude's comments marked.
+   Post says where a new comment goes (CommentService.AddAsync for a task, AddToProjectAsync for a project). *@
+<MudPaper Outlined="true" Class="orbit-card">
+    <div class="orbit-card-header"><span><b>Comments</b> <span class="orbit-muted">(@Comments.Count)</span></span></div>
+    @foreach (var c in Comments)
+    {
+        <div class="orbit-list-item" @key="c.Id">
+            <div class="orbit-small orbit-gap-row">
+                <b>@Ui.AuthorName(c.Author)</b>
+                @if (c.Author is { IsSystemAccount: true })
+                {
+                    <MudChip T="string" Size="Size.Small" Class="orbit-chip-claude">Claude</MudChip>
+                }
+                <span class="orbit-muted">· @Ui.When(c.CreatedAt)</span>
+            </div>
+            <div class="orbit-text">@((MarkupString)Ui.LinkifyHtml(c.Body))</div>
+        </div>
+    }
+    <div class="orbit-list-item">
+        <MudTextField T="string" @bind-Value="_body" Placeholder="Add a comment" Lines="3" Sizing="InputSizing.Auto" MaxLines="12"
+                      Variant="Variant.Outlined" Immediate="true" Disabled="_busy" aria-label="Add a comment" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" Class="mt-2"
+                   Disabled="@(_busy || string.IsNullOrWhiteSpace(_body))" OnClick="PostAsync">Post comment</MudButton>
+    </div>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<Comment> Comments { get; set; } = [];
+    /// <summary>Adds a comment to the thread's parent, in the operation's scope.</summary>
+    [Parameter, EditorRequired] public Func<IServiceProvider, string, Task> Post { get; set; } = null!;
+    [Parameter] public EventCallback Changed { get; set; }
+
+    private string? _body;
+    private bool _busy;
+
+    private async Task PostAsync()
+    {
+        _busy = true;
+        if (await Act(s => Post(s, _body ?? string.Empty)))
+        {
+            Success("Comment added.");
+            _body = null;
+            await Changed.InvokeAsync();
+        }
+        _busy = false;
+    }
+}

@@ -1,0 +1,14 @@
+@page "/Tasks/Create"
+@attribute [RequirePermission(Permission.TasksCreate)]
+@* A new task (spec §6.2): blank, on ?projectId= (the project page's "New task"), planned into ?sprintId=, or a subtask of
+   ?parentTaskId= (the task page's "Add subtask", §6.15). The door is tasks.create at any scope, as the Razor page's was; the
+   service checks the department. *@
+
+<PageTitle>New task - Orbit</PageTitle>
+<TaskEditor ProjectId="FilterChoice.Id(ProjectIdText)" SprintId="FilterChoice.Id(SprintIdText)" ParentTaskId="FilterChoice.Id(ParentTaskIdText)" />
+
+@code {
+    [SupplyParameterFromQuery(Name = "projectId")] public string? ProjectIdText { get; set; }
+    [SupplyParameterFromQuery(Name = "sprintId")] public string? SprintIdText { get; set; }
+    [SupplyParameterFromQuery(Name = "parentTaskId")] public string? ParentTaskIdText { get; set; }
+}

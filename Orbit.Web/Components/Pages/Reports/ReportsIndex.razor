@@ -1,0 +1,41 @@
+@page "/Reports"
+@page "/Reports/Index"
+@* The reports (spec §12): one card per report in the catalogue, each opening on the last 30 days. The door is reports.view at
+   any scope (_Imports.razor); the report page and ReportingService apply it. *@
+
+<PageTitle>Reports - Orbit</PageTitle>
+
+<div class="orbit-page-header">
+    <div>
+        <MudText Typo="Typo.h5" HtmlTag="h1">Reports</MudText>
+        <div class="orbit-subtitle">
+            Each report takes a date range and optional department and project filters (assets belong to no project, so Asset
+            status has no project filter), renders on screen and exports to PDF.
+        </div>
+    </div>
+</div>
+
+<MudGrid Spacing="3">
+    @foreach (var r in ReportCatalog.All)
+    {
+        <MudItem xs="12" md="6">
+            <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-fill">
+                <MudText Typo="Typo.h6" HtmlTag="h2">@r.Title</MudText>
+                <p class="orbit-muted">@r.Description</p>
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Href="@Open(r.Kind)">Open (last 30 days)</MudButton>
+            </MudPaper>
+        </MudItem>
+    }
+</MudGrid>
+
+@code {
+    private static string Open(ReportKind kind)
+    {
+        var to = DateOnly.FromDateTime(DateTime.UtcNow);
+        var query = new FilterQuery()
+            .Add(ReportRun.KindKey, kind.ToString())
+            .Add(ReportRun.FromKey, to.AddDays(-30))
+            .Add(ReportRun.ToKey, to);
+        return $"/Reports/View?{query}";
+    }
+}

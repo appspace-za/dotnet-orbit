@@ -1,0 +1,110 @@
+@page "/Sprints/Board/{Id:guid}"
+@inherits OrbitComponentBase
+@* A sprint's board (spec §6.3): its tasks in a column per status. A card's status control moves it to another column. *@
+
+<PageTitle>@(_board is null ? "Board" : $"{_board.Sprint.Name} board") - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_board is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var s = _board.Sprint;
+    <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+        <a href="/Sprints">Sprints</a><span class="orbit-crumb-sep">/</span><a href="@($"/Sprints/Details/{s.Id}")">@s.Name</a><span class="orbit-crumb-sep">/</span><span aria-current="page">Board</span>
+    </nav>
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">@s.Name <MudChip T="string" Size="Size.Small" Color="StatusLook.Sprint(s.Status)">@s.Status</MudChip></MudText>
+            <div class="orbit-subtitle">@Ui.Day(s.StartDate) to @Ui.Day(s.EndDate)@(string.IsNullOrWhiteSpace(s.Goal) ? "" : $" · {s.Goal}")</div>
+        </div>
+        <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@($"/Sprints/Details/{s.Id}")">List view</MudButton>
+    </div>
+
+    @if (s.Status != SprintStatus.Active)
+    {
+        <MudAlert Severity="Severity.Normal" Dense="true" Class="mb-3">This sprint is not active; the board is read-only context.</MudAlert>
+    }
+
+    <div class="orbit-kanban">
+        @foreach (var col in _board.Columns)
+        {
+            <div class="orbit-kanban-column" @key="col.Status">
+                <div class="orbit-list-row mb-2">
+                    <b>@col.Title</b>
+                    <MudChip T="string" Size="Size.Small" Color="Color.Secondary">@col.Tasks.Count</MudChip>
+                </div>
+                @foreach (var t in col.Tasks)
+                {
+                    var canView = AccessPolicy.CanViewTask(_actor!, t);
+                    var statuses = Ui.AllowedStatuses(_actor!, t);
+                    var overdue = t.IsOverdue(_today);
+                    <MudPaper Outlined="true" Class="orbit-kanban-card" @key="t.Id">
+                        <div class="mb-1">
+                            @if (canView)
+                            {
+                                <span class="orbit-number" title="Task number">@t.Number</span>
+                                <a href="@($"/Tasks/Details/{t.Id}")" class="@(overdue ? "orbit-title orbit-overdue" : "orbit-title")">@t.Title</a>
+                            }
+                            else
+                            {
+                                <b>@t.Title</b>
+                            }
+                        </div>
+                        <div class="orbit-chips mb-1">
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@t.Department.Name</MudChip>
+                            @if (t.Project is not null)
+                            {
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@t.Project.Name</MudChip>
+                            }
+                            @if (t.Asset is not null)
+                            {
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" title="The asset this task is about">@Ui.Truncate(Ui.AssetLabel(t.Asset), 40)</MudChip>
+                            }
+                            <MudChip T="string" Size="Size.Small" Color="TaskLook.Priority(t.Priority)" Variant="@(t.Priority == TaskPriority.Low ? Variant.Outlined : Variant.Filled)">@t.Priority</MudChip>
+                            @if (t.Status == TaskItemStatus.Cancelled)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Dark">Cancelled</MudChip>
+                            }
+                            @if (t.Source == TaskSource.Api)
+                            {
+                                <MudChip T="string" Size="Size.Small" Class="orbit-chip-claude">Claude</MudChip>
+                            }
+                        </div>
+                        <div class="orbit-list-row orbit-small orbit-muted">
+                            <span>@(t.AssigneeNames ?? "Unassigned")</span>
+                            <span class="@(overdue ? "orbit-overdue" : null)">@Ui.Day(t.DueDate)</span>
+                        </div>
+                        @if (canView && statuses.Count > 1)
+                        {
+                            <div class="mt-2"><TaskStatusSelect Task="t" Statuses="statuses" Label="Move to" Changed="ReloadAsync" /></div>
+                        }
+                    </MudPaper>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private Actor? _actor;
+    private SprintBoard? _board;
+    private DateOnly _today;
+
+    protected override Task OnParametersSetAsync() => ReloadAsync();
+
+    private async Task ReloadAsync() => await Load(async s =>
+    {
+        var board = await s.Get<SprintService>().GetBoardAsync(Id);
+        _actor = await s.Get<IActorProvider>().GetAsync();
+        _today = DateOnly.FromDateTime(DateTime.UtcNow);
+        _board = board;
+    });
+}

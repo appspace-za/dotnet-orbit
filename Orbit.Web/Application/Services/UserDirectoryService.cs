@@ -123,6 +123,18 @@ public sealed class UserDirectoryService(ApplicationDbContext db, IActorProvider
         return await SearchEveryoneAsync(query, excludingUserId, limit, ct);
     }
 
+    /// <summary>
+    /// People a request flow can name (spec §6.20) matching what was typed into a flow builder's picker - a form's or page's
+    /// performer, a task's assignees, an approver - found as holders are: anyone active in any department, since an approver may sit
+    /// in another. It answers anyone who configures request flows (<see cref="AccessPolicy.CanConfigureRequests"/>, REQ-024).
+    /// </summary>
+    public async Task<IReadOnlyList<UserSummary>> SearchRequestFlowPeopleAsync(string? query, int limit = 20, CancellationToken ct = default)
+    {
+        var actor = await actors.GetAsync(ct);
+        if (!AccessPolicy.CanConfigureRequests(actor)) return [];
+        return await SearchEveryoneAsync(query, null, limit, ct);
+    }
+
     /// <summary>Active people anywhere in the organisation whose name, email or department contains the text; nobody for no text.</summary>
     private async Task<IReadOnlyList<UserSummary>> SearchEveryoneAsync(string? query, Guid? excludingUserId, int limit, CancellationToken ct)
     {

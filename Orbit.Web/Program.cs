@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.Components.Server.Circuits;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
@@ -13,10 +15,17 @@ using Orbit.Application;
 using Orbit.Application.Messages;
 using Orbit.Application.Services;
 using Orbit.Auth;
+using Orbit.Components;
+using Orbit.Components.Infrastructure;
+using Orbit.Components.Pages.Reports;
+using Orbit.Components.Shared;
+using Orbit.Components.Tasks;
 using Orbit.Data;
 using Orbit.Data.Entities;
 using Orbit.Jobs;
 using Orbit.Mcp;
+using MudBlazor;
+using MudBlazor.Services;
 using Orbit.Scripting;
 using QuestPDF.Infrastructure;
 
@@ -26,7 +35,7 @@ var config = builder.Configuration;
 // --- Data ---------------------------------------------------------------------------------
 var connectionString = config.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
-builder.Services.AddDbContext<ApplicationDbContext>(options => options.UseNpgsql(connectionString));
+builder.Services.AddOrbitDbContext(connectionString); // refused in a Blazor circuit's own scope (CircuitScopeGuard)
 builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 
 builder.Services.Configure<AppOptions>(config.GetSection(AppOptions.Section));
@@ -108,37 +117,31 @@ builder.Services.AddRazorPages(options =>
     {
         options.Conventions.AuthorizeFolder("/");
         options.Conventions.AllowAnonymousToPage("/Error");
-        options.Conventions.AuthorizeFolder("/Admin/Users", Policies.Permission(Permission.UsersManage));
-        options.Conventions.AuthorizeFolder("/Admin/Roles", Policies.Permission(Permission.RolesManage));
-        options.Conventions.AuthorizeFolder("/Admin/Departments", Policies.Permission(Permission.DepartmentsManage));
-        options.Conventions.AuthorizeFolder("/Admin/ApiKeys", Policies.Permission(Permission.ApiKeysManage));
-        options.Conventions.AuthorizeFolder("/Admin/Directory", Policies.Permission(Permission.DirectoryManage));
-        options.Conventions.AuthorizeFolder("/Admin/Agents", Policies.Permission(Permission.AgentsManage));
-        options.Conventions.AuthorizeFolder("/Admin/Nagios", Policies.Permission(Permission.NagiosManage));
-        options.Conventions.AuthorizeFolder("/Admin/Messages", Policies.Permission(Permission.MessagesManage));
-        options.Conventions.AuthorizeFolder("/Admin/Calendar", Policies.Permission(Permission.CalendarManage));
-        options.Conventions.AuthorizeFolder("/Admin/Activity", Policies.Permission(Permission.AuditView));
-        options.Conventions.AuthorizeFolder("/Reports", Policies.Permission(Permission.ReportsView));
-        options.Conventions.AuthorizePage("/Tasks/Create", Policies.Permission(Permission.TasksCreate));
-        options.Conventions.AuthorizePage("/Projects/Create", Policies.Permission(Permission.ProjectsCreate));
-        options.Conventions.AuthorizePage("/Sprints/Create", Policies.Permission(Permission.SprintsManage));
-        options.Conventions.AuthorizePage("/Sprints/Edit", Policies.Permission(Permission.SprintsManage));
-        // Assets (§6.19): the page door opens on the permission at any scope; the services apply the scope.
-        options.Conventions.AuthorizeFolder("/Assets", Policies.Permission(Permission.AssetsView));
-        options.Conventions.AuthorizePage("/Assets/Create", Policies.Permission(Permission.AssetsCreate));
-        options.Conventions.AuthorizePage("/Assets/Edit", Policies.Permission(Permission.AssetsEdit));
-        options.Conventions.AuthorizeFolder("/AssetTypes", Policies.Permission(Permission.AssetsConfigure));
-        options.Conventions.AuthorizeFolder("/AssetLocations", Policies.Permission(Permission.AssetsConfigure));
-        // Requests (§6.20): logging and acting on them, configuring the flows, and the action library - separate folders, so the doors don't stack.
-        options.Conventions.AuthorizeFolder("/Requests", Policies.Permission(Permission.RequestsSubmit));
-        options.Conventions.AuthorizeFolder("/RequestCatalogue", Policies.Permission(Permission.RequestsConfigure));
-        options.Conventions.AuthorizeFolder("/Actions", Policies.Permission(Permission.ActionsCreate));
     })
-    .AddMvcOptions(o =>
-    {
-        o.Filters.Add(new OrbitExceptionPageFilter());
-        o.Filters.Add(new DirectoryAccountPageFilter());
-    });
+    .AddMvcOptions(o => o.Filters.Add(new DirectoryAccountPageFilter()));
+
+// --- Blazor (interactive server, MudBlazor) ----------------------------------------------
+// The pages are components, at the URLs the Razor pages had (spec §6). A circuit's DI scope lasts as long as the browser tab,
+// so components call services only through OrbitRunner, which gives each operation a scope of its own; HttpActorProvider
+// refuses the circuit's own scope (ActorPrincipal.IsCircuit).
+// A bound text box sends its whole value in one message when it changes (and orbit.tokens.insert returns a box's whole text),
+// so SignalR's 32 KB default would drop the connection on a long description or script, losing what was typed. 4 MB is what
+// a Razor form allowed for one field (FormOptions.ValueLengthLimit). The agent hub has its own limit, below.
+builder.Services.AddRazorComponents()
+    .AddInteractiveServerComponents(o => o.DetailedErrors = builder.Environment.IsDevelopment())
+    .AddHubOptions(o => o.MaximumReceiveMessageSize = 4 * 1024 * 1024);
+builder.Services.AddCascadingAuthenticationState();
+builder.Services.AddScoped<AuthenticationStateProvider, OrbitRevalidatingAuthStateProvider>();
+builder.Services.AddScoped<CircuitHandler, CircuitScopeMarker>();
+builder.Services.AddScoped<ActorPrincipal>();
+builder.Services.AddScoped<OrbitRunner>();
+builder.Services.AddScoped<BrowserFilterMemory>();
+builder.Services.AddMudServices(o =>
+{
+    o.SnackbarConfiguration.PositionClass = Defaults.Classes.Position.BottomRight;
+    o.SnackbarConfiguration.VisibleStateDuration = 4000;
+    o.SnackbarConfiguration.ShowCloseIcon = true;
+});
 
 // --- Application services -----------------------------------------------------------------
 builder.Services.AddHttpContextAccessor();
@@ -312,9 +315,14 @@ app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
+app.UseAntiforgery(); // the Blazor endpoints' forms; Razor Pages check their own tokens
 
 app.MapStaticAssets();
 app.MapRazorPages().WithStaticAssets();
+app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
+app.MapTaskClockEndpoint(); // the task page's clock, stopped by the browser's beacon on leaving (§6.10)
+app.MapAttachmentDownloadEndpoint(); // an attachment's file (§6.18)
+app.MapReportPdfEndpoint(); // a report's PDF (§12)
 app.MapMcp("/mcp").RequireAuthorization(Policies.McpApiKey);
 app.MapHub<AgentHub>(AgentProtocol.HubPath); // authorised by [Authorize(Policy = Policies.Agent)] on the hub
 app.MapAgentEndpoints();

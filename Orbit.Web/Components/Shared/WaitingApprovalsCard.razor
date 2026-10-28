@@ -1,0 +1,42 @@
+@* The dashboard's My waiting approvals card (spec §6.9, §6.20): the request approvals asked of the viewer and still open, oldest
+   first, each linking to its request. Shown to a role that can open requests, with a line saying so when nothing waits. *@
+<MudPaper Outlined="true" Class="@(Items.Count > 0 ? "orbit-card orbit-card-primary" : "orbit-card")">
+    <div class="orbit-card-header">
+        <span class="orbit-gap-row">
+            <b>My waiting approvals</b>
+            @if (Items.Count > 0)
+            {
+                <MudChip T="string" Size="Size.Small" Color="Color.Primary">@Items.Count</MudChip>
+            }
+        </span>
+        <a href="/Requests" class="orbit-small">Requests</a>
+    </div>
+    @if (Items.Count == 0)
+    {
+        <div class="orbit-list-item orbit-muted"><i>Nothing is waiting for your approval.</i></div>
+    }
+    @foreach (var w in Items.Take(Shown))
+    {
+        <div class="orbit-list-item orbit-list-row">
+            <div class="orbit-truncate">
+                <a href="@($"/Requests/Request/{w.Request.Id}")" class="orbit-title">@w.Request.Title</a>
+                <div class="orbit-sub">
+                    <span class="orbit-key">@w.Request.Number</span> · @w.Step.FlowStep.Title · logged by @(w.Request.RequesterId == MeId ? "you" : w.Request.Requester.DisplayName)
+                </div>
+            </div>
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" title="@($"Waiting since {Ui.When(w.Since)}")">@Ui.Ago(w.Since)</MudChip>
+        </div>
+    }
+    @if (Items.Count > Shown)
+    {
+        <div class="orbit-list-item orbit-small"><a href="/Requests">@(Items.Count - Shown) more on the Requests page</a></div>
+    }
+</MudPaper>
+
+@code {
+    /// <summary>How many rows the card lists before it links to the Requests page for the rest.</summary>
+    private const int Shown = 8;
+
+    [Parameter, EditorRequired] public IReadOnlyList<RequestActionItem> Items { get; set; } = [];
+    [Parameter] public Guid? MeId { get; set; }
+}

@@ -47,10 +47,10 @@ public class NavigationTests
         // Configuring request flows and the action library are in the Admin menu, not the main one.
         var configurer = TestActors.Grants(Finance, (Permission.RequestsConfigure, PermissionScope.Department));
         Assert.Equal(["Dashboard"], Menu(configurer));
-        Assert.Equal("/RequestCatalogue/Index", Navigation.AdminVisible(configurer).Single().Page);
+        Assert.Equal("/RequestCatalogue", Navigation.AdminVisible(configurer).Single().Href);
         var scripter = TestActors.Grants(null, (Permission.ActionsCreate, PermissionScope.All));
         Assert.Equal(["Dashboard"], Menu(scripter));
-        Assert.Equal("/Actions/Index", Navigation.AdminVisible(scripter).Single().Page);
+        Assert.Equal("/Actions", Navigation.AdminVisible(scripter).Single().Href);
     }
 
     /// <summary>NAV-003: taking one permission away takes its items - planning takes Backlog and Sprints, editing Today and My Tasks.</summary>
@@ -89,5 +89,21 @@ public class NavigationTests
         Assert.False(DashboardService.IsViewOnly(TestActors.Member(Finance)));
         Assert.Equal(PermissionScope.Own, DashboardService.DashboardTier(TestActors.Member(Finance)));
         Assert.False(DashboardService.IsViewOnly(TestActors.Nobody(Finance)));
+    }
+
+    /// <summary>
+    /// NAV-005: a menu item holds the URL its page answers on, never a page name (§6, decision 111): the dashboard is "/", a
+    /// list is its folder, and any other page is its own path.
+    /// </summary>
+    [Fact]
+    public void Menu_links_are_the_urls_the_pages_answer_on()
+    {
+        var hrefs = Navigation.Main.Concat(Navigation.Admin).ToDictionary(i => i.Label, i => i.Href);
+        Assert.Equal("/", hrefs["Dashboard"]);
+        Assert.Equal("/Today", hrefs["Today"]);
+        Assert.Equal("/Tasks/My", hrefs["My Tasks"]);
+        Assert.Equal("/Tasks", hrefs["Tasks"]);
+        Assert.Equal("/Admin/Users", hrefs["Users"]);
+        Assert.All(hrefs.Values, h => Assert.DoesNotContain("/Index", h));
     }
 }

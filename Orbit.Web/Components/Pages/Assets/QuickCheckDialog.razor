@@ -1,0 +1,151 @@
+@inherits OrbitComponentBase
+@inject IJSRuntime JS
+@* Quick check (spec §6.19): scan or type a serial number (or ERP asset number) and press Enter - a scanner sends it - and today's
+   OK check is recorded on the asset. The box clears and keeps focus for the next scan; scans are recorded one at a time, in scan
+   order, so a double scan's second one sees the first ("Already checked today"). A serial on several assets offers "Check this
+   one" for each. A choice or a refusal sounds a short tone. Closing says whether anything was recorded, so the list can refresh. *@
+@* The dialog focuses its first field, the scan box, so the first scan isn't lost. *@
+<MudDialog DefaultFocus="DefaultFocus.FirstChild">
+    <DialogContent>
+        <MudTextField T="string" @bind-Value="_scan" Label="Serial number" Variant="Variant.Outlined" Immediate="true"
+                      MaxLength="100" OnKeyDown="KeyDownAsync" Class="orbit-scan" autocomplete="off" spellcheck="false"
+                      HelperText="Scan or type a serial number (or ERP asset number) and press Enter. Each one records today's OK check on the asset; to record an issue, use the asset's own page." />
+        <div class="orbit-small orbit-muted my-2">@Summary</div>
+        <div class="orbit-sr-only" role="status" aria-live="polite">@_said</div>
+        <div class="orbit-scan-log">
+            @foreach (var entry in _log)
+            {
+                <div class="orbit-list-item" @key="entry">
+                    <div class="orbit-gap-row">
+                        <MudChip T="string" Size="Size.Small" Color="entry.Color">@entry.Badge</MudChip>
+                        <span class="orbit-key">@entry.Scanned</span>
+                        @if (entry.Message is not null) { <span class="orbit-muted">@entry.Message</span> }
+                        @if (entry.State != "choose" && entry.Assets.Count > 0)
+                        {
+                            <a href="@($"/Assets/Details/{entry.Assets[0].Id}")" target="_blank" rel="noopener" class="orbit-title">@Label(entry.Assets[0])</a>
+                        }
+                    </div>
+                    @if (entry.State == "choose")
+                    {
+                        @foreach (var a in entry.Assets)
+                        {
+                            var asset = a;
+                            <div class="orbit-gap-row mt-1 ml-4">
+                                <a href="@($"/Assets/Details/{asset.Id}")" target="_blank" rel="noopener" class="orbit-title">@Label(asset)</a>
+                                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" OnClick="() => ChooseAsync(entry, asset)">Check this one</MudButton>
+                            </div>
+                        }
+                    }
+                </div>
+            }
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Done">Done</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = null!;
+
+    private sealed class Entry
+    {
+        public required string Scanned { get; init; }
+        public string State { get; set; } = "pending";
+        public string Badge { get; set; } = "Checking";
+        public Color Color { get; set; } = Color.Default;
+        public string? Message { get; set; }
+        public IReadOnlyList<AssetRef> Assets { get; set; } = [];
+    }
+
+    private string? _scan;
+    private string? _said;
+    private readonly List<Entry> _log = [];
+    // Scans are recorded one at a time, in scan order.
+    private readonly SemaphoreSlim _queue = new(1, 1);
+    private bool _recordedAny;
+
+    private static string Label(AssetRef a) => Orbit.Application.Assets.AssetRules.Label(a.AssetNumber, a.Name);
+
+    private string Summary
+    {
+        get
+        {
+            if (_log.Count == 0) return "Nothing scanned yet.";
+            int Count(string state) => _log.Count(e => e.State == state);
+            var parts = new List<string> { $"{Count("recorded")} recorded" };
+            if (Count("already") > 0) parts.Add($"{Count("already")} already checked");
+            if (Count("choose") > 0) parts.Add($"{Count("choose")} to choose");
+            if (Count("error") > 0) parts.Add($"{Count("error")} {(Count("error") == 1 ? "problem" : "problems")}");
+            if (Count("pending") > 0) parts.Add($"{Count("pending")} checking");
+            return string.Join(" · ", parts);
+        }
+    }
+
+    private async Task KeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter") return;
+        var scanned = _scan?.Trim();
+        _scan = null;
+        if (string.IsNullOrEmpty(scanned)) return;
+        var entry = new Entry { Scanned = scanned };
+        _log.Insert(0, entry);
+        await RecordAsync(entry, s => s.Get<AssetService>().QuickCheckAsync(scanned));
+    }
+
+    private async Task ChooseAsync(Entry entry, AssetRef asset) =>
+        await RecordAsync(entry, s => s.Get<AssetService>().QuickCheckAssetAsync(asset.Id));
+
+    private async Task RecordAsync(Entry entry, Func<IServiceProvider, Task<QuickCheckResult>> check)
+    {
+        await _queue.WaitAsync();
+        try
+        {
+            QuickCheckResult? result = null;
+            string? refusal = null;
+            try
+            {
+                result = await Runner.RunAsync(check);
+            }
+            catch (OrbitException ex)
+            {
+                refusal = ex.Message;
+            }
+            Show(entry, result, refusal);
+        }
+        finally
+        {
+            _queue.Release();
+        }
+        if (entry.State is "choose" or "error") await JS.InvokeVoidAsync("orbit.beep");
+    }
+
+    private void Show(Entry entry, QuickCheckResult? result, string? refusal)
+    {
+        entry.Assets = result?.Assets ?? [];
+        switch (result?.Status)
+        {
+            case QuickCheckStatus.Recorded:
+                _recordedAny = true;
+                (entry.State, entry.Badge, entry.Color, entry.Message) = ("recorded", "OK", Color.Success, "check recorded:");
+                _said = $"Checked {Label(entry.Assets[0])}.";
+                break;
+            case QuickCheckStatus.AlreadyChecked:
+                (entry.State, entry.Badge, entry.Color, entry.Message) = ("already", "Already checked today", Color.Secondary, null);
+                _said = $"{Label(entry.Assets[0])} was already checked today.";
+                break;
+            case QuickCheckStatus.ChooseAsset:
+                (entry.State, entry.Badge, entry.Color) = ("choose", "Choose", Color.Warning);
+                entry.Message = $"{entry.Assets.Count} assets have this serial number. Which one did you scan?";
+                _said = $"{entry.Assets.Count} assets have the serial number {entry.Scanned}. Choose one.";
+                break;
+            default:
+                (entry.State, entry.Badge, entry.Color) = ("error", "Not checked", Color.Error);
+                entry.Message = refusal ?? "Something went wrong.";
+                _said = $"Not checked: {entry.Message}";
+                break;
+        }
+    }
+
+    private void Done() => Dialog.Close(DialogResult.Ok(_recordedAny));
+}

@@ -1,0 +1,181 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject OrbitRunner Runner
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject ILogger<MainLayout> Log
+@* The Blazor shell (spec §6). The menu follows the actor's grants (Navigation, §6.5), re-read from the database whenever the
+   page changes, as the Razor layout was per request; a change of a list's filters, which changes only the query, doesn't re-read
+   it. A deactivated account gets no menu. A failed read keeps the menu as it was and is tried again on the next page. *@
+
+<MudThemeProvider Theme="OrbitTheme.Theme" IsDarkMode="_dark" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="0" Dense="true" Class="orbit-appbar">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" Class="d-flex d-lg-none"
+                       aria-label="Menu" OnClick="() => _drawer = !_drawer" />
+        <a href="/" class="orbit-brand">Orbit</a>
+        <nav class="d-none d-lg-flex align-center orbit-topnav" aria-label="Main">
+            @foreach (var item in _menu)
+            {
+                <a href="@item.Href" class="@NavClass(item)">@item.Label</a>
+            }
+            @if (_adminMenu.Count > 0)
+            {
+                <MudMenu Label="Admin" EndIcon="@Icons.Material.Filled.ArrowDropDown" Color="Color.Inherit" Dense="true"
+                         Class="@(IsAdminActive ? "orbit-topnav-menu active" : "orbit-topnav-menu")">
+                    @foreach (var item in _adminMenu)
+                    {
+                        <MudMenuItem Href="@item.Href">@item.Label</MudMenuItem>
+                    }
+                </MudMenu>
+            }
+        </nav>
+        <MudSpacer />
+        <MudIconButton Icon="@(_dark ? Icons.Material.Outlined.LightMode : Icons.Material.Outlined.DarkMode)" Color="Color.Inherit"
+                       aria-label="@ThemeLabel" title="@ThemeLabel" OnClick="ToggleThemeAsync" />
+        @if (_actor is not null)
+        {
+            <MudMenu Color="Color.Inherit" Dense="true" AriaLabel="Account">
+                <ActivatorContent>
+                    <MudButton Color="Color.Inherit" Variant="Variant.Text" EndIcon="@Icons.Material.Filled.ArrowDropDown" Class="orbit-account"
+                               OnClick="@context.ToggleAsync">
+                        <span class="d-none d-sm-inline">@_actor.DisplayName</span>
+                        <MudIcon Icon="@Icons.Material.Outlined.AccountCircle" Class="d-sm-none" />
+                        @if (_actor.Role is { } role)
+                        {
+                            <span class="orbit-role d-none d-md-inline">@role.Name</span>
+                        }
+                    </MudButton>
+                </ActivatorContent>
+                <ChildContent>
+                    <MudMenuItem Href="/Identity/Account/Manage" ForceLoad="true" Icon="@Icons.Material.Outlined.ManageAccounts">Manage account</MudMenuItem>
+                    @* A plain form post to the Identity logout page, as the Razor layout's Logout button is. *@
+                    <form method="post" action="/Identity/Account/Logout?returnUrl=%2F" class="orbit-signout">
+                        <input type="hidden" name="__RequestVerificationToken" value="@Shell.RequestToken" />
+                        <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Text" FullWidth="true" StartIcon="@Icons.Material.Outlined.Logout">Sign out</MudButton>
+                    </form>
+                </ChildContent>
+            </MudMenu>
+        }
+    </MudAppBar>
+
+    <MudDrawer @bind-Open="_drawer" Variant="DrawerVariant.Temporary" Anchor="Anchor.Start" Elevation="2">
+        <MudNavMenu>
+            @foreach (var item in _menu)
+            {
+                <MudNavLink Href="@item.Href" Match="@(item.Href == "/" ? NavLinkMatch.All : NavLinkMatch.Prefix)">@item.Label</MudNavLink>
+            }
+            @if (_adminMenu.Count > 0)
+            {
+                <MudNavGroup Title="Admin" Expanded="IsAdminActive">
+                    @foreach (var item in _adminMenu)
+                    {
+                        <MudNavLink Href="@item.Href" Match="NavLinkMatch.Prefix">@item.Label</MudNavLink>
+                    }
+                </MudNavGroup>
+            }
+        </MudNavMenu>
+    </MudDrawer>
+
+    <MudMainContent>
+        <div class="orbit-page">
+            @Body
+        </div>
+    </MudMainContent>
+</MudLayout>
+
+@code {
+    [CascadingParameter] private ShellContext Shell { get; set; } = null!;
+
+    private Actor? _actor;
+    private IReadOnlyList<NavItem> _menu = [];
+    private IReadOnlyList<NavItem> _adminMenu = [];
+    private bool _drawer;
+    private bool _dark;
+    /// <summary>The page the menu was last read for; null when the last read failed, so the next navigation reads it again.</summary>
+    private string? _menuPath;
+
+    private string ThemeLabel => _dark ? "Switch to light theme" : "Switch to dark theme";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _dark = Shell.Theme == "dark";
+        Nav.LocationChanged += OnLocationChanged;
+        await LoadMenuAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // No theme cookie yet: take the one the Razor pages remembered, or the OS preference, and remember it as a cookie.
+        if (firstRender && Shell.Theme is null)
+        {
+            var theme = await JS.InvokeAsync<string>("orbit.theme.current");
+            if (theme == "dark" != _dark)
+            {
+                _dark = theme == "dark";
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task LoadMenuAsync()
+    {
+        var path = CurrentPath;
+        try
+        {
+            _actor = await Runner.RunAsync(s => s.Get<IActorProvider>().GetAsync());
+        }
+        catch (ForbiddenException)
+        {
+            _actor = null;
+        }
+        catch (Exception ex)
+        {
+            // A passing database or network fault: keep the menu as it was rather than take the page down with it (this runs from
+            // an event handler, where an exception ends the circuit), and read it again on the next page.
+            Log.LogWarning(ex, "Couldn't read the menu's user for {Path}; keeping the menu as it was.", path);
+            _menuPath = null;
+            return;
+        }
+        _menuPath = path;
+        _menu = _actor is null ? [] : Navigation.Visible(_actor);
+        _adminMenu = _actor is null ? [] : Navigation.AdminVisible(_actor);
+    }
+
+    private async void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        _drawer = false;
+        await InvokeAsync(async () =>
+        {
+            // Only a new page re-reads the menu: a filter pick or a search keystroke changes only the query.
+            if (!string.Equals(CurrentPath, _menuPath, StringComparison.OrdinalIgnoreCase)) await LoadMenuAsync();
+            StateHasChanged();
+        });
+    }
+
+    private async Task ToggleThemeAsync()
+    {
+        _dark = !_dark;
+        await JS.InvokeVoidAsync("orbit.theme.set", _dark ? "dark" : "light");
+    }
+
+    private string CurrentPath => "/" + Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0];
+
+    /// <summary>The menu item the current page belongs to: the longest link the path starts with ("/Tasks/My" over "/Tasks").</summary>
+    private NavItem? Current => _menu.Concat(_adminMenu)
+        .Where(i => i.Href == "/" ? CurrentPath == "/" : IsUnder(CurrentPath, i.Href))
+        .MaxBy(i => i.Href.Length);
+
+    private static bool IsUnder(string path, string href) =>
+        path.StartsWith(href, StringComparison.OrdinalIgnoreCase) && (path.Length == href.Length || path[href.Length] == '/');
+
+    private bool IsAdminActive => Current is { } c && _adminMenu.Contains(c);
+
+    private string NavClass(NavItem item) => Current == item ? "orbit-topnav-link active" : "orbit-topnav-link";
+
+    public void Dispose() => Nav.LocationChanged -= OnLocationChanged;
+}

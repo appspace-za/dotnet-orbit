@@ -117,7 +117,7 @@ public class PermissionCatalogTests
         Assert.Contains(Permission.NagiosManage, PermissionCatalog.AdminPermissions);
         var monitor = TestActors.Grants(null, (Permission.NagiosManage, PermissionScope.All));
         Assert.True(AccessPolicy.CanManageNagios(monitor));
-        Assert.Equal("/Admin/Nagios/Index", Navigation.AdminVisible(monitor).Single().Page);
+        Assert.Equal("/Admin/Nagios", Navigation.AdminVisible(monitor).Single().Href);
     }
 
     /// <summary>MSG-013: managing messages is company-wide only, opens its own Admin item, is held by no shipped role, and is not reserved to the built-in role (spec §6.7).</summary>
@@ -133,7 +133,7 @@ public class PermissionCatalogTests
         Assert.DoesNotContain(Permission.MessagesManage, DefaultRoles.DepartmentAdminGrants.Keys);
         var editor = TestActors.Grants(null, (Permission.MessagesManage, PermissionScope.All));
         Assert.True(AccessPolicy.CanManageMessages(editor));
-        Assert.Equal("/Admin/Messages/Index", Navigation.AdminVisible(editor).Single().Page);
+        Assert.Equal("/Admin/Messages", Navigation.AdminVisible(editor).Single().Href);
     }
 
     [Fact]

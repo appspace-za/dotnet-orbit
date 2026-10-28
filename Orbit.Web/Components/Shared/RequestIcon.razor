@@ -1,0 +1,9 @@
+@* A request category's icon (spec §6.20) as a decorative inline SVG in the current text colour (RequestIcons); an unknown name
+   draws the default icon. *@
+@((MarkupString)RequestIcons.SvgText(Name, Size, Class))
+
+@code {
+    [Parameter] public string? Name { get; set; }
+    [Parameter] public int Size { get; set; } = 16;
+    [Parameter] public string? Class { get; set; }
+}
