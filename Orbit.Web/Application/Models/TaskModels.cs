@@ -14,14 +14,11 @@ public sealed class TaskFilter
     /// <summary>Only tasks with no assignee - work nobody has picked up yet. Takes precedence over <see cref="AssigneeId"/>.</summary>
     public bool Unassigned { get; set; }
     /// <summary>
-    /// Only tasks created for this person - their requestee (§6.2.2). It also widens a Department view scope to every task the
-    /// caller may open (<see cref="Scoping.TasksIncludingOwn"/>), so "Requestee: me" finds one another department holds.
+    /// Only tasks created for this person - their requestee (§6.2.2). "Requestee: me" finds one another department holds too,
+    /// since a person's lists include their own tasks wherever they are filed (<see cref="Scoping.Tasks"/>).
     /// </summary>
     public Guid? RequesteeId { get; set; }
-    /// <summary>
-    /// Only tasks with no requestee - created for nobody else (§6.2.2). Takes precedence over <see cref="RequesteeId"/>, and
-    /// doesn't widen the view scope as a requestee does.
-    /// </summary>
+    /// <summary>Only tasks with no requestee - created for nobody else (§6.2.2). Takes precedence over <see cref="RequesteeId"/>.</summary>
     public bool NoRequestee { get; set; }
     public TaskPriority? Priority { get; set; }
     public TaskType? Type { get; set; }

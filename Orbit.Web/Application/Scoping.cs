@@ -10,9 +10,11 @@ namespace Orbit.Application;
 public static class Scoping
 {
     /// <summary>
-    /// Tasks the actor may see (<c>tasks.view</c>). Own = assigned to, created by or created for the actor (the requestee, §6.2.2).
-    /// Department lists the actor's department only - their own tasks filed elsewhere are left out of the lists (decision 52); see
-    /// <see cref="TasksIncludingOwn"/>.
+    /// Tasks the actor may see (<c>tasks.view</c>), exactly what <see cref="AccessPolicy.CanViewTask"/> lets a person open (§6.5).
+    /// Own = assigned to, created by or created for the actor (the requestee, §6.2.2). Department = the actor's department, plus a
+    /// person's own tasks filed in other departments (decision 97), so a task another department holds for them is in their lists.
+    /// An API key stays within its department: every key acts as the same synthetic Claude user, so its "own" tasks would be every
+    /// task any key created, anywhere.
     /// </summary>
     public static IQueryable<TaskItem> Tasks(IQueryable<TaskItem> q, Actor actor)
     {
@@ -21,29 +23,13 @@ public static class Scoping
         return actor.ScopeOf(Permission.TasksView) switch
         {
             PermissionScope.All => q,
-            PermissionScope.Department => q.Where(t => t.DepartmentId == dept),
+            PermissionScope.Department => me is null || actor.Type != ActorType.User
+                ? q.Where(t => t.DepartmentId == dept)
+                : q.Where(t => t.DepartmentId == dept || t.Assignments.Any(x => x.UserId == me) || t.CreatedById == me || t.RequesteeId == me),
             PermissionScope.Own => me is null
                 ? q.Where(t => false)
                 : q.Where(t => t.Assignments.Any(x => x.UserId == me) || t.CreatedById == me || t.RequesteeId == me),
             _ => q.Where(t => false)
-        };
-    }
-
-    /// <summary>
-    /// Every task the actor may open (<c>tasks.view</c>, exactly what <see cref="AccessPolicy.CanViewTask"/> allows): as
-    /// <see cref="Tasks"/>, but at Department scope also the actor's own tasks filed in other departments - assigned to, created by
-    /// or created for them. Used only by the Requestee filter (§6.2.2), so "Requestee: me" finds a task another department holds
-    /// for them; the plain lists, the dashboard and the backlog stay department-only.
-    /// </summary>
-    public static IQueryable<TaskItem> TasksIncludingOwn(IQueryable<TaskItem> q, Actor actor)
-    {
-        var dept = actor.DepartmentId;
-        var me = actor.UserId;
-        return actor.ScopeOf(Permission.TasksView) switch
-        {
-            PermissionScope.Department when me is not null =>
-                q.Where(t => t.DepartmentId == dept || t.Assignments.Any(x => x.UserId == me) || t.CreatedById == me || t.RequesteeId == me),
-            _ => Tasks(q, actor)
         };
     }
 

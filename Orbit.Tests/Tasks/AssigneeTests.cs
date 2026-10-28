@@ -78,12 +78,12 @@ public class AssigneeTests
         Assert.Equal(["elsewhere-shared", "shared"], Titles(Scoping.Tasks(tasks.AsQueryable(), Viewer(PermissionScope.Own, me))));
         Assert.Equal(["elsewhere-shared", "shared", "theirs"], Titles(Scoping.Tasks(tasks.AsQueryable(), Viewer(PermissionScope.Own, colleague))));
         Assert.Equal(["elsewhere-shared", "nobody", "shared", "theirs"],
-            Titles(Scoping.TasksIncludingOwn(tasks.AsQueryable(), Viewer(PermissionScope.Department, me))));
+            Titles(Scoping.Tasks(tasks.AsQueryable(), Viewer(PermissionScope.Department, me))));
 
         foreach (var scope in new[] { PermissionScope.Own, PermissionScope.Department, PermissionScope.All })
         {
             var viewer = Viewer(scope, me);
-            Assert.Equal(Titles(tasks.Where(t => AccessPolicy.CanViewTask(viewer, t))), Titles(Scoping.TasksIncludingOwn(tasks.AsQueryable(), viewer)));
+            Assert.Equal(Titles(tasks.Where(t => AccessPolicy.CanViewTask(viewer, t))), Titles(Scoping.Tasks(tasks.AsQueryable(), viewer)));
         }
 
         var definitions = new List<RecurringTaskDefinition>

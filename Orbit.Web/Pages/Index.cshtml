@@ -6,9 +6,9 @@
     var actor = d.Actor;
     var returnUrl = "/";
     var sprintPct = d.SprintTotal == 0 ? 0 : (int)Math.Round(d.SprintDone * 100.0 / d.SprintTotal);
-    var openVm = new TaskRowsVm { Tasks = d.OpenTasks, Actor = actor, ReturnUrl = returnUrl, ShowDepartment = d.IsCompanyTier, EmptyMessage = "Nothing open. Nice.", Today = d.Today };
-    var myVm = new TaskRowsVm { Tasks = d.MyOpenTasks, Actor = actor, ReturnUrl = returnUrl, ShowDepartment = false, ShowAssignee = false, EmptyMessage = "No tasks assigned to you.", Today = d.Today };
-    var sprintVm = new TaskRowsVm { Tasks = d.SprintTasks, Actor = actor, ReturnUrl = returnUrl, ShowDepartment = d.IsCompanyTier, EmptyMessage = d.IsPersonalTier ? "None of your tasks are in this sprint." : "No tasks in this sprint yet.", Today = d.Today };
+    var openVm = new TaskRowsVm { Tasks = d.OpenTasks, Actor = actor, ReturnUrl = returnUrl, ShowDepartment = TaskRowsVm.MixesDepartments(actor, d.OpenTasks), EmptyMessage = "Nothing open. Nice.", Today = d.Today };
+    var myVm = new TaskRowsVm { Tasks = d.MyOpenTasks, Actor = actor, ReturnUrl = returnUrl, ShowDepartment = TaskRowsVm.MixesDepartments(actor, d.MyOpenTasks), ShowAssignee = false, EmptyMessage = "No tasks assigned to you.", Today = d.Today };
+    var sprintVm = new TaskRowsVm { Tasks = d.SprintTasks, Actor = actor, ReturnUrl = returnUrl, ShowDepartment = TaskRowsVm.MixesDepartments(actor, d.SprintTasks), EmptyMessage = d.IsPersonalTier ? "None of your tasks are in this sprint." : "No tasks in this sprint yet.", Today = d.Today };
     var grabsVm = new TaskRowsVm { Tasks = d.UpForGrabs, Actor = actor, ReturnUrl = returnUrl, ShowDepartment = false, EmptyMessage = "Nothing unassigned in your department right now.", Today = d.Today };
 }
 

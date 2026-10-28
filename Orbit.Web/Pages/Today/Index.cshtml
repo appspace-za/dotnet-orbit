@@ -7,7 +7,7 @@
     TaskRowsVm Rows(IReadOnlyList<TaskItem> list, string? selectionFormId = null) => new()
     {
         Tasks = list, Actor = Model.Actor, ReturnUrl = returnUrl, Today = Model.Today,
-        ShowDepartment = Model.Actor.CanAnywhere(Permission.TasksView), ShowSprint = true, ShowPlanToday = true, ShowEstimate = true,
+        ShowDepartment = TaskRowsVm.MixesDepartments(Model.Actor, list), ShowSprint = true, ShowPlanToday = true, ShowEstimate = true,
         QuickEditAssignees = Model.QuickEditAssignees, SelectionFormId = selectionFormId, Waiting = Model.Waiting,
         CarryOvers = plan.CarryOvers
     };

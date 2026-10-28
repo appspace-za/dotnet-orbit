@@ -77,13 +77,10 @@ public sealed class TaskService(
         return new PagedResult<TaskItem>(items, page, pageSize, total);
     }
 
-    /// <summary>
-    /// The actor's tasks.view scope (§6.5), then the optional department filter within it. A requestee filter (§6.2.2) lists every
-    /// task the actor may open, their own ones in other departments included; "no requestee" doesn't.
-    /// </summary>
+    /// <summary>The actor's tasks.view scope (§6.5), then the optional department filter within it.</summary>
     private static IQueryable<TaskItem> Scope(IQueryable<TaskItem> q, Actor actor, TaskFilter f)
     {
-        q = f.RequesteeId is null || f.NoRequestee ? Scoping.Tasks(q, actor) : Scoping.TasksIncludingOwn(q, actor);
+        q = Scoping.Tasks(q, actor);
         return f.DepartmentId is Guid d ? q.Where(t => t.DepartmentId == d) : q;
     }
 

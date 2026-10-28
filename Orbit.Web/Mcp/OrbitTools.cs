@@ -128,7 +128,7 @@ public sealed class OrbitTools(
         "List tasks with optional filters. Paginated. The key sees the tasks within its role's View tasks scope - its own tasks, " +
         "its department, or every department; a key whose scope is all departments can filter by departmentId or omit it for all. " +
         "Pass plannedFor = \"today\" to see the team's day plan - the tasks picked in the morning scrum to work on today. " +
-        "requesteeId lists the tasks created for one person - including, for a department-scoped key, the key's own tasks filed in other departments.")]
+        "requesteeId lists the tasks created for one person, within the same scope.")]
     public Task<string> ListTasks(
         [Description("Filter by project id (GUID), or \"none\" for the tasks on no project - standalone tasks.")] string? projectId = null,
         [Description("Filter by department id (GUID). Only useful for a key that sees every department.")] string? departmentId = null,

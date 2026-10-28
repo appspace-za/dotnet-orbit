@@ -41,6 +41,13 @@ public sealed class TaskRowsVm
     public IReadOnlyDictionary<Guid, int>? CarryOvers { get; init; }
     public string? EmptyMessage { get; init; }
     public DateOnly Today { get; init; } = DateOnly.FromDateTime(DateTime.UtcNow);
+
+    /// <summary>
+    /// Whether a task list needs its Department column: always for a viewer who sees every department, otherwise when a row is
+    /// filed outside the viewer's department - their own tasks elsewhere, which a department's lists include (§6.5).
+    /// </summary>
+    public static bool MixesDepartments(Actor actor, IEnumerable<TaskItem> tasks) =>
+        actor.CanAnywhere(Permission.TasksView) || tasks.Any(t => t.DepartmentId != actor.DepartmentId);
 }
 
 /// <summary>

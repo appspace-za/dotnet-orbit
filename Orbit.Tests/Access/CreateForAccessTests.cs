@@ -135,17 +135,16 @@ public class CreateForAccessTests
     private static string[] Titles(IEnumerable<TaskItem> tasks) => tasks.Select(t => t.Title).OrderBy(t => t).ToArray();
 
     /// <summary>
-    /// OBO-005: Own lists include the tasks created for you; the department lists stay department-only (decision 52); the
-    /// Requestee filter's scope is exactly what the actor may open.
+    /// OBO-005: Own lists include the tasks created for you; so do the department lists, wherever those tasks are filed
+    /// (decision 97); every list is exactly what the person may open.
     /// </summary>
     [Fact]
     public void Lists_include_the_requestees_tasks_as_far_as_they_may_open_them()
     {
         Assert.Equal(new[] { "fin-for-me", "it-assigned", "it-created", "it-for-me" },
             Titles(Scoping.Tasks(Tasks.AsQueryable(), Viewer(PermissionScope.Own, Finance))));
-        Assert.Equal(new[] { "fin-for-me", "fin-other" }, Titles(Scoping.Tasks(Tasks.AsQueryable(), Viewer(PermissionScope.Department, Finance))));
         Assert.Equal(new[] { "fin-for-me", "fin-other", "it-assigned", "it-created", "it-for-me" },
-            Titles(Scoping.TasksIncludingOwn(Tasks.AsQueryable(), Viewer(PermissionScope.Department, Finance))));
+            Titles(Scoping.Tasks(Tasks.AsQueryable(), Viewer(PermissionScope.Department, Finance))));
 
         foreach (var viewer in new[]
                  {
@@ -153,7 +152,7 @@ public class CreateForAccessTests
                      Viewer(PermissionScope.Own, Finance), Viewer(PermissionScope.None, Finance)
                  })
         {
-            Assert.Equal(Titles(Tasks.Where(t => AccessPolicy.CanViewTask(viewer, t))), Titles(Scoping.TasksIncludingOwn(Tasks.AsQueryable(), viewer)));
+            Assert.Equal(Titles(Tasks.Where(t => AccessPolicy.CanViewTask(viewer, t))), Titles(Scoping.Tasks(Tasks.AsQueryable(), viewer)));
         }
     }
 

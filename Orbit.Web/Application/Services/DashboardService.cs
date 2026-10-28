@@ -41,7 +41,7 @@ public sealed class DashboardService(ApplicationDbContext db, IActorProvider act
         var scopeLabel = tier switch
         {
             PermissionScope.All => "Open tasks across the company",
-            PermissionScope.Department => "Open tasks in your department",
+            PermissionScope.Department => "Open tasks in your department, and yours elsewhere",
             _ => personal ? "My open tasks" : "Open tasks you raised, requested or are assigned"
         };
 

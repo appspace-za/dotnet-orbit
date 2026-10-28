@@ -70,7 +70,8 @@ A user or API key has one **role**; a role is a set of **permissions**, each gra
 Roles are edited under **Admin > Roles**. The built-in **System Administrator** role holds every permission for
 all departments and can't be edited or deleted; **Member** and **Department Admin** ship with the grants below
 and can be changed like any other role. Scopes: *Own* = tasks assigned to you (alone or with others), created by or
-created for you, projects you own, your own time; *Department* = everything in your department; *All* = every department. A grant covers the
+created for you, projects you own, your own time; *Department* = everything in your department, and for tasks also
+your own tasks that other departments hold (an API key's lists stay in its department); *All* = every department. A grant covers the
 scopes below it, and a role with no grants sees nothing.
 
 | Permission | Scopes | What it gates | Member | Dept Admin |
@@ -155,8 +156,9 @@ others** above Own, the task form shows a Requestee field under Assignees: anyon
 anyone at All (which badges the role company-wide). The requestee is emailed (as shipped - see
 [Messages](#messages)) and the task counts as their own, so they can open, edit and plan it as its creator can,
 wherever it is filed. The edit form changes or clears the
-requestee, if your reach covers both the old and the new person. The Tasks list's **Requestee** filter (*Me* first)
-also finds your tasks that other departments hold. The shipped roles hold the permission at Own, so an admin gives
+requestee, if your reach covers both the old and the new person. The task lists include your own tasks that other
+departments hold - a request flow's task filed for you, say - with a Department column to tell them apart, and the
+Tasks list's **Requestee** filter (*Me* first) narrows to the tasks created for one person. The shipped roles hold the permission at Own, so an admin gives
 Department or All to the roles that need it (a helpdesk, a PA, a team lead).
 
 Setting a task assigned to you to **Done** in the web UI (the status control on the task page, a task list or the

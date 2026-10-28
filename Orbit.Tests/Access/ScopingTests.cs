@@ -1,4 +1,5 @@
 using Orbit.Application;
+using Orbit.Data;
 using Orbit.Data.Entities;
 
 namespace Orbit.Tests.Access;
@@ -28,16 +29,42 @@ public class ScopingTests
     public void Tasks_all_department_own_none()
     {
         Assert.Equal(new[] { "it-created", "it-mine", "it-other", "mk-mine", "mk-other" }, Titles(Scoping.Tasks(Tasks.AsQueryable(), Viewer(PermissionScope.All))));
-        Assert.Equal(new[] { "it-created", "it-mine", "it-other" }, Titles(Scoping.Tasks(Tasks.AsQueryable(), Viewer(PermissionScope.Department))));
+        // Department: the viewer's department, plus their own task filed in Marketing (decision 97).
+        Assert.Equal(new[] { "it-created", "it-mine", "it-other", "mk-mine" }, Titles(Scoping.Tasks(Tasks.AsQueryable(), Viewer(PermissionScope.Department))));
         Assert.Equal(new[] { "it-created", "it-mine", "mk-mine" }, Titles(Scoping.Tasks(Tasks.AsQueryable(), Viewer(PermissionScope.Own))));
         Assert.Empty(Scoping.Tasks(Tasks.AsQueryable(), Viewer(PermissionScope.None)));
     }
 
     [Fact]
-    public void A_department_less_viewer_at_department_scope_sees_nothing()
+    public void A_department_less_viewer_at_department_scope_sees_only_their_own()
     {
         var homeless = TestActors.With(new Dictionary<string, PermissionScope> { [Permission.TasksView] = PermissionScope.Department }, null, userId: Me);
-        Assert.Empty(Scoping.Tasks(Tasks.AsQueryable(), homeless));
+        Assert.Equal(new[] { "it-created", "it-mine", "mk-mine" }, Titles(Scoping.Tasks(Tasks.AsQueryable(), homeless)));
+    }
+
+    /// <summary>
+    /// SCP-001: a department's task lists are exactly what a person may open - their department's tasks and their own anywhere - but
+    /// an API key's stay within its department, since every key acts as the same synthetic Claude user (§6.5, decision 97).
+    /// </summary>
+    [Fact]
+    public void Department_lists_match_what_a_person_may_open_but_a_key_stays_in_its_department()
+    {
+        foreach (var scope in new[] { PermissionScope.None, PermissionScope.Own, PermissionScope.Department, PermissionScope.All })
+        {
+            var viewer = Viewer(scope);
+            Assert.Equal(Titles(Tasks.Where(t => AccessPolicy.CanViewTask(viewer, t))), Titles(Scoping.Tasks(Tasks.AsQueryable(), viewer)));
+        }
+
+        var keyTasks = new List<TaskItem>
+        {
+            new() { Title = "it-by-a-key", DepartmentId = It, CreatedById = WellKnownIds.ClaudeAgentUserId, Assignments = Assigned.To() },
+            new() { Title = "mk-by-a-key", DepartmentId = Marketing, CreatedById = WellKnownIds.ClaudeAgentUserId, Assignments = Assigned.To() },
+            new() { Title = "it-other", DepartmentId = It, CreatedById = Guid.NewGuid(), Assignments = Assigned.To() }
+        };
+        var grants = new Dictionary<string, PermissionScope> { [Permission.TasksView] = PermissionScope.Department };
+        var key = new Actor(WellKnownIds.ClaudeAgentUserId, WellKnownIds.ClaudeAgentDisplayName,
+            new RoleRef(Guid.NewGuid(), "Key role", false, false), grants, It, ActorType.Api, Guid.NewGuid());
+        Assert.Equal(new[] { "it-by-a-key", "it-other" }, Titles(Scoping.Tasks(keyTasks.AsQueryable(), key)));
     }
 
     [Fact]
