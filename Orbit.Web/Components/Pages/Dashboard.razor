@@ -2,8 +2,8 @@
 @page "/Index"
 @inherits OrbitComponentBase
 @* The dashboard (spec §6.9), everyone's landing page. It adapts to the viewer's reach (DashboardService): their own work, their
-   department's, or the company's; a role that sees no tasks gets the places it can go instead. The quick links follow the
-   menu's rules (Navigation). *@
+   department's, or the company's; a role that sees no tasks gets the places it can go instead. The header's buttons start new
+   work, each behind the create permission its page's door asks for; the pages to go to are in the menu, so it doesn't repeat them. *@
 
 <PageTitle>Dashboard - Orbit</PageTitle>
 
@@ -26,33 +26,23 @@ else
             <MudText Typo="Typo.h5" HtmlTag="h1">Welcome, @actor.DisplayName</MudText>
             <div class="orbit-subtitle">@actor.Role.Name@(d.DepartmentName is not null ? $" · {d.DepartmentName}" : "") · @d.Today.ToString("dddd, d MMMM yyyy")</div>
         </div>
-        <div class="orbit-actions">
-            @if (actor.Has(Permission.TasksCreate))
-            {
-                <MudButton Href="/Tasks/Create" Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" StartIcon="@Icons.Material.Filled.Add">New task</MudButton>
-            }
-            @if (Navigation.ShowsMyWork(actor))
-            {
-                <MudButton Href="/Today" Variant="Variant.Outlined" Size="Size.Small">Today</MudButton>
-                <MudButton Href="/Tasks/My" Variant="Variant.Outlined" Size="Size.Small">My Tasks</MudButton>
-            }
-            @if (Navigation.ShowsPlanning(actor))
-            {
-                <MudButton Href="/Backlog" Variant="Variant.Outlined" Size="Size.Small">Backlog</MudButton>
-            }
-            @if (Navigation.ShowsProjects(actor))
-            {
-                <MudButton Href="/Projects" Variant="Variant.Outlined" Size="Size.Small">All Projects</MudButton>
-            }
-            @if (AccessPolicy.CanViewReports(actor))
-            {
-                <MudButton Href="/Reports" Variant="Variant.Outlined" Size="Size.Small">Reports</MudButton>
-            }
-            @if (AccessPolicy.CanManageDepartments(actor))
-            {
-                <MudButton Href="/Admin/Departments" Variant="Variant.Outlined" Size="Size.Small">Departments</MudButton>
-            }
-        </div>
+        @if (actor.Has(Permission.TasksCreate) || actor.Has(Permission.ProjectsCreate) || actor.Has(Permission.AssetsCreate))
+        {
+            <div class="orbit-actions">
+                @if (actor.Has(Permission.TasksCreate))
+                {
+                    <MudButton Href="/Tasks/Create" Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" StartIcon="@Icons.Material.Filled.Add">New task</MudButton>
+                }
+                @if (actor.Has(Permission.ProjectsCreate))
+                {
+                    <MudButton Href="/Projects/Create" Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" StartIcon="@Icons.Material.Filled.Add">New project</MudButton>
+                }
+                @if (actor.Has(Permission.AssetsCreate))
+                {
+                    <MudButton Href="/Assets/Create" Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" StartIcon="@Icons.Material.Filled.Add">Register asset</MudButton>
+                }
+            </div>
+        }
     </div>
 
     @if (!d.SeesTasks)

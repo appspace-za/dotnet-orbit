@@ -120,8 +120,10 @@ projects**, Backlog and Sprints **Plan tasks**, Recurring **Create tasks**, My T
 assets**, each at any scope. Hiding a link blocks nothing - the pages keep their own rules. The Dashboard is always
 there and adapts: someone who can view tasks but not edit them sees their department's (or company's) work read-only,
 and someone who can't see tasks gets links to what they can use. Anyone who can log requests also gets a **My waiting
-approvals** card there: the requests waiting for their approval, oldest first. **New task** shows only with **Create
-tasks** and **New project** only with **Create projects**, and the create pages behind them need the same permission.
+approvals** card there: the requests waiting for their approval, oldest first. The Dashboard's header doesn't repeat
+the menu: it holds the buttons that start something new, **New task** with **Create tasks**, **New project** with
+**Create projects** and **Register asset** with **Register assets**. The same buttons on the list pages follow the same
+permissions, and the create pages behind them need them too.
 The navbar itself stays at the top of the window while a page scrolls.
 
 A role with any grant at Department scope needs its users and keys to belong to a department. The same rules

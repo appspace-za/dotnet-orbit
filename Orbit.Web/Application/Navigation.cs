@@ -8,7 +8,7 @@ public sealed record NavItem(string Label, string Href, Func<Actor, bool> Shows)
 /// it opens - My Time to someone who may log at least their own time, Backlog to someone who may plan at least their own tasks - but
 /// hiding a link blocks nothing: the pages keep their own doors and every service applies the scopes. The Dashboard is everyone's
 /// landing page and adapts to what they may do (<see cref="Services.DashboardService"/>). Pure, so the rules are unit-tested; the
-/// layout and the dashboard's buttons both read it.
+/// layout and the dashboard's Where to start card both read it.
 /// </summary>
 public static class Navigation
 {
