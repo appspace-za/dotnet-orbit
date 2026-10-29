@@ -172,13 +172,14 @@ else
                 </MudItem>
             }
             <MudItem xs="12" md="3">
-                <MudSelect T="Guid" @bind-Value="SprintChoice" Label="Sprint" Variant="Variant.Outlined"
-                           ToStringFunc="@(id => _sprints.FirstOrDefault(x => x.Id == id).Text ?? "")">
+                <MudSelect T="SprintPlacement" Value="_form.Sprint" ValueChanged="SprintPicked" Label="Sprint" Variant="Variant.Outlined"
+                           ToStringFunc="@(p => _sprints.FirstOrDefault(x => x.Value == p).Text ?? "")">
                     @foreach (var sp in _sprints)
                     {
-                        <MudSelectItem T="Guid" Value="sp.Id">@sp.Text</MudSelectItem>
+                        <MudSelectItem T="SprintPlacement" Value="sp.Value">@sp.Text</MudSelectItem>
                     }
                 </MudSelect>
+                <div class="orbit-help">Backlog: to plan into a sprint at sprint planning. Not Planned: work that came up during the sprint.</div>
             </MudItem>
             <MudItem xs="12" md="4">
                 <MudSelect T="Guid" @bind-Value="ParentChoice" Label="Parent task" Variant="Variant.Outlined" ToStringFunc="ParentName">
@@ -220,8 +221,12 @@ else
     [Parameter] public Guid? TaskId { get; set; }
     /// <summary>A new task: the project to file it under (the project page's "New task").</summary>
     [Parameter] public Guid? ProjectId { get; set; }
-    /// <summary>A new task: the sprint to plan it into.</summary>
-    [Parameter] public Guid? SprintId { get; set; }
+    /// <summary>
+    /// A new task: ?sprintId= as the address spells it - a sprint's id, "backlog" or "none" (<see cref="SprintPlacement.Read"/>);
+    /// blank or unreadable = the default for its project (§6.3). A string, not a placement: Blazor skips an unchanged string on
+    /// a re-render, but treats any struct as changed and would rebuild the form, losing what was typed.
+    /// </summary>
+    [Parameter] public string? InitialSprint { get; set; }
     /// <summary>A new task: the task to file it under (the task page's "Add subtask", §6.15).</summary>
     [Parameter] public Guid? ParentTaskId { get; set; }
 
@@ -240,8 +245,13 @@ else
     private IReadOnlyList<(Guid Id, string Text)> _departments = [];
     /// <summary>Guid.Empty is "(standalone task)"; each project carries its department, which the department follows.</summary>
     private IReadOnlyList<(Guid Id, string Text, Guid? DepartmentId)> _projects = [];
-    /// <summary>Guid.Empty is "(backlog)".</summary>
-    private IReadOnlyList<(Guid Id, string Text)> _sprints = [];
+    /// <summary>Not Planned, the Backlog, then the open sprints (§6.3).</summary>
+    private IReadOnlyList<(SprintPlacement Value, string Text)> _sprints = [];
+    /// <summary>
+    /// A new task's Sprint follows its project - the Backlog on a project, Not Planned without (§6.3) - until the person picks one,
+    /// or the page was opened with one (?sprintId=).
+    /// </summary>
+    private bool _sprintPicked;
     /// <summary>Guid.Empty is "(nobody else)".</summary>
     private IReadOnlyList<(Guid Id, string Text)> _requestees = [];
     /// <summary>Every parent the caller may pick, each with its project and department; <see cref="OfferedParents"/> filters them.</summary>
@@ -252,7 +262,6 @@ else
 
     private Guid ProjectChoice => _form.ProjectId ?? Guid.Empty;
     private Guid DepartmentChoice => _form.DepartmentId ?? Guid.Empty;
-    private Guid SprintChoice { get => _form.SprintId ?? Guid.Empty; set => _form.SprintId = value == Guid.Empty ? null : value; }
     private Guid ParentChoice { get => _form.ParentTaskId ?? Guid.Empty; set => _form.ParentTaskId = value == Guid.Empty ? null : value; }
     private Guid RequesteeChoice { get => _form.RequesteeId ?? Guid.Empty; set => _form.RequesteeId = value == Guid.Empty ? null : value; }
     private DateTime? StartDate { get => PickerDate.Of(_form.StartDate); set => _form.StartDate = PickerDate.Day(value); }
@@ -300,6 +309,7 @@ else
         var structure = s.Get<TaskStructureService>();
         var form = new TaskForm();
         TaskItem? task = null;
+        var asked = TaskId is null ? SprintPlacement.Read(InitialSprint) : null;
         if (TaskId is Guid id)
         {
             task = await s.Get<TaskService>().GetAsync(id);
@@ -317,7 +327,6 @@ else
                 form.DepartmentId = parent.DepartmentId;
             }
             form.ProjectId = projectId;
-            form.SprintId = SprintId;
             // A task defaults to its project's department; someone with tasks.create everywhere can change that on the form (§6.2.1).
             form.DepartmentId ??= projectId is Guid pid ? await projects.GetDepartmentIdAsync(pid) ?? actor.DepartmentId : actor.DepartmentId;
         }
@@ -331,7 +340,7 @@ else
         _defaultDepartmentId = lookups.DefaultDepartmentId;
         _departments = lookups.Departments.Select(i => (IdOf(i.Value), i.Text)).ToList();
         _projects = lookups.Projects.Select(o => (IdOf(o.Value), o.Text, o.DepartmentId)).ToList();
-        _sprints = lookups.Sprints.Select(i => (IdOf(i.Value), i.Text)).ToList();
+        _sprints = lookups.Sprints;
         _requestees = lookups.Requestees.Select(i => (IdOf(i.Value), i.Text)).ToList();
         _parents = lookups.Parents;
         _assignees = lookups.SelectedAssignees.ToList();
@@ -339,19 +348,25 @@ else
         _requesteeLabel = lookups.RequesteeLabel;
 
         // A task still in a sprint that has since been completed keeps it: the select offers it with its status, so a save doesn't
-        // move the task to the backlog (the Razor select fell back to "(backlog)").
-        if (task?.Sprint is { } currentSprint && _sprints.All(x => x.Id != currentSprint.Id))
-            _sprints = [.. _sprints, (currentSprint.Id, $"{currentSprint.Name} ({currentSprint.Status})")];
+        // move the task out of it (the Razor select fell back to "(backlog)").
+        if (task?.Sprint is { } currentSprint && _sprints.All(x => x.Value != SprintPlacement.In(currentSprint.Id)))
+            _sprints = [.. _sprints, (SprintPlacement.In(currentSprint.Id), $"{currentSprint.Name} ({currentSprint.Status})")];
         // Any other choice a select doesn't offer falls back to its first option, as the Razor selects did: a project to
-        // "(standalone task)", an archived department to "(default)", which the service resolves (§6.2.1), a sprint to the backlog.
+        // "(standalone task)", an archived department to "(default)", which the service resolves (§6.2.1); a sprint falls back to
+        // the default for the task's project (§6.3).
         if (form.ProjectId is Guid chosenProject && _projects.All(p => p.Id != chosenProject)) form.ProjectId = null;
         if (_canChooseDepartment && form.DepartmentId is Guid chosenDepartment && _departments.All(d => d.Id != chosenDepartment)) form.DepartmentId = null;
-        if (form.SprintId is Guid chosenSprint && _sprints.All(x => x.Id != chosenSprint)) form.SprintId = null;
+        // A new task's Sprint is worked out once its project is settled, so a project the form can't offer doesn't leave it
+        // on the Backlog as a standalone task (§13 item 117).
+        if (task is null) form.Sprint = asked ?? SprintPlacement.DefaultFor(form.ProjectId);
+        if (_sprints.All(x => x.Value != form.Sprint)) form.Sprint = SprintPlacement.DefaultFor(form.ProjectId);
         if (form.ParentTaskId is Guid chosenParent && _parents.All(p => p.Id != chosenParent)) form.ParentTaskId = null;
         if (_canChooseRequestee && form.RequesteeId is Guid chosenRequestee && _requestees.All(r => r.Id != chosenRequestee)) form.RequesteeId = null;
 
         _form = form;
         _task = task;
+        // Only a ?sprintId= the form kept counts as picked; one it couldn't offer fell back to the default, which follows the project.
+        _sprintPicked = task is not null || (asked is { } wanted && form.Sprint == wanted);
         _requiredForDone = !(task is { Status: TaskItemStatus.Done } && string.IsNullOrWhiteSpace(task.SolutionNotes));
         _showNotes = form.Status.IsClosed() || !string.IsNullOrWhiteSpace(form.SolutionNotes);
     });
@@ -365,7 +380,15 @@ else
             var department = _projects.FirstOrDefault(p => p.Id == id && id != Guid.Empty).DepartmentId;
             _form.DepartmentId = department is Guid d && _departments.Any(x => x.Id == d) ? d : null;
         }
+        if (!_sprintPicked) _form.Sprint = SprintPlacement.DefaultFor(_form.ProjectId);
         FollowDepartment();
+    }
+
+    /// <summary>A Sprint picked by hand stays put when the project changes (§6.3).</summary>
+    private void SprintPicked(SprintPlacement placement)
+    {
+        _form.Sprint = placement;
+        _sprintPicked = true;
     }
 
     private void DepartmentChanged(Guid id)

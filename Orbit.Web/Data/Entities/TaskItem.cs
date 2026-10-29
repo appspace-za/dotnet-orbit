@@ -68,9 +68,14 @@ public class TaskItem
     public DateTime? FirstRespondedAt { get; set; }
     public Guid? RecurringTaskDefinitionId { get; set; }
     public RecurringTaskDefinition? RecurringTaskDefinition { get; set; }
-    /// <summary>Null = backlog.</summary>
+    /// <summary>The sprint the task is planned into; null = the Backlog or Not Planned, as <see cref="InBacklog"/> says (spec §6.3).</summary>
     public Guid? SprintId { get; set; }
     public Sprint? Sprint { get; set; }
+    /// <summary>
+    /// With no sprint: true = on the Backlog, to discuss at sprint planning; false = Not Planned, work that came up during a sprint.
+    /// Always false while the task is in a sprint. Read and written through <see cref="Orbit.Application.SprintPlacement"/>.
+    /// </summary>
+    public bool InBacklog { get; set; }
     /// <summary>Client-supplied key so a retried API create doesn't duplicate the task.</summary>
     public string? IdempotencyKey { get; set; }
     /// <summary>When the "due soon" notification was sent, so it isn't re-sent daily.</summary>

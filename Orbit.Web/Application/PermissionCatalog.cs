@@ -57,7 +57,7 @@ public static class PermissionCatalog
             "Assign an open, unassigned task to yourself without edit rights on it.",
             TasksGroup, DeptAll),
         new(Permission.TasksPlan, "Plan tasks",
-            "Move tasks between the backlog and a sprint, and put them on the day plan (the Today tick).",
+            "Move tasks between Not Planned, the backlog and a sprint, and put them on the day plan (the Today tick).",
             PlanningGroup, OwnDeptAll),
         new(Permission.ProjectsView, "View projects",
             "See projects, their comments, files and critical path results, and comment on them. Own = projects you own. Department also shows other departments' projects that have tasks in yours - read-only, apart from commenting.",

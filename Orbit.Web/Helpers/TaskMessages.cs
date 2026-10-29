@@ -1,3 +1,4 @@
+using Orbit.Application;
 using Orbit.Data.Entities;
 
 namespace Orbit.Helpers;
@@ -26,9 +27,13 @@ public static class TaskMessages
         ? $"{Name(task)} no longer has a due date."
         : $"{Name(task)} is now due {Ui.Day(task.DueDate)}.";
 
-    public static string SprintSet(TaskItem task) => task.Sprint is null
-        ? $"{Name(task)} is back in the backlog."
-        : $"{Name(task)} is planned into {task.Sprint.Name}.";
+    /// <summary>Read from the stored fields (§6.3), so a task whose sprint isn't loaded still reads as planned.</summary>
+    public static string SprintSet(TaskItem task) => SprintPlacement.Of(task) switch
+    {
+        { IsSprint: true } => $"{Name(task)} is planned into {task.Sprint?.Name ?? "a sprint"}.",
+        { IsBacklog: true } => $"{Name(task)} is on the backlog, to plan at sprint planning.",
+        _ => $"{Name(task)} is now Not Planned."
+    };
 
     /// <summary>
     /// A stopped clock (§6.10): what was logged, or that nothing was. A stale clock - its page stopped checking in - says

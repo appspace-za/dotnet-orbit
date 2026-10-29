@@ -173,7 +173,7 @@ public sealed class NagiosMonitor(
                     Status = TaskItemStatus.Todo,
                     Source = TaskSource.Nagios,
                     CreatedById = null,
-                    SprintId = null,
+                    SprintId = null, // Not Planned (InBacklog false): support work on no project (§6.3)
                     // One incident, one task: the unique index on the key makes that true in the database as well.
                     IdempotencyKey = $"nagios:{incident.Id}",
                     CreatedAt = now,

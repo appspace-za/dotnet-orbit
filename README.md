@@ -93,7 +93,7 @@ scopes below it, and a role with no grants sees nothing.
 | `tasks.create_for` | Own / Dept / All | Name a task's requestee - the person it is created for (Own: only yourself, so the field isn't offered; Dept: anyone in your department; All: anyone) | Own | Own |
 | `tasks.edit` | Own / Dept / All | Edit any field, incl. every status change (close/reopen), parent, dependencies, assignees | Own | Dept |
 | `tasks.take` | Dept / All | Take an open task nobody is assigned to for yourself (joining one that has an assignee is an edit) | Dept | Dept |
-| `tasks.plan` | Own / Dept / All | Backlog/sprint moves (incl. the task lists' Sprint column) and the Today tick | Dept | Dept |
+| `tasks.plan` | Own / Dept / All | Moves between Not Planned, the Backlog and a sprint (incl. the task lists' Sprint column) and the Today tick | Dept | Dept |
 | `projects.view` | Own / Dept / All | See projects, comment on them, their files and critical path results | Dept | Dept |
 | `projects.create` | Dept / All | Create projects | Dept | Dept |
 | `projects.edit` | Own / Dept / All | Edit/archive projects, run the critical path analysis; moving to another department needs All | Own | Dept |
@@ -146,14 +146,23 @@ dashboard, the Today page - a shared task is under each of its assignees, whole,
 is never split. As shipped, each person added is emailed, and the due-soon reminder goes to every assignee (see
 [Messages](#messages)).
 
+A task in no sprint is either on the **Backlog** or **Not Planned** (spec §6.3). The Backlog is the work to discuss and
+plan into a sprint at sprint planning, typically project work. Not Planned is work that came up during the sprint
+without being planned, typically support: a Nagios alert, a request, a fault reported. Not Planned tasks sit outside
+every sprint and aren't listed on the Backlog page. A new task starts on the Backlog when it is on a project and Not
+Planned when it is standalone, whoever creates it - the task form, Claude, a recurring definition or a request. On the
+form the Sprint field follows the project until you pick a value yourself, and the Backlog page's *New task* starts on
+the Backlog. Completing a sprint puts its open tasks back on the Backlog. The tasks that were in no sprint before Not
+Planned existed stayed on the Backlog.
+
 In the Tasks list, a project page and My Tasks the **Sprint** column is a dropdown too: pick a planned or active sprint
-to plan the task into it, or *Backlog* to take it out, without the edit form or the Backlog page. It follows
+to plan the task into it, or *Backlog* or *Not Planned* to take it out, without the edit form or the Backlog page. It follows
 `tasks.plan`, like planning from the Backlog, and is offered on open tasks only; a closed task, or one you can't plan,
 shows its sprint as a link. A reopened task still in a completed sprint shows that sprint until it is moved. The
 status, assignee, due-date and sprint controls are shared components (`Components/Tasks`). A change through any of
 them, the Today tick or *Take* saves without reloading the page, so you keep your place, and the message shows
-floating in a corner. The Tasks list also has a **Sprint** filter: a planned or active sprint, or
-*Backlog* for the tasks in none. Its **Project**, **Assignee** and **Requestee** filters each offer *None*: the
+floating in a corner. The Tasks list also has a **Sprint** filter: a planned or active sprint, *Backlog*, or
+*Not Planned*. Its **Project**, **Assignee** and **Requestee** filters each offer *None*: the
 standalone tasks on no project, the tasks nobody is assigned to, and the tasks created for nobody else. Assignee
 *None* replaced the old *Unassigned* tick box. The Backlog's Project and Assignee filters offer *None* too.
 
@@ -309,6 +318,13 @@ Nothing happens by itself: Orbit follows AD only when you load the directory and
   created for nobody else, as `projectId` `"none"` lists the tasks on no project), and task results carry
   `requesteeId` and `requestee` beside the assignees. The key's **Create tasks for others** scope decides whom it may
   name; a key on the shipped grants (Own) can name nobody.
+- Sprint planning (spec §6.3): `create_task`, `update_task` and `list_tasks` take `sprintId` as a sprint's id,
+  `"backlog"` for the Backlog or `"none"` for Not Planned. `create_task` without one puts the task on the Backlog when
+  it has a `projectId` and makes it Not Planned otherwise. Planning a task into a sprint needs the key's Plan tasks
+  permission, on `create_task` as on `update_task`. **`update_task`'s `sprintId "none"` now means Not Planned**
+  (it used to mean the backlog), so pass `"backlog"` to move a task to the Backlog. `list_tasks`'s `backlogOnly` lists
+  the Backlog alone and is refused with any other `sprintId`. Task results, and the tasks `get_project` lists, carry
+  `inBacklog` and `notPlanned` beside `sprintId`.
 - Setting a task Done needs its solution notes (spec §6.2.4): `update_task` takes `solutionNotes`, how the task was
   resolved, and refuses `status: "Done"` without them unless the task already has some. They are optional for
   Cancelled and kept when omitted. An empty string clears them, which a Done task refuses. Task results carry

@@ -131,7 +131,7 @@ else
         }
         _busy = true;
         var moved = 0;
-        if (await Act(async s => moved = await s.Get<TaskService>().MoveToSprintAsync(_selected.ToList(), null)))
+        if (await Act(async s => moved = await s.Get<TaskService>().MoveToSprintAsync(_selected.ToList(), SprintPlacement.Backlog)))
         {
             Success($"{moved} task(s) moved back to the backlog.");
             _selected.Clear();

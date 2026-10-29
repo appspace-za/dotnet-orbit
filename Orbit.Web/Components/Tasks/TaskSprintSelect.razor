@@ -1,16 +1,18 @@
 @inherits OrbitComponentBase
-@* The inline sprint control (spec §6.2, §6.3): picking a sprint plans the task into it, Backlog takes it out of its sprint.
-   Only the planned and active sprints are offered; a reopened task still in a completed one shows that sprint until moved. *@
-<MudSelect @key="_version" T="Guid" Value="Task.SprintId ?? Guid.Empty" ValueChanged="PickedAsync" ToStringFunc="Name"
+@* The inline sprint control (spec §6.2, §6.3): picking a sprint plans the task into it; Backlog and Not Planned take it out of its
+   sprint, onto the pool for sprint planning or as work that came up during the sprint. Only the planned and active sprints are
+   offered; a reopened task still in a completed one shows that sprint until moved. *@
+<MudSelect @key="_version" T="SprintPlacement" Value="SprintPlacement.Of(Task)" ValueChanged="PickedAsync" ToStringFunc="Name"
            Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Disabled="_busy" Class="orbit-inline" aria-label="Sprint">
-    <MudSelectItem T="Guid" Value="Guid.Empty">Backlog</MudSelectItem>
+    <MudSelectItem T="SprintPlacement" Value="SprintPlacement.NotPlanned">@SprintPlacement.NotPlannedLabel</MudSelectItem>
+    <MudSelectItem T="SprintPlacement" Value="SprintPlacement.Backlog">@SprintPlacement.BacklogLabel</MudSelectItem>
     @if (Task.Sprint is { } current && Sprints.All(s => s.Id != current.Id))
     {
-        <MudSelectItem T="Guid" Value="current.Id">@Label(current)</MudSelectItem>
+        <MudSelectItem T="SprintPlacement" Value="SprintPlacement.In(current.Id)">@Label(current)</MudSelectItem>
     }
     @foreach (var s in Sprints)
     {
-        <MudSelectItem T="Guid" Value="s.Id">@Label(s)</MudSelectItem>
+        <MudSelectItem T="SprintPlacement" Value="SprintPlacement.In(s.Id)">@Label(s)</MudSelectItem>
     }
 </MudSelect>
 
@@ -25,18 +27,18 @@
 
     private static string Label(Sprint s) => $"{s.Name} ({s.Status})";
 
-    private string Name(Guid id) =>
-        id == Guid.Empty ? "Backlog"
+    private string Name(SprintPlacement p) =>
+        p.SprintId is not Guid id ? p.Label()
         : Sprints.FirstOrDefault(s => s.Id == id) is { } s ? Label(s)
         : Task.Sprint is { } current && current.Id == id ? Label(current)
         : "";
 
-    private async Task PickedAsync(Guid id)
+    private async Task PickedAsync(SprintPlacement placement)
     {
-        if (id == (Task.SprintId ?? Guid.Empty)) return;
+        if (placement == SprintPlacement.Of(Task)) return;
         _busy = true;
         TaskItem? changed = null;
-        if (await Act(async s => changed = await s.Get<TaskService>().ChangeSprintAsync(Task.Id, id == Guid.Empty ? null : id)))
+        if (await Act(async s => changed = await s.Get<TaskService>().ChangeSprintAsync(Task.Id, placement)))
         {
             Success(TaskMessages.SprintSet(changed!));
             await Changed.InvokeAsync();

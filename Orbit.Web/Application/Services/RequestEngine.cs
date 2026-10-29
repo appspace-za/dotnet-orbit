@@ -481,6 +481,7 @@ public sealed class RequestEngine(
             Description = composed.Description,
             DepartmentId = departmentId,
             ProjectId = projectId,
+            InBacklog = SprintPlacement.DefaultFor(projectId).IsBacklog, // §6.3: the Backlog on a project, else Not Planned
             AssetId = assetId,
             Priority = RequestEngineRules.TaskPriorityFor(flowStep, Answer(flowStep.PriorityFieldId)?.Value),
             Type = flowStep.TaskType,
@@ -500,7 +501,7 @@ public sealed class RequestEngine(
         audit.Add(actor, AuditEntity.Task, task.Id, AuditAction.Created, departmentId, task.Title, new
         {
             task.Number, task.Title, task.Status, task.Priority, task.Type, task.ProjectId, task.DepartmentId, task.AssigneeIds,
-            task.DueDate, task.Source, task.AssetId, task.RequesteeId, request = new { id = request.Id, number = request.Number, step = flowStep.Key }
+            task.DueDate, task.Source, task.InBacklog, task.AssetId, task.RequesteeId, request = new { id = request.Id, number = request.Number, step = flowStep.Key }
         });
         step.TaskId = task.Id;
         step.Task = task;

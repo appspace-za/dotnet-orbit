@@ -339,6 +339,7 @@ public sealed class RecurrenceService(
             CreatedById = actor.UserId,
             RecurringTaskDefinitionId = def.Id,
             SprintId = null,
+            InBacklog = SprintPlacement.DefaultFor(projectId).IsBacklog, // §6.3: the Backlog on a project, else Not Planned
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -348,7 +349,7 @@ public sealed class RecurrenceService(
         db.Tasks.Add(task);
         def.LastGeneratedAt = now;
         audit.Add(actor, AuditEntity.Task, task.Id, AuditAction.Generated, def.DepartmentId, task.Title,
-            new { recurringTaskDefinitionId = def.Id, dueDate = due, task.Priority, task.AssigneeIds, task.ProjectId, task.AssetId });
+            new { recurringTaskDefinitionId = def.Id, dueDate = due, task.Priority, task.AssigneeIds, task.ProjectId, task.InBacklog, task.AssetId });
         // Its emails (§6.7) are saved with it, by the caller's save.
         await notifications.TaskCreatedAsync(task, actor, ct);
         return task;

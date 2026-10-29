@@ -67,7 +67,7 @@ else
                 }
                 else
                 {
-                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Backlog</MudChip>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@SprintPlacement.Of(t).Label()</MudChip>
                 }
                 @if (overdue)
                 {

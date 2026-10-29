@@ -27,7 +27,8 @@ public sealed class TaskFormLookups
     public IReadOnlyList<UserSummary> SelectedAssignees { get; init; } = [];
     /// <summary>The department a task belongs to while the form names neither one nor a project: the caller's own.</summary>
     public Guid? DefaultDepartmentId { get; init; }
-    public IReadOnlyList<SelectListItem> Sprints { get; init; } = [];
+    /// <summary>The Sprint options (§6.3): Not Planned, the Backlog, then the planned and active sprints.</summary>
+    public IReadOnlyList<(SprintPlacement Value, string Text)> Sprints { get; init; } = [];
     /// <summary>Parent task options (§6.15), each carrying its project and department so the form can filter them client-side.</summary>
     public IReadOnlyList<ParentCandidate> Parents { get; init; } = [];
     /// <summary>The asset picker is offered to whoever can see assets (assets.view, §6.19); the service checks the asset chosen.</summary>
@@ -107,9 +108,11 @@ public sealed class TaskFormLookups
 
         var selectedAssignees = await users.FindManyAsync(form.AssigneeIds, ct);
 
-        var sprintItems = new List<SelectListItem> { new("(backlog)", string.Empty) };
-        sprintItems.AddRange((await sprints.ListOpenAsync(ct))
-            .Select(s => new SelectListItem($"{s.Name} ({s.Status})", s.Id.ToString(), s.Id == form.SprintId)));
+        var sprintItems = new List<(SprintPlacement Value, string Text)>
+        {
+            (SprintPlacement.NotPlanned, SprintPlacement.NotPlannedLabel), (SprintPlacement.Backlog, SprintPlacement.BacklogLabel)
+        };
+        sprintItems.AddRange((await sprints.ListOpenAsync(ct)).Select(s => (SprintPlacement.In(s.Id), $"{s.Name} ({s.Status})")));
 
         // Open tasks only; a closed parent that the task already sits under is kept so saving doesn't silently detach it.
         var parents = structure is null ? new List<ParentCandidate>() : (await structure.ListParentCandidatesAsync(existingTaskId, ct)).ToList();

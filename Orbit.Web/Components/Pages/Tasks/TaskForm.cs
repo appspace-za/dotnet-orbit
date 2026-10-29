@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Orbit.Application;
 using Orbit.Application.Models;
 using Orbit.Data.Entities;
 
@@ -53,8 +54,9 @@ public sealed class TaskForm
     [Display(Name = "Solution notes")]
     public string? SolutionNotes { get; set; }
 
+    /// <summary>A sprint, the Backlog or Not Planned (§6.3). A new task starts at <see cref="SprintPlacement.DefaultFor"/>.</summary>
     [Display(Name = "Sprint")]
-    public Guid? SprintId { get; set; }
+    public SprintPlacement Sprint { get; set; }
 
     /// <summary>The asset this task is about (§6.19); blank = none. Chosen with the asset picker.</summary>
     [Display(Name = "Asset")]
@@ -76,7 +78,8 @@ public sealed class TaskForm
         ParentTaskId = ParentTaskId,
         Status = includeStatus ? Status : null,
         SolutionNotes = includeStatus ? SolutionNotes : null,
-        SprintId = SprintId,
+        SprintId = Sprint.SprintId,
+        Backlog = Sprint.IsBacklog,
         AssetId = AssetId
     };
 
@@ -96,7 +99,7 @@ public sealed class TaskForm
         ParentTaskId = t.ParentTaskId,
         Status = t.Status,
         SolutionNotes = t.SolutionNotes,
-        SprintId = t.SprintId,
+        Sprint = SprintPlacement.Of(t),
         AssetId = t.AssetId
     };
 }

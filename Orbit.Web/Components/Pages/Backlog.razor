@@ -1,8 +1,8 @@
 @page "/Backlog"
 @page "/Backlog/Index"
 @inherits OrbitListPage
-@* The backlog (spec §6.3): open tasks in no sprint, filtered and paged, 100 a page. Select tasks and choose a sprint to plan
-   them into it. The filters live in the address, in the Razor page's keys, and are remembered for the browser session
+@* The backlog (spec §6.3): open tasks waiting for sprint planning - in no sprint and not Not Planned - filtered and paged, 100 a
+   page. Select tasks and choose a sprint to plan them into it. The filters live in the address, in the Razor page's keys, and are remembered for the browser session
    (OrbitListPage). *@
 
 <PageTitle>Backlog - Orbit</PageTitle>
@@ -20,11 +20,11 @@ else
     <div class="orbit-page-header">
         <div>
             <MudText Typo="Typo.h5" HtmlTag="h1">Backlog <span class="orbit-subtitle">@_result.TotalCount</span></MudText>
-            <div class="orbit-subtitle">Open tasks not yet planned into a sprint. Select tasks and choose a sprint to plan them.</div>
+            <div class="orbit-subtitle">Open tasks to discuss and plan into a sprint at sprint planning. Select tasks and choose a sprint to plan them. Not Planned work isn't listed here.</div>
         </div>
         @if (_actor!.Has(Permission.TasksCreate))
         {
-            <MudButton Href="/Tasks/Create" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">New task</MudButton>
+            <MudButton Href="@($"/Tasks/Create?sprintId={SprintPlacement.BacklogValue}")" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">New task</MudButton>
         }
     </div>
 
@@ -203,7 +203,7 @@ else
         }
         _busy = true;
         var moved = 0;
-        if (await Act(async s => moved = await s.Get<TaskService>().MoveToSprintAsync(_selected.ToList(), _sprintId)))
+        if (await Act(async s => moved = await s.Get<TaskService>().MoveToSprintAsync(_selected.ToList(), SprintPlacement.In(_sprintId))))
         {
             Success($"{moved} task(s) planned into the sprint.");
             _selected.Clear();

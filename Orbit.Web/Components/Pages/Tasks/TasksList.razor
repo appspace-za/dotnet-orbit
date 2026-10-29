@@ -43,7 +43,7 @@ else
             <FilterSelect Label="Project" Value="@ProjectChoice" ValueChanged="v => GoAsync(ProjectKey, v)" Options="_projects"
                           Title="An open project, or None for the tasks on no project" />
             <FilterSelect Label="Sprint" Value="@SprintChoice" ValueChanged="v => GoAsync(SprintKey, v)" Options="_sprintOptions"
-                          Title="A planned or active sprint, or Backlog for the tasks in no sprint" />
+                          Title="A planned or active sprint; Backlog for the tasks waiting for sprint planning; Not Planned for the work that came up during a sprint" />
             @if (FilterChoice.Id(AssetId) is not null)
             {
                 <div class="orbit-filter orbit-filter-wide">
@@ -114,7 +114,7 @@ else
     [SupplyParameterFromQuery] public string? DepartmentId { get; set; }
     /// <summary>Project, Assignee and Requestee: empty for all, "none" for the tasks with none (<see cref="FilterChoice"/>), or an id.</summary>
     [SupplyParameterFromQuery(Name = ProjectKey)] public string? ProjectChoice { get; set; }
-    /// <summary>Empty for all, "backlog" for the tasks in no sprint, or a sprint's id.</summary>
+    /// <summary>Empty for all, "none" for the Not Planned tasks, "backlog" for the Backlog, or a sprint's id (<see cref="SprintPlacement"/>, §6.3).</summary>
     [SupplyParameterFromQuery(Name = SprintKey)] public string? SprintChoice { get; set; }
     [SupplyParameterFromQuery(Name = StatusKey)] public string? StatusChoice { get; set; }
     [SupplyParameterFromQuery(Name = AssigneeKey)] public string? AssigneeChoice { get; set; }
@@ -163,14 +163,16 @@ else
             var sprints = s.Get<SprintService>();
             var canSeeAll = actor.CanAnywhere(Permission.TasksView);
             var departmentId = FilterChoice.Id(DepartmentId);
+            var sprintChoice = SprintPlacement.Read(SprintChoice);
             var filter = new TaskFilter
             {
                 Search = Search,
                 DepartmentId = departmentId,
                 NoProject = FilterChoice.IsNone(ProjectChoice),
                 ProjectId = FilterChoice.Id(ProjectChoice),
-                BacklogOnly = SprintChoice == "backlog",
-                SprintId = FilterChoice.Id(SprintChoice),
+                BacklogOnly = sprintChoice is { IsBacklog: true },
+                NotPlannedOnly = sprintChoice is { IsNotPlanned: true },
+                SprintId = sprintChoice?.SprintId,
                 Status = FilterQuery.Enum<TaskItemStatus>(StatusChoice),
                 Unassigned = FilterChoice.IsNone(AssigneeChoice),
                 AssigneeId = FilterChoice.Id(AssigneeChoice),
@@ -218,7 +220,10 @@ else
             // The filter may be narrowed to one department; the inline control needs candidates for every listed task.
             _quickEditAssignees = await users.GetQuickEditCandidatesAsync();
             _openSprints = await sprints.ListOpenAsync();
-            var sprintOptions = new List<(string, string)> { ("", "All"), ("backlog", "Backlog (no sprint)") };
+            var sprintOptions = new List<(string, string)>
+            {
+                ("", "All"), (SprintPlacement.NotPlannedValue, SprintPlacement.NotPlannedLabel), (SprintPlacement.BacklogValue, SprintPlacement.BacklogLabel)
+            };
             sprintOptions.AddRange(_openSprints.Select(sp => (sp.Id.ToString(), $"{sp.Name} ({sp.Status})")));
             // A remembered or linked sprint that has since been completed stays selected rather than silently dropped.
             if (filter.SprintId is Guid chosen && _openSprints.All(sp => sp.Id != chosen))

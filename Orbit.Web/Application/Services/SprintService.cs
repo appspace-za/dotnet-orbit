@@ -150,7 +150,7 @@ public sealed class SprintService(ApplicationDbContext db, IActorProvider actors
                 && t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled).ToListAsync(ct);
             foreach (var task in open)
             {
-                task.SprintId = sprint.Id;
+                SprintPlacement.In(sprint.Id).ApplyTo(task);
                 task.UpdatedAt = now;
             }
             current.Status = SprintStatus.Completed;
@@ -170,7 +170,7 @@ public sealed class SprintService(ApplicationDbContext db, IActorProvider actors
         return sprint;
     }
 
-    /// <summary>Active -> Completed without a successor: still-open tasks return to the backlog.</summary>
+    /// <summary>Active -> Completed without a successor: still-open tasks return to the Backlog to be planned again (§6.3).</summary>
     public async Task<Sprint> CompleteAsync(Guid id, CancellationToken ct = default)
     {
         var actor = await RequireSprintManagerAsync(ct);
@@ -184,7 +184,7 @@ public sealed class SprintService(ApplicationDbContext db, IActorProvider actors
             && t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled).ToListAsync(ct);
         foreach (var task in open)
         {
-            task.SprintId = null;
+            SprintPlacement.Backlog.ApplyTo(task);
             task.UpdatedAt = now;
         }
         sprint.Status = SprintStatus.Completed;

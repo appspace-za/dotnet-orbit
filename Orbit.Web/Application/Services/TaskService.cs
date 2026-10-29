@@ -51,7 +51,8 @@ public sealed class TaskService(
         if (f.RecurringTaskDefinitionId is Guid defId) q = q.Where(t => t.RecurringTaskDefinitionId == defId);
         if (f.ParentTaskId is Guid parentId) q = q.Where(t => t.ParentTaskId == parentId);
         if (f.AssetId is Guid assetId) q = q.Where(t => t.AssetId == assetId);
-        if (f.BacklogOnly) q = q.Where(t => t.SprintId == null);
+        if (f.BacklogOnly) q = q.Where(t => t.SprintId == null && t.InBacklog);
+        if (f.NotPlannedOnly) q = q.Where(t => t.SprintId == null && !t.InBacklog);
         if (f.OpenOnly) q = q.Where(t => t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled);
         var plannedFor = f.PlannedFor ?? (f.PlannedToday ? DateOnly.FromDateTime(DateTime.UtcNow) : null);
         if (plannedFor is DateOnly planned) q = q.Where(t => t.PlannedFor == planned);
@@ -126,7 +127,9 @@ public sealed class TaskService(
 
         var assignees = await AssigneeResolver.ResolveAsync(db, [], input.AssigneeIds ?? [], departmentId, departmentChanging: false, ct);
         var requestee = await ValidateRequesteeAsync(actor, input.RequesteeId, ct);
-        await ValidateSprintAsync(input.SprintId, ct);
+        // §6.3: a sprint, or the placement asked for, else the Backlog on a project and Not Planned for a standalone task.
+        var placement = SprintPlacement.Choose(input.SprintId, input.Backlog, SprintPlacement.DefaultFor(input.ProjectId));
+        await ValidateSprintAsync(placement.SprintId, ct);
         await assets.CheckLinkAsync(input.AssetId, null, ct);
 
         var status = input.Status ?? TaskItemStatus.Todo;
@@ -151,12 +154,18 @@ public sealed class TaskService(
             ParentTaskId = parent?.Id,
             StartDate = input.StartDate,
             DueDate = input.DueDate,
-            SprintId = input.SprintId,
+            SprintId = placement.SprintId,
+            InBacklog = placement.IsBacklog,
             Source = source,
-            IdempotencyKey = Clean(input.IdempotencyKey)
+            IdempotencyKey = Clean(input.IdempotencyKey),
+            CreatedById = actor.UserId // so the plan check below counts the creator's own task (InsertAsync sets it too)
         };
         foreach (var assignee in assignees.Added)
             task.Assignments.Add(new TaskAssignment { TaskId = task.Id, UserId = assignee.Id, AssignedById = actor.UserId });
+        // §6.5: planning a new task straight into a sprint is a planning move, checked as every other way into a sprint is
+        // (§13 item 117). The Backlog and Not Planned are where a new task starts anyway, so they need no check.
+        if (placement.IsSprint)
+            AccessPolicy.Require(AccessPolicy.CanPlanTask(actor, task), "You don't have permission to plan this task into a sprint.");
         await InsertAsync(actor, task, status, null, ct);
         return await GetAsync(task.Id, ct);
     }
@@ -175,7 +184,7 @@ public sealed class TaskService(
         audit.Add(actor, AuditEntity.Task, task.Id, AuditAction.Created, task.DepartmentId, task.Title, new
         {
             task.Number, task.Title, task.Status, task.Priority, task.Type, task.EstimateMinutes, task.ProjectId, task.DepartmentId, task.AssigneeIds,
-            task.ParentTaskId, task.StartDate, task.DueDate, task.Source, task.SprintId, task.AssetId, task.RequesteeId, request
+            task.ParentTaskId, task.StartDate, task.DueDate, task.Source, task.SprintId, task.InBacklog, task.AssetId, task.RequesteeId, request
         });
         // The emails it raises (§6.7) are saved with it - to its assignees, its requestee, its department - one per person (§6.2.2).
         await notifications.TaskCreatedAsync(task, actor, ct);
@@ -213,10 +222,13 @@ public sealed class TaskService(
         }
         await assets.CheckLinkAsync(input.AssetId, task.AssetId, ct); // a kept asset isn't re-checked (§6.19)
         var newStatus = input.Status ?? task.Status; // any status: the §6.5 status rule is the edit right required above
-        if (input.SprintId != task.SprintId)
+        // §6.3: with no sprint and no backlog flag given, a task in no sprint keeps its place and one leaving a sprint goes to
+        // the Backlog, as completing a sprint sends it (§13 item 117).
+        var placement = SprintPlacement.Choose(input.SprintId, input.Backlog, SprintPlacement.Of(task).WithoutSprint);
+        if (placement != SprintPlacement.Of(task))
         {
             AccessPolicy.Require(AccessPolicy.CanPlanTask(actor, task), "You can't plan tasks from another department.");
-            await ValidateSprintAsync(input.SprintId, ct);
+            await ValidateSprintAsync(placement.SprintId, ct);
         }
         DependencyRules.RequireDatesInOrder(input.StartDate, input.DueDate);
         var solutionNotes = Clean(input.SolutionNotes);
@@ -243,7 +255,8 @@ public sealed class TaskService(
             .Track("dueDate", task.DueDate, input.DueDate)
             .Track("status", task.Status, newStatus)
             .TrackText("solutionNotes", task.SolutionNotes, input.SolutionNotes)
-            .Track("sprintId", task.SprintId, input.SprintId);
+            .Track("sprintId", task.SprintId, placement.SprintId)
+            .Track("inBacklog", task.InBacklog, placement.IsBacklog);
 
         if (!changes.HasChanges && assignees.IsEmpty) return task;
 
@@ -268,7 +281,7 @@ public sealed class TaskService(
         task.ParentTaskId = parent?.Id;
         task.StartDate = input.StartDate;
         task.DueDate = input.DueDate;
-        task.SprintId = input.SprintId;
+        placement.ApplyTo(task);
         if (newStatus != task.Status) ApplyStatus(task, newStatus, now);
         task.UpdatedAt = now;
 
@@ -585,11 +598,11 @@ public sealed class TaskService(
         return new DayPlan { Date = date, Planned = planned, PreviousDate = previous, Unfinished = unfinished, CarryOvers = carryOvers };
     }
 
-    /// <summary>Plan tasks into a sprint (or back to the backlog with a null sprint). Returns the number moved.</summary>
-    public async Task<int> MoveToSprintAsync(IReadOnlyCollection<Guid> taskIds, Guid? sprintId, CancellationToken ct = default)
+    /// <summary>Plan tasks into a sprint, or move them to the Backlog or Not Planned (§6.3). Returns the number moved.</summary>
+    public async Task<int> MoveToSprintAsync(IReadOnlyCollection<Guid> taskIds, SprintPlacement target, CancellationToken ct = default)
     {
         var actor = await actors.GetAsync(ct);
-        var sprint = await ValidateSprintAsync(sprintId, ct);
+        var sprint = await ValidateSprintAsync(target.SprintId, ct);
         var tasks = await db.Tasks.Where(t => taskIds.Contains(t.Id)).ToListAsync(ct);
         var moved = 0;
         var now = DateTime.UtcNow;
@@ -597,10 +610,10 @@ public sealed class TaskService(
         {
             AccessPolicy.Require(AccessPolicy.CanPlanTask(actor, task),
                 $"You can't plan tasks from another department (\"{task.Title}\").");
-            if (task.SprintId == sprintId) continue;
-            if (sprintId is not null && task.Status.IsClosed()) continue; // closed work doesn't get planned
+            if (SprintPlacement.Of(task) == target) continue;
+            if (target.IsSprint && task.Status.IsClosed()) continue; // closed work doesn't get planned
 
-            ApplySprint(actor, task, sprint, now);
+            ApplySprint(actor, task, target, sprint, now);
             moved++;
         }
         await db.SaveChangesAsync(ct);
@@ -608,33 +621,37 @@ public sealed class TaskService(
     }
 
     /// <summary>
-    /// Quick inline sprint change (the task list control, §6.3): plan one task into a sprint, or back to the backlog with a null
-    /// sprint. tasks.plan, as planning from the backlog; unlike that bulk move, a closed task is refused rather than skipped.
+    /// Quick inline sprint change (the task list control, §6.3): plan one task into a sprint, or move it to the Backlog or Not
+    /// Planned. tasks.plan, as planning from the backlog; unlike that bulk move, a closed task is refused rather than skipped.
     /// </summary>
-    public async Task<TaskItem> ChangeSprintAsync(Guid id, Guid? sprintId, CancellationToken ct = default)
+    public async Task<TaskItem> ChangeSprintAsync(Guid id, SprintPlacement target, CancellationToken ct = default)
     {
         var actor = await actors.GetAsync(ct);
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == id, ct)
             ?? throw new NotFoundException("Task not found.");
         AccessPolicy.Require(AccessPolicy.CanViewTask(actor, task), "This task belongs to another department.");
         AccessPolicy.Require(AccessPolicy.CanPlanTask(actor, task), "You can't plan tasks from another department.");
-        if (task.SprintId == sprintId) return await GetAsync(id, ct);
-        if (sprintId is not null && task.Status.IsClosed()) throw new ValidationException("A closed task can't be planned into a sprint.");
-        var sprint = await ValidateSprintAsync(sprintId, ct);
+        if (SprintPlacement.Of(task) == target) return await GetAsync(id, ct);
+        if (target.IsSprint && task.Status.IsClosed()) throw new ValidationException("A closed task can't be planned into a sprint.");
+        var sprint = await ValidateSprintAsync(target.SprintId, ct);
 
-        ApplySprint(actor, task, sprint, DateTime.UtcNow);
+        ApplySprint(actor, task, target, sprint, DateTime.UtcNow);
         await db.SaveChangesAsync(ct);
         return await GetAsync(id, ct);
     }
 
-    /// <summary>Move a task to <paramref name="sprint"/> (null = the backlog) with its audit entry. The caller has checked the move and saves.</summary>
-    private void ApplySprint(Actor actor, TaskItem task, Sprint? sprint, DateTime now)
+    /// <summary>Move a task to <paramref name="target"/> (its <paramref name="sprint"/>, if any) with its audit entry. The caller has checked the move and saves.</summary>
+    private void ApplySprint(Actor actor, TaskItem task, SprintPlacement target, Sprint? sprint, DateTime now)
     {
-        var previous = task.SprintId;
-        task.SprintId = sprint?.Id;
+        var previous = SprintPlacement.Of(task);
+        target.ApplyTo(task);
         task.UpdatedAt = now;
-        audit.Add(actor, AuditEntity.Task, task.Id, AuditAction.SprintChanged, task.DepartmentId, task.Title,
-            new { sprintId = new { from = previous, to = sprint?.Id }, sprintName = sprint?.Name });
+        audit.Add(actor, AuditEntity.Task, task.Id, AuditAction.SprintChanged, task.DepartmentId, task.Title, new
+        {
+            sprintId = new { from = previous.SprintId, to = target.SprintId },
+            inBacklog = new { from = previous.IsBacklog, to = target.IsBacklog },
+            sprintName = sprint?.Name
+        });
     }
 
     // --- helpers -------------------------------------------------------------------------

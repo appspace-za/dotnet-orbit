@@ -31,8 +31,10 @@ public sealed class TaskFilter
     public Guid? ParentTaskId { get; set; }
     /// <summary>Only tasks about this asset (§6.19).</summary>
     public Guid? AssetId { get; set; }
-    /// <summary>Only tasks with no sprint.</summary>
+    /// <summary>Only tasks on the Backlog: no sprint, waiting for sprint planning (§6.3).</summary>
     public bool BacklogOnly { get; set; }
+    /// <summary>Only Not Planned tasks: no sprint and not on the Backlog (§6.3).</summary>
+    public bool NotPlannedOnly { get; set; }
     /// <summary>Exclude Done/Cancelled.</summary>
     public bool OpenOnly { get; set; }
     /// <summary>Only tasks on the day plan for this date (§6.12).</summary>
@@ -86,8 +88,14 @@ public sealed class TaskInput
     public TaskItemStatus? Status { get; set; }
     /// <summary>How the task was resolved (§6.2.4); null = none. Like the description, the complete new value on update. Required when the status is Done.</summary>
     public string? SolutionNotes { get; set; }
-    /// <summary>Null = backlog.</summary>
+    /// <summary>The sprint to plan the task into; null = the Backlog or Not Planned, as <see cref="Backlog"/> says (§6.3).</summary>
     public Guid? SprintId { get; set; }
+    /// <summary>
+    /// With no sprint: true = the Backlog, false = Not Planned. Ignored when <see cref="SprintId"/> is set. Null on create = the
+    /// default (<see cref="SprintPlacement.DefaultFor"/>: the Backlog on a project, otherwise Not Planned); null on update = the
+    /// task's own flag, or the Backlog for a task leaving a sprint (<see cref="SprintPlacement.WithoutSprint"/>).
+    /// </summary>
+    public bool? Backlog { get; set; }
     /// <summary>Optional client-supplied key so retried API creates don't duplicate.</summary>
     public string? IdempotencyKey { get; set; }
 }

@@ -42,7 +42,8 @@ public sealed class OrbitTools(
     // ---------------------------------------------------------------- tasks
 
     [McpServerTool(Name = "create_task"), Description(
-        "Create a task in Orbit. The task lands directly in the backlog with Source = Api. " +
+        "Create a task in Orbit with Source = Api. Unless sprintId says otherwise it lands on the Backlog when projectId is given " +
+        "(work to discuss and plan into a sprint at sprint planning), otherwise Not Planned (work that came up during a sprint, such as support). " +
         "Department: defaults to the project's department when projectId is given, otherwise to departmentId, " +
         "falling back to the API key's own department (a key whose role isn't scoped to a department may have none, so pass departmentId for standalone tasks). " +
         "A key whose Create tasks permission covers all departments may pass a departmentId that differs from the project's to file a cross-department project task: " +
@@ -64,10 +65,14 @@ public sealed class OrbitTools(
         [Description("Estimated effort in minutes, e.g. 90 for an hour and a half. Omit or 0 for no estimate.")] int? estimateMinutes = null,
         [Description("The asset the task is about - a repair, a service, a replacement: its id (GUID) or ERP asset number. It must be an asset the key can see that isn't disposed; the task then appears in the asset's task history (get_asset).")] string? assetId = null,
         [Description("The requestee: user id (GUID, from list_users) of the person the task is created for. They can open, edit and plan it as their own and are emailed. Needs the key's Create tasks for others permission to reach them - anyone in the key's department at Department, anyone at All; a key at Own can name nobody. Omit when the task is for nobody else.")] string? requesteeId = null,
+        [Description("Where the task sits for sprint planning: a planned or active sprint's id (GUID) to plan it into, \"backlog\" for the Backlog, or \"none\" for Not Planned. Omit for the default: the Backlog with a projectId, otherwise Not Planned. Planning into a sprint needs the key's Plan tasks permission for the task, as update_task does.")] string? sprintId = null,
         CancellationToken ct = default) => Run(async () =>
     {
+        var sprint = ParseSprint(sprintId);
         var input = new TaskInput
         {
+            SprintId = sprint?.SprintId,
+            Backlog = sprint?.IsBacklog,
             RequesteeId = ParseGuid(requesteeId, "requesteeId"),
             AssetId = string.IsNullOrWhiteSpace(assetId) ? null : await assets.ResolveIdAsync(assetId, ct),
             Title = title,
@@ -128,7 +133,8 @@ public sealed class OrbitTools(
         "List tasks with optional filters. Paginated. The key sees the tasks within its role's View tasks scope - its own tasks, " +
         "its department, or every department; a key whose scope is all departments can filter by departmentId or omit it for all. " +
         "Pass plannedFor = \"today\" to see the team's day plan - the tasks picked in the morning scrum to work on today. " +
-        "requesteeId lists the tasks created for one person, within the same scope.")]
+        "requesteeId lists the tasks created for one person, within the same scope. " +
+        "sprintId \"backlog\" lists the Backlog (the tasks waiting for sprint planning) and \"none\" the Not Planned tasks (work that came up during a sprint).")]
     public Task<string> ListTasks(
         [Description("Filter by project id (GUID), or \"none\" for the tasks on no project - standalone tasks.")] string? projectId = null,
         [Description("Filter by department id (GUID). Only useful for a key that sees every department.")] string? departmentId = null,
@@ -140,8 +146,8 @@ public sealed class OrbitTools(
         [Description("Meeting, Planning, Task, Training, Audit, Change, Request or Problem.")] string? type = null,
         [Description("Only tasks due on or before this date (yyyy-MM-dd).")] string? dueBefore = null,
         [Description("Only tasks due on or after this date (yyyy-MM-dd).")] string? dueAfter = null,
-        [Description("Filter by sprint id (GUID).")] string? sprintId = null,
-        [Description("true = only backlog tasks (no sprint).")] bool? backlogOnly = null,
+        [Description("Filter by sprint id (GUID), \"backlog\" for the Backlog, or \"none\" for the Not Planned tasks.")] string? sprintId = null,
+        [Description("true = only Backlog tasks - in no sprint and waiting for sprint planning (Not Planned tasks aren't included). Same as sprintId \"backlog\"; refused with any other sprintId.")] bool? backlogOnly = null,
         [Description("true = exclude Done and Cancelled tasks.")] bool? openOnly = null,
         [Description("Free-text search over title, description, solution notes and task number.")] string? search = null,
         [Description("Only tasks on the day plan for this date (yyyy-MM-dd), or the literal \"today\".")] string? plannedFor = null,
@@ -152,6 +158,10 @@ public sealed class OrbitTools(
         [Description("Only tasks created for this person - their requestee user id (GUID) - or \"none\" for the tasks created for nobody else.")] string? requesteeId = null,
         CancellationToken ct = default) => Run(async () =>
     {
+        var sprint = ParseSprint(sprintId);
+        // Both filters at once would always list nothing (§13 item 117), so a contradiction is refused rather than answered empty.
+        if (backlogOnly == true && sprint is { IsBacklog: false })
+            throw new McpException($"backlogOnly can't be combined with sprintId \"{sprintId}\" - pass sprintId \"backlog\" alone, or drop backlogOnly.");
         var filter = new TaskFilter
         {
             RequesteeId = IsClear(requesteeId) ? null : ParseGuid(requesteeId, "requesteeId"),
@@ -168,8 +178,9 @@ public sealed class OrbitTools(
             Type = ParseEnum<TaskType>(type, "type"),
             DueBefore = ParseDate(dueBefore, "dueBefore"),
             DueAfter = ParseDate(dueAfter, "dueAfter"),
-            SprintId = ParseGuid(sprintId, "sprintId"),
-            BacklogOnly = backlogOnly ?? false,
+            SprintId = sprint?.SprintId,
+            BacklogOnly = backlogOnly == true || sprint is { IsBacklog: true },
+            NotPlannedOnly = sprint is { IsNotPlanned: true },
             OpenOnly = openOnly ?? false,
             PlannedFor = ParsePlanDate(plannedFor, "plannedFor"),
             ParentTaskId = ParseGuid(parentTaskId, "parentTaskId"),
@@ -183,7 +194,7 @@ public sealed class OrbitTools(
 
     [McpServerTool(Name = "update_task"), Description(
         "Update any field of a task. Only the arguments you pass change; omit an argument to leave it as is. " +
-        "Pass the literal string \"none\" to clear requesteeId, dueDate, startDate, parentTaskId, estimateMinutes, projectId, sprintId, assetId or plannedFor (sprintId \"none\" moves the task to the backlog;" +
+        "Pass the literal string \"none\" to clear requesteeId, dueDate, startDate, parentTaskId, estimateMinutes, projectId, sprintId, assetId or plannedFor (sprintId \"none\" makes the task Not Planned and \"backlog\" moves it to the Backlog; " +
         "plannedFor \"none\" takes it off the day plan, plannedFor \"today\" puts it on today's plan - closed tasks can't be planned). " +
         "assigneeIds replaces the task's assignees with the set given: [] unassigns everyone, and to add or remove one person pass the whole new set (get_task has the current one). " +
         "A key whose Edit tasks permission is scoped to Own can only edit tasks the Claude user created or is assigned; that covers every field, including setting status to Done or Cancelled. " +
@@ -202,7 +213,7 @@ public sealed class OrbitTools(
         [Description("The complete set of assignees' user ids (GUID); [] unassigns everyone. Omit to leave them as they are. Each person added must be an active user in the task's department, or one whose role sees tasks in every department; people kept aren't re-checked unless the task changes department.")] string[]? assigneeIds = null,
         [Description("Due date yyyy-MM-dd, or \"none\" to clear.")] string? dueDate = null,
         [Description("Project id (GUID), or \"none\" to make the task standalone.")] string? projectId = null,
-        [Description("Sprint id (GUID) to plan the task into, or \"none\" for the backlog.")] string? sprintId = null,
+        [Description("Sprint id (GUID) to plan the task into, \"backlog\" for the Backlog (to discuss at sprint planning), or \"none\" for Not Planned (work that came up during a sprint).")] string? sprintId = null,
         [Description("Department id (GUID) to move the task to. Needs the Edit tasks permission for the target department. Omit to keep the task's department (it only follows the project when projectId changes).")] string? departmentId = null,
         [Description("Day-plan date yyyy-MM-dd, \"today\" to put the task on today's plan, or \"none\" to take it off. Anyone in the task's department may plan it; closed tasks can't be planned.")] string? plannedFor = null,
         [Description("Planned start date yyyy-MM-dd (not after the due date), or \"none\" to clear.")] string? startDate = null,
@@ -214,6 +225,7 @@ public sealed class OrbitTools(
     {
         var id = await TaskIdAsync(taskId, ct);
         var current = await tasks.GetAsync(id, ct);
+        var sprint = ParseSprint(sprintId) ?? SprintPlacement.Of(current);
         var input = new TaskInput
         {
             // Full-state update: an omitted requestee must be carried over, or every update_task would clear it.
@@ -233,7 +245,8 @@ public sealed class OrbitTools(
             EstimateMinutes = IsClear(estimateMinutes) ? null : ParseInt(estimateMinutes, "estimateMinutes") ?? current.EstimateMinutes,
             Status = ParseEnum<TaskItemStatus>(status, "status") ?? current.Status,
             SolutionNotes = solutionNotes ?? current.SolutionNotes,
-            SprintId = IsClear(sprintId) ? null : ParseGuid(sprintId, "sprintId") ?? current.SprintId
+            SprintId = sprint.SprintId,
+            Backlog = sprint.IsBacklog
         };
         var task = await tasks.UpdateAsync(id, input, ct);
         // The day plan (§6.12) is deliberately not part of TaskInput, so it can't be wiped by a full-state edit.
@@ -1260,7 +1273,8 @@ public sealed class OrbitTools(
         plannedFor = t.PlannedFor,
         sprintId = t.SprintId,
         sprint = t.Sprint?.Name,
-        inBacklog = t.SprintId is null,
+        inBacklog = SprintPlacement.Of(t).IsBacklog,
+        notPlanned = SprintPlacement.Of(t).IsNotPlanned,
         recurringTaskDefinitionId = t.RecurringTaskDefinitionId,
         createdAt = t.CreatedAt,
         updatedAt = t.UpdatedAt,
@@ -1325,7 +1339,8 @@ public sealed class OrbitTools(
                     departmentId = t.DepartmentId, department = t.Department?.Name,
                     assignees = AssigneesDto(t),
                     parentTaskId = t.ParentTaskId, startDate = t.StartDate, dueDate = t.DueDate,
-                    sprintId = t.SprintId, updatedAt = t.UpdatedAt
+                    sprintId = t.SprintId, inBacklog = SprintPlacement.Of(t).IsBacklog, notPlanned = SprintPlacement.Of(t).IsNotPlanned,
+                    updatedAt = t.UpdatedAt
                 }).ToList()
                 : null,
             // Every link on the project (§6.15) - with parentTaskId on each task, enough to rebuild the tree and the graph a Gantt draws.
@@ -1514,6 +1529,14 @@ public sealed class OrbitTools(
         NumberingService.IsNumber(value)
             ? await numbering.FindProjectIdAsync(value!, ct) ?? throw new McpException($"No project is numbered {NumberingService.Normalise(value!)}.")
             : RequireGuid(value, "projectId");
+
+    /// <summary>A sprint placement (§6.3): a sprint's id, "backlog" for the Backlog or "none" for Not Planned; null when omitted.</summary>
+    private static SprintPlacement? ParseSprint(string? value, string name = "sprintId")
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        return SprintPlacement.Read(value)
+            ?? throw new McpException($"{name} must be a sprint id (GUID), \"backlog\" or \"none\" (Not Planned); got \"{value}\".");
+    }
 
     private static int? ParseInt(string? value, string name)
     {

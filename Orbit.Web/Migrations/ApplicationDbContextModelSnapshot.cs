@@ -2371,6 +2371,9 @@ namespace Orbit.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<bool>("InBacklog")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Number")
                         .IsRequired()
                         .HasMaxLength(16)
