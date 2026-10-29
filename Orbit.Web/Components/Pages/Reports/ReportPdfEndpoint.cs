@@ -24,7 +24,7 @@ public static class ReportPdfEndpoint
         {
             var q = http.Request.Query;
             var address = ReportAddress.Parse(q[ReportRun.KindKey], q[ReportRun.FromKey], q[ReportRun.ToKey], q[ReportRun.ProjectKey],
-                q[ReportRun.DepartmentKey], q[ReportRun.OwnerKey], q[ReportRun.AssigneeKey]);
+                q[ReportRun.DepartmentKey], q[ReportRun.OwnerKey], q[ReportRun.AssigneeKey], q[ReportRun.SprintKey]);
             ReportRun run;
             try
             {
@@ -40,15 +40,15 @@ public static class ReportPdfEndpoint
                 return AccessDeniedReason.Forbid(http, ex);
             }
             var bytes = ReportPdfBuilder.Build(run.Definition.Title, run.FilterSummary, Tables(run),
-                landscape: run.ProjectReport is not null || run.AssetReport is not null);
+                landscape: run.ProjectReport is not null || run.AssetReport is not null || run.SprintReport is not null);
             return Results.File(bytes, "application/pdf", run.FileName);
         }).RequireAuthorization(Policies.Permission(Permission.ReportsView));
         return endpoints;
     }
 
-    private static List<ReportPdfBuilder.Table> Tables(ReportRun run)
+    private static List<ReportPdfBuilder.Section> Tables(ReportRun run)
     {
-        var tables = new List<ReportPdfBuilder.Table>();
+        var tables = new List<ReportPdfBuilder.Section>();
         if (run.Counts is { } counts)
         {
             var rows = counts.Rows.Select(r => (IReadOnlyList<string>)[r.Name, r.Count.ToString()]).ToList();
@@ -65,8 +65,87 @@ public static class ReportPdfEndpoint
         if (run.EstimateAccuracy is not null) tables.AddRange(EstimateAccuracyTables(run.EstimateAccuracy));
         if (run.ProjectReport is not null) tables.AddRange(ProjectStatusTables(run.ProjectReport));
         if (run.AssetReport is not null) tables.AddRange(AssetStatusTables(run.AssetReport));
+        if (run.SprintReport is not null) tables.AddRange(SprintStatusSections(run.SprintReport));
         return tables;
     }
+
+    /// <summary>
+    /// Sprint status: the four charts, the summary (planned, Not Planned and all), the people, the groups, and each group's people
+    /// and tasks - the page's tables, in its order.
+    /// </summary>
+    private static IEnumerable<ReportPdfBuilder.Section> SprintStatusSections(SprintStatusReport r)
+    {
+        if (r.Sprint is null)
+        {
+            yield return new ReportPdfBuilder.Table(["Sprint"], [], "No sprint has started yet.");
+            yield break;
+        }
+        var s = r.Summary;
+        yield return new ReportPdfBuilder.Table(["Goal", "Where it stands"],
+            [[string.IsNullOrWhiteSpace(r.Sprint.Goal) ? "-" : r.Sprint.Goal, AsAt(r)]], Widths: [3, 2]);
+        yield return new ReportPdfBuilder.Charts(SprintCharts.All(r).Select(c => new ReportPdfBuilder.Chart(c.Title, c.Svg)).ToList());
+
+        static IReadOnlyList<string> Counts(string label, SprintTaskCounts p, SprintTaskCounts n, Func<SprintTaskCounts, string> f) =>
+            [label, f(p), f(n), f(p.Plus(n))];
+        static string Minutes(int m) => TimeFormat.Minutes(m);
+        IReadOnlyList<IReadOnlyList<string>> summary =
+        [
+            Counts("Tasks", s.Planned, s.NotPlanned, c => c.Total.ToString()),
+            Counts("Done", s.Planned, s.NotPlanned, c => c.Total == 0 ? "-" : $"{c.Done} ({c.PercentDone}%)"),
+            Counts("Left open", s.Planned, s.NotPlanned, c => c.LeftOpen.ToString()),
+            Counts("Estimate left on them", s.Planned, s.NotPlanned, Remaining),
+            Counts("Cancelled", s.Planned, s.NotPlanned, c => c.Cancelled.ToString()),
+            Counts("Carried in", s.Planned, s.NotPlanned, c => c.CarriedIn.ToString()),
+            ["Logged in sprint", Minutes(s.PlannedSprintMinutes), Minutes(s.NotPlannedSprintMinutes), Minutes(s.SprintMinutes)],
+            ["Share of sprint time", Percent(s.NotPlannedPercent is int np ? 100 - np : null), Percent(s.NotPlannedPercent), s.SprintMinutes == 0 ? "-" : "100%"],
+            ["Logged to date", Minutes(s.PlannedToDateMinutes), Minutes(s.NotPlannedToDateMinutes), Minutes(s.ToDateMinutes)],
+            ["Estimated", Estimated(s.PlannedEstimate), Estimated(s.NotPlannedEstimate), Estimated(s.AllEstimate)],
+            ["Variance", Variance(s.PlannedEstimate), Variance(s.NotPlannedEstimate), Variance(s.AllEstimate)]
+        ];
+        yield return new ReportPdfBuilder.Table(["", "Planned", "Not Planned", "All work"], summary, "Summary", [2.2f, 2, 2, 2]);
+
+        yield return new ReportPdfBuilder.Table(
+            ["Person", "Planned tasks", "Done", "Left open", "Not Planned tasks", "On planned", "On Not Planned", "Not Planned share"],
+            r.People.Select(p => (IReadOnlyList<string>)
+                [p.Name, p.PlannedTasks.ToString(), p.PlannedDone.ToString(), p.PlannedLeftOpen.ToString(), p.NotPlannedTasks.ToString(),
+                 Minutes(p.PlannedMinutes), Minutes(p.NotPlannedMinutes), Percent(p.NotPlannedPercent)]).ToList(),
+            "By person (time logged in the sprint)", [3, 1.3f, 1, 1.1f, 1.5f, 1.4f, 1.5f, 1.5f]);
+
+        static IReadOnlyList<string> GroupCells(string name, SprintTaskCounts t, int sprint, int toDate, EstimateComparison e) =>
+            [name, Progress(t), t.Done.ToString(), t.LeftOpen.ToString(), t.Cancelled.ToString(), Minutes(sprint), Minutes(toDate),
+             Estimated(e), Variance(e)];
+        var groups = r.Rows.Select(g => GroupCells(GroupLabel(g), g.Tasks, g.SprintMinutes, g.ToDateMinutes, g.Estimate)).ToList();
+        if (groups.Count > 0)
+        {
+            groups.Add(GroupCells("Planned work", s.Planned, s.PlannedSprintMinutes, s.PlannedToDateMinutes, s.PlannedEstimate));
+            groups.Add(GroupCells("Not Planned", s.NotPlanned, s.NotPlannedSprintMinutes, s.NotPlannedToDateMinutes, s.NotPlannedEstimate));
+            groups.Add(GroupCells("All work", s.All, s.SprintMinutes, s.ToDateMinutes, s.AllEstimate));
+        }
+        yield return new ReportPdfBuilder.Table(
+            ["Project", "Progress", "Done", "Left open", "Cancelled", "Logged in sprint", "To date", "Estimated", "Variance"],
+            groups, "By project", [3.4f, 1.4f, 0.9f, 1.1f, 1.1f, 1.4f, 1.2f, 1.3f, 1.9f]);
+
+        foreach (var g in r.Rows)
+        {
+            var name = g.Project is { } project ? $"{project.Number} {project.Name}".Trim() : g.Name;
+            var people = g.People.Select(x => (IReadOnlyList<string>)
+                [x.Name, x.Tasks.ToString(), x.Done.ToString(), x.LeftOpen.ToString(), Estimated(x), Minutes(x.SprintMinutes),
+                 Minutes(x.ToDateMinutes)]).ToList();
+            yield return new ReportPdfBuilder.Table(["Person", "Tasks", "Done", "Left open", "Estimated", "Logged in sprint", "Logged to date"],
+                people, $"{name}: people", [3.4f, 1, 1, 1.1f, 1.3f, 1.5f, 1.5f]);
+
+            var notPlanned = g.Kind == SprintGroupKind.NotPlanned;
+            yield return new ReportPdfBuilder.Table(
+                ["Task", notPlanned ? "Project" : "Status", "Outcome", "Assignee", "Estimate", "In sprint", "To date", ""],
+                g.TaskRows.Select(t => (IReadOnlyList<string>)
+                    [$"{t.Number} {t.Title}", notPlanned ? t.ProjectLabel ?? "-" : t.Status.Label(), Label(t.Outcome), t.Assignee,
+                     Estimate(t.EstimateMinutes), Minutes(t.SprintMinutes), Minutes(t.TotalMinutes), Note(t)]).ToList(),
+                $"{name}: tasks", [4.4f, 1.8f, 1.1f, 1.9f, 1.1f, 1.1f, 1.1f, 2.6f]);
+        }
+    }
+
+    private static string GroupLabel(SprintGroupRow g) =>
+        g.Project is { } p ? $"{p.Number} {p.Name}\n{p.DepartmentName}".Trim() : g.Name;
 
     private static string Tasks(int count, int unestimated) => unestimated == 0 ? count.ToString() : $"{count} ({unestimated} unestimated)";
 

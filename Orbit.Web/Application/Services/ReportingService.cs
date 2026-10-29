@@ -329,6 +329,105 @@ public sealed class ReportingService(ApplicationDbContext db, IActorProvider act
         return AssetReportRules.Build(included, histories, tasks, id => Name(id, names, "Unassigned"), f.FromUtc, f.ToUtc, today);
     }
 
+    /// <summary>
+    /// One sprint's planned work and the Not Planned work done in its window (§12 Sprint status): the sprint chosen, or the first the
+    /// Sprint filter offers - the active one, or the latest completed one (<see cref="SprintReportRules.Offered"/>). Sprints are
+    /// company-wide (§6.3), so every viewer is offered them all; the tasks counted are still the viewer's department's. The planned
+    /// tasks are those in it now and, once it has ended, the open ones it handed on, which only its Completed audit row records. Each
+    /// task's status is read as at the sprint's end from its status changes. A department selects tasks filed in it; the project and
+    /// assignee pick tasks after the filter options are worked out (<see cref="SprintReportRules.Build"/>).
+    /// </summary>
+    public async Task<SprintStatusReport> SprintStatusAsync(SprintReportFilter f, CancellationToken ct = default)
+    {
+        var actor = await RequireReportsAsync(ct);
+        var now = DateTime.UtcNow;
+        // A handful of sprints a year: read them all once, for the one reported on, the names and the filter's options.
+        var allSprints = await db.Sprints.AsNoTracking()
+            .Select(s => new SprintFacts(s.Id, s.Name, s.Goal, s.StartDate, s.EndDate, s.Status, s.CompletedAt))
+            .ToListAsync(ct);
+        var offered = SprintReportRules.Offered(allSprints);
+        var sprint = f.SprintId is Guid id
+            ? allSprints.FirstOrDefault(s => s.Id == id) ?? throw new NotFoundException("Sprint not found.")
+            : offered.FirstOrDefault();
+        if (sprint is null) return SprintStatusReport.Empty(now) with { Sprints = offered };
+        var asAt = sprint.CompletedAt ?? now;
+
+        // A handful of rows a year: read them all and parse the details in memory (a text column, not filtered in SQL).
+        var audit = await db.AuditLogs.AsNoTracking()
+            .Where(a => a.EntityType == AuditEntity.Sprint && a.Action == AuditAction.Completed)
+            .Select(a => new { a.EntityId, a.Timestamp, a.Details })
+            .ToListAsync(ct);
+        var completions = audit
+            .Select(a => SprintReportRules.TryReadCompletion(a.EntityId, a.Timestamp, a.Details, out var c) ? c : null)
+            .OfType<SprintCompletion>()
+            .ToList();
+        var handedOn = completions.Where(c => c.SprintId == sprint.Id).MaxBy(c => c.At)?.OpenTaskIds.ToList() ?? [];
+
+        var sprintId = sprint.Id;
+        var from = sprint.StartDate;
+        var to = sprint.EndDay;
+        var fromUtc = sprint.FromUtc;
+        var toUtc = sprint.ToUtc;
+        // Set to Done in the window and reopened since: CompletedAt has been cleared, so only the audit trail still says so.
+        var doneInWindow = await db.AuditLogs.AsNoTracking()
+            .Where(a => a.EntityType == AuditEntity.Task && a.Action == AuditAction.Completed && a.Timestamp >= fromUtc && a.Timestamp < toUtc)
+            .Select(a => a.EntityId)
+            .Distinct()
+            .ToListAsync(ct);
+        // Their time is read below, in one query: SprintMinutes and TotalMinutes are filled in by SprintReportRules.WithTime.
+        var candidates = await InDepartment(db.Tasks.AsNoTracking(), f.DepartmentId, actor)
+            .Where(t => t.SprintId == sprintId || handedOn.Contains(t.Id)
+                || (t.SprintId == null && !t.InBacklog
+                    && ((t.CreatedAt >= fromUtc && t.CreatedAt < toUtc)
+                        || (t.Status == TaskItemStatus.Done && t.CompletedAt >= fromUtc && t.CompletedAt < toUtc)
+                        || doneInWindow.Contains(t.Id)
+                        || t.TimeEntries.Any(e => e.Date >= from && e.Date < to))))
+            .Select(t => new SprintTaskFacts(
+                new TaskTimeFacts(t.Id, t.Number, t.Title, t.Status, t.Assignments.Select(x => x.UserId).ToList(), t.EstimateMinutes, 0),
+                t.ProjectId, t.SprintId, t.InBacklog, t.CreatedAt, t.CompletedAt, 0))
+            .ToListAsync(ct);
+
+        var taskIds = candidates.Select(t => t.Task.Id).ToList();
+        List<SprintTimeEntry> entries = [];
+        List<SprintStatusChange> changes = [];
+        if (taskIds.Count > 0)
+        {
+            entries = await db.TimeEntries.AsNoTracking()
+                .Where(e => taskIds.Contains(e.TaskId))
+                .GroupBy(e => new { e.TaskId, e.UserId, e.Date })
+                .Select(g => new SprintTimeEntry(g.Key.TaskId, g.Key.UserId, g.Key.Date, g.Sum(e => e.DurationMinutes)))
+                .ToListAsync(ct);
+            // Status changes from the window's start on: those in it show work set to Done, those after the as-at time undo the later ones.
+            var statusRows = await db.AuditLogs.AsNoTracking()
+                .Where(a => a.EntityType == AuditEntity.Task && taskIds.Contains(a.EntityId) && a.Timestamp >= fromUtc
+                    && (a.Action == AuditAction.StatusChanged || a.Action == AuditAction.Completed))
+                .Select(a => new { a.EntityId, a.Timestamp, a.Details })
+                .ToListAsync(ct);
+            changes = statusRows
+                .Select(a => AuditStatusChange.TryRead<TaskItemStatus>(a.Details, out var was, out var became) && was != became
+                    ? new SprintStatusChange(a.EntityId, a.Timestamp, was, became) : null)
+                .OfType<SprintStatusChange>()
+                .ToList();
+        }
+        var (tasks, time, days) = SprintReportRules.WithTime(candidates, entries, sprint);
+
+        // A task's project is named whichever department owns it: the task itself is the viewer's department's.
+        var projectIds = tasks.Select(t => t.ProjectId).OfType<Guid>().Distinct().ToList();
+        var projects = await db.Projects.AsNoTracking()
+            .Where(p => projectIds.Contains(p.Id))
+            .Select(p => new SprintProjectFacts(p.Id, p.Number, p.Name, p.Department.Name))
+            .ToDictionaryAsync(p => p.Id, ct);
+        var sprintNames = allSprints.ToDictionary(s => s.Id, s => s.Name);
+        var userIds = tasks.SelectMany(t => t.Task.AssigneeIds).Concat(time.Select(t => t.UserId)).Distinct().ToList();
+        var people = await db.Users.AsNoTracking()
+            .Where(u => userIds.Contains(u.Id))
+            .Select(u => new ReportPerson(u.Id, u.IsSystemAccount ? ClaudeName : u.DisplayName, u.IsActive || u.IsSystemAccount))
+            .ToDictionaryAsync(p => p.Id, ct);
+
+        return SprintReportRules.Build(sprint, tasks, time, days, changes, projects, completions, sprintNames, people,
+            f.ProjectId, f.AssigneeId, asAt) with { Sprints = offered };
+    }
+
     private static IQueryable<TaskTimeFacts> Facts(IQueryable<TaskItem> q) =>
         q.Select(t => new TaskTimeFacts(t.Id, t.Number, t.Title, t.Status, t.Assignments.Select(x => x.UserId).ToList(), t.EstimateMinutes,
             t.TimeEntries.Sum(e => (int?)e.DurationMinutes) ?? 0));
@@ -346,10 +445,15 @@ public sealed class ReportingService(ApplicationDbContext db, IActorProvider act
 
     private static IQueryable<TaskItem> Apply(IQueryable<TaskItem> q, ReportFilter f, Actor actor)
     {
-        var departmentId = RestrictedDepartment(actor) ?? f.DepartmentId;
         if (f.ProjectId is Guid p) q = q.Where(t => t.ProjectId == p);
-        if (departmentId is Guid d) q = q.Where(t => t.DepartmentId == d);
-        return q;
+        return InDepartment(q, f.DepartmentId, actor);
+    }
+
+    /// <summary>The tasks filed in the department chosen, or in the caller's own under a Department-scoped reports.view (§6.5).</summary>
+    private static IQueryable<TaskItem> InDepartment(IQueryable<TaskItem> q, Guid? departmentId, Actor actor)
+    {
+        var d = RestrictedDepartment(actor) ?? departmentId;
+        return d is Guid id ? q.Where(t => t.DepartmentId == id) : q;
     }
 
     /// <summary>

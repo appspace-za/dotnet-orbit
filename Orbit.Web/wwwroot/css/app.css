@@ -185,6 +185,30 @@ a.orbit-plain:hover { background: var(--mud-palette-table-hover); }
 .orbit-report.mud-simple-table tfoot td { font-weight: 600; background: var(--mud-palette-background-gray); border-top: 1px solid var(--mud-palette-table-lines); }
 .orbit-report .orbit-report-detail > td { background: var(--mud-palette-background-gray); }
 .orbit-report-tasks { border-top: 1px solid var(--mud-palette-table-lines); }
+/* Sprint status (§12): the Not Planned row sits apart from the projects; the summary's tiles and charts sit inside the card. */
+.orbit-report.mud-simple-table tr.orbit-report-section > td { border-top: 2px solid var(--mud-palette-table-lines); }
+.orbit-report-summary { padding: 1rem 1rem 0; }
+.orbit-chart-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: .75rem; margin-bottom: 1rem; }
+@media (min-width: 1280px) { .orbit-chart-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.orbit-chart { padding: .75rem 1rem; }
+/* The SVG keeps its own size, shrinking to a narrower box; on a phone it keeps a readable size and scrolls inside the box, never the
+   page. Its text names Lato for the PDF (QuestPDF draws SVG text only in the font it ships); on screen it takes the page's font. */
+.orbit-chart-body { overflow-x: auto; }
+.orbit-chart-body svg { display: block; max-width: 100%; height: auto; min-width: 420px; font-family: inherit; }
+/* SvgCharts gives each mark a light-theme fill for the PDF; these take the theme's colours on screen, light and dark. Planned and
+   Not Planned are indigo and magenta, checked for colour-blind separation and contrast on each theme's surface. */
+.orbit-chart { --orbit-chart-planned: #4338ca; --orbit-chart-not-planned: #d55181; }
+.orbit-dark .orbit-chart { --orbit-chart-planned: #6366f1; }
+.orbit-chart .oc-done { fill: var(--mud-palette-success); }
+.orbit-chart .oc-left-open { fill: var(--mud-palette-warning); }
+.orbit-chart .oc-cancelled { fill: var(--mud-palette-secondary); }
+.orbit-chart .oc-planned { fill: var(--orbit-chart-planned); }
+.orbit-chart .oc-not-planned { fill: var(--orbit-chart-not-planned); }
+.orbit-chart .oc-strong { fill: var(--mud-palette-text-primary); }
+.orbit-chart .oc-text { fill: var(--mud-palette-text-secondary); }
+.orbit-chart .oc-muted { fill: var(--mud-palette-text-disabled); }
+.orbit-chart .oc-grid { stroke: var(--mud-palette-lines-default); }
+.orbit-chart .oc-axis { stroke: var(--mud-palette-lines-inputs); }
 /* Code in a text box (§6.20: a step's or field's key, an action's parameters and script): monospace; a script unwrapped, four-space tabs. */
 /* MudBlazor sets the input's font itself (.mud-input > .mud-input-root), so these name the same elements more specifically. */
 .orbit-code .mud-input > input.mud-input-root, .orbit-code .mud-input > textarea.mud-input-root { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }

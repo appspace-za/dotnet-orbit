@@ -12,12 +12,15 @@ namespace Orbit.Components.Pages.Reports;
 /// filter. No kind is the first report, Closed count by person.
 /// </summary>
 public sealed record ReportAddress(
-    ReportKind Kind, DateOnly? From, DateOnly? To, Guid? ProjectId, Guid? DepartmentId, Guid? OwnerId, Guid? AssigneeId)
+    ReportKind Kind, DateOnly? From, DateOnly? To, Guid? ProjectId, Guid? DepartmentId, Guid? OwnerId, Guid? AssigneeId,
+    Guid? SprintId = null)
 {
     public static ReportAddress Parse(
-        string? kind, string? from, string? to, string? projectId, string? departmentId, string? ownerId, string? assigneeId) =>
+        string? kind, string? from, string? to, string? projectId, string? departmentId, string? ownerId, string? assigneeId,
+        string? sprintId = null) =>
         new(FilterQuery.Enum<ReportKind>(kind) ?? ReportKind.ClosedByPerson, FilterQuery.Date(from), FilterQuery.Date(to),
-            FilterChoice.Id(projectId), FilterChoice.Id(departmentId), FilterChoice.Id(ownerId), FilterChoice.Id(assigneeId));
+            FilterChoice.Id(projectId), FilterChoice.Id(departmentId), FilterChoice.Id(ownerId), FilterChoice.Id(assigneeId),
+            FilterChoice.Id(sprintId));
 }
 
 /// <summary>
@@ -29,19 +32,22 @@ public sealed class ReportRun
 {
     // The address keys, as the Razor page bound them, so existing links and bookmarks keep working.
     public const string KindKey = "Kind", FromKey = "From", ToKey = "To", ProjectKey = "ProjectId", DepartmentKey = "DepartmentId",
-        OwnerKey = "OwnerId", AssigneeKey = "AssigneeId";
+        OwnerKey = "OwnerId", AssigneeKey = "AssigneeId", SprintKey = "SprintId";
 
-    private static readonly string[] Keys = [KindKey, FromKey, ToKey, ProjectKey, DepartmentKey, OwnerKey, AssigneeKey];
+    private static readonly string[] Keys = [KindKey, SprintKey, FromKey, ToKey, ProjectKey, DepartmentKey, OwnerKey, AssigneeKey];
 
     private ReportRun() { }
 
     public ReportKind Kind { get; private set; }
+    /// <summary>The period; for Sprint status, the sprint's first and last days.</summary>
     public DateOnly From { get; private set; }
     public DateOnly To { get; private set; }
     public Guid? ProjectId { get; private set; }
     public Guid? DepartmentId { get; private set; }
     public Guid? OwnerId { get; private set; }
     public Guid? AssigneeId { get; private set; }
+    /// <summary>The sprint reported on (<see cref="ReportDefinition.BySprint"/>): the one chosen, or the one the report defaulted to.</summary>
+    public Guid? SprintId { get; private set; }
 
     /// <summary>reports.view at Department scope fixes the department to the viewer's own (§6.5): the picker is hidden.</summary>
     public bool CanChooseDepartment { get; private set; }
@@ -52,6 +58,7 @@ public sealed class ReportRun
     public EstimateAccuracyReport? EstimateAccuracy { get; private set; }
     public ProjectStatusReport? ProjectReport { get; private set; }
     public AssetStatusReport? AssetReport { get; private set; }
+    public SprintStatusReport? SprintReport { get; private set; }
     public string FilterSummary { get; private set; } = string.Empty;
 
     /// <summary>The Project filter's projects (archived ones too, as reports look back), without "All". Only with options.</summary>
@@ -61,26 +68,32 @@ public sealed class ReportRun
     /// <summary>The Owner and Assignee filters (<see cref="ReportDefinition.ByOwnerAndAssignee"/>), from <see cref="ReportingService.ProjectReportPeopleAsync"/>.</summary>
     public IReadOnlyList<(string Value, string Text)> OwnerOptions { get; private set; } = [];
     public IReadOnlyList<(string Value, string Text)> AssigneeOptions { get; private set; } = [];
+    /// <summary>The Sprint filter's sprints (<see cref="ReportDefinition.BySprint"/>), with no "All". Only with options.</summary>
+    public IReadOnlyList<(string Value, string Text)> SprintOptions { get; private set; } = [];
 
     public string FileName => $"orbit-{Kind.ToString().ToLowerInvariant()}-{From:yyyyMMdd}-{To:yyyyMMdd}.pdf";
 
     /// <summary>
-    /// The filters in force as a query string (without "?"), with <paramref name="key"/> changed to <paramref name="value"/>: the
-    /// fields the Razor page's form sent, so a fixed department stays out of the address.
+    /// The filters in force as a query string (without "?"), with <paramref name="key"/> changed to <paramref name="value"/> and the
+    /// keys in <paramref name="clear"/> dropped: the fields the Razor page's form sent, so a fixed department stays out of the
+    /// address. A report by sprint carries its sprint and no dates; the others their dates and no sprint.
     /// </summary>
-    public string Query(string? key = null, string? value = null)
+    public string Query(string? key = null, string? value = null, params string[] clear)
     {
+        var bySprint = Definition.BySprint;
         var filters = new Dictionary<string, string?>
         {
             [KindKey] = Kind.ToString(),
-            [FromKey] = From.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            [ToKey] = To.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            [SprintKey] = bySprint ? SprintId?.ToString() : null,
+            [FromKey] = bySprint ? null : From.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            [ToKey] = bySprint ? null : To.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
             [ProjectKey] = ProjectId?.ToString(),
             [DepartmentKey] = CanChooseDepartment ? DepartmentId?.ToString() : null,
             [OwnerKey] = OwnerId?.ToString(),
             [AssigneeKey] = AssigneeId?.ToString()
         };
         if (key is not null) filters[key] = value;
+        foreach (var k in clear) filters[k] = null;
         var query = new FilterQuery();
         foreach (var k in Keys) query.Add(k, filters[k]);
         return query.ToString();
@@ -107,7 +120,8 @@ public sealed class ReportRun
         if (restricted is Guid r) run.DepartmentId = r == Guid.Empty ? null : r; // the service enforces it either way
         run.Definition = ReportCatalog.Get(run.Kind);
         if (!run.Definition.ByProject) run.ProjectId = null; // assets belong to no project
-        if (!run.Definition.ByOwnerAndAssignee) run.OwnerId = run.AssigneeId = null;
+        if (!run.Definition.ByOwnerAndAssignee) run.OwnerId = null;
+        if (!run.Definition.ByAssignee) run.AssigneeId = null;
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var to = filters.To ?? today;
         var from = filters.From ?? to.AddDays(-30);
@@ -129,10 +143,26 @@ public sealed class ReportRun
             case ReportKind.EstimateAccuracy: run.EstimateAccuracy = await reporting.EstimateAccuracyAsync(filter, ct); break;
             case ReportKind.ProjectStatus: run.ProjectReport = await reporting.ProjectStatusAsync(filter, ct); break;
             case ReportKind.AssetStatus: run.AssetReport = await reporting.AssetStatusAsync(filter, ct); break;
+            case ReportKind.SprintStatus:
+                run.SprintReport = await reporting.SprintStatusAsync(
+                    new SprintReportFilter(filters.SprintId, run.ProjectId, run.DepartmentId, run.AssigneeId), ct);
+                if (run.SprintReport.Sprint is { } sprint)
+                {
+                    run.SprintId = sprint.Id;
+                    run.From = sprint.StartDate;
+                    run.To = sprint.EndDate;
+                }
+                break;
+        }
+
+        if (run.SprintReport is { } sprintReport)
+        {
+            await SprintFiltersAsync(run, sprintReport, departments, withOptions, ct);
+            return run;
         }
 
         var parts = new List<string> { $"{from:yyyy-MM-dd} to {to:yyyy-MM-dd}" };
-        if (run.DepartmentId is Guid d) parts.Add("Department: " + (await departments.GetAsync(d, ct)).Name);
+        await AddDepartmentAsync(run, parts, departments, ct);
         ProjectStatusSummary? chosenProject = null;
         if (run.ProjectId is Guid p)
         {
@@ -160,11 +190,62 @@ public sealed class ReportRun
                     options.Add((chosen.Id.ToString(), ProjectText(chosen.DepartmentName, chosen.Name, chosen.Status)));
                 run.ProjectOptions = options;
             }
-            if (run.CanChooseDepartment)
-                run.DepartmentOptions = (await departments.ListAsync(true, ct)).Select(x => (x.Id.ToString(), x.Name)).ToList();
+            await DepartmentOptionsAsync(run, departments, ct);
         }
         return run;
     }
+
+    /// <summary>
+    /// Sprint status's summary line and options (§12): the sprint, then the filters. The sprint, project and assignee options are
+    /// the report's own - the sprints it offers, the projects with planned work in the sprint, the people on its tasks - and name the
+    /// chosen ones, so a Department-scoped viewer is never refused a project they can't open.
+    /// </summary>
+    private static async Task SprintFiltersAsync(
+        ReportRun run, SprintStatusReport report, DepartmentService departments, bool withOptions, CancellationToken ct)
+    {
+        var parts = new List<string> { report.Sprint is { } s ? SprintText(s) : "No sprint has started yet" };
+        await AddDepartmentAsync(run, parts, departments, ct);
+        if (run.ProjectId is Guid p) parts.Add("Project: " + (report.ProjectOptions.FirstOrDefault(x => x.Id == p)?.Name ?? "Unknown"));
+        if (run.AssigneeId is Guid a) parts.Add("Assignee: " + PersonName(report.AssigneeOptions, a));
+        run.FilterSummary = string.Join(" · ", parts);
+        if (!withOptions) return;
+
+        var sprints = report.Sprints.Select(x => (x.Id.ToString(), SprintText(x))).ToList();
+        // A sprint chosen but not offered (a planned one, from a link) stays selected under its name.
+        if (report.Sprint is { } chosen && sprints.All(x => x.Item1 != chosen.Id.ToString()))
+            sprints.Add((chosen.Id.ToString(), SprintText(chosen)));
+        run.SprintOptions = sprints;
+
+        var projects = report.ProjectOptions.Select(x => (x.Id.ToString(), $"{x.DepartmentName} / {x.Name}")).ToList();
+        if (run.ProjectId is Guid chosenProject && projects.All(x => x.Item1 != chosenProject.ToString()))
+            projects.Add((chosenProject.ToString(), "Unknown project"));
+        run.ProjectOptions = projects;
+        run.AssigneeOptions = PersonOptions(report.AssigneeOptions, run.AssigneeId);
+        await DepartmentOptionsAsync(run, departments, ct);
+    }
+
+    /// <summary>The department chosen, in the summary line.</summary>
+    private static async Task AddDepartmentAsync(ReportRun run, List<string> parts, DepartmentService departments, CancellationToken ct)
+    {
+        if (run.DepartmentId is Guid d) parts.Add("Department: " + (await departments.GetAsync(d, ct)).Name);
+    }
+
+    /// <summary>The Department filter's departments, when the viewer may choose one.</summary>
+    private static async Task DepartmentOptionsAsync(ReportRun run, DepartmentService departments, CancellationToken ct)
+    {
+        if (run.CanChooseDepartment)
+            run.DepartmentOptions = (await departments.ListAsync(true, ct)).Select(x => (x.Id.ToString(), x.Name)).ToList();
+    }
+
+    /// <summary>
+    /// The Sprint status report's address: <paramref name="sprintId"/>'s, or with none the report's default sprint, the active one
+    /// or the latest completed one. The Reports page and a sprint's page link to it.
+    /// </summary>
+    public static string SprintLink(Guid? sprintId = null) =>
+        $"/Reports/View?{new FilterQuery().Add(KindKey, nameof(ReportKind.SprintStatus)).Add(SprintKey, sprintId)}";
+
+    /// <summary>"Sprint 14 (Active) · 2026-10-19 to 2026-10-30".</summary>
+    public static string SprintText(SprintFacts s) => $"{s.Name} ({s.Status}) · {s.StartDate:yyyy-MM-dd} to {s.EndDate:yyyy-MM-dd}";
 
     private static string ProjectText(string department, string name, ProjectStatus status) =>
         $"{department} / {name}{(status == ProjectStatus.Archived ? " (archived)" : "")}";

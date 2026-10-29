@@ -1,0 +1,374 @@
+@* Sprint status (spec §12): one sprint's planned work beside the Not Planned work done in its window, for the sprint's review at
+   sprint planning. Summary tiles and four charts (SprintCharts, the same SVG as the PDF's), the people planned against Not Planned,
+   then one row per project with planned work, the planned tasks on no project and the Not Planned work, each opening on its
+   people and tasks. *@
+
+@if (Report.Sprint is not { } sprint)
+{
+    <p class="orbit-empty">No sprint has started yet: a sprint's report shows here once it has.</p>
+}
+else
+{
+    var s = Report.Summary;
+    <div class="orbit-list-item orbit-small">
+        @if (!string.IsNullOrWhiteSpace(sprint.Goal))
+        {
+            <div><b>Goal:</b> @sprint.Goal</div>
+        }
+        <div class="orbit-muted">@ReportText.AsAt(Report)</div>
+    </div>
+
+    <div class="orbit-report-summary">
+        <div class="orbit-stats orbit-stats-6">
+            <MudPaper Outlined="true" Class="orbit-stat">
+                <div class="orbit-stat-label">Planned tasks</div>
+                <div class="orbit-stat-value">@s.Planned.Total</div>
+                <div class="orbit-sub">@(s.Planned.CarriedIn > 0 ? $"{s.Planned.CarriedIn} carried in" : "none carried in")</div>
+            </MudPaper>
+            <MudPaper Outlined="true" Class="orbit-stat">
+                <div class="orbit-stat-label">Done</div>
+                <div class="orbit-stat-value">@s.Planned.Done</div>
+                <div class="orbit-sub">@(s.Planned.Total == 0 ? "-" : $"{s.Planned.PercentDone}% of the planned tasks")</div>
+                @if (s.Planned.Total > 0)
+                {
+                    <MudProgressLinear Value="s.Planned.PercentDone" Color="Color.Success" Rounded="true" Class="mt-1" />
+                }
+            </MudPaper>
+            <MudPaper Outlined="true" Class="orbit-stat">
+                <div class="orbit-stat-label">Left open</div>
+                <div class="orbit-stat-value">@s.Planned.LeftOpen</div>
+                @if (s.Planned.LeftOpen > 0)
+                {
+                    <div class="orbit-sub" title="Each left-open task's estimate less all time logged on it, never below nothing">Estimate left: @ReportText.Remaining(s.Planned)</div>
+                }
+                @if (Report.LeftOpenTo is { } to && s.Planned.LeftOpen > 0)
+                {
+                    <div class="orbit-sub">went to @to</div>
+                }
+            </MudPaper>
+            <MudPaper Outlined="true" Class="orbit-stat">
+                <div class="orbit-stat-label">Not Planned tasks</div>
+                <div class="orbit-stat-value">@s.NotPlanned.Total</div>
+                <div class="orbit-sub">@s.NotPlanned.Done done · @s.NotPlanned.LeftOpen open</div>
+            </MudPaper>
+            <MudPaper Outlined="true" Class="orbit-stat">
+                <div class="orbit-stat-label">Logged in the sprint</div>
+                <div class="orbit-stat-value">@TimeFormat.Minutes(s.SprintMinutes)</div>
+                <div class="orbit-sub">
+                    @TimeFormat.Minutes(s.PlannedSprintMinutes) planned · @TimeFormat.Minutes(s.NotPlannedSprintMinutes) Not Planned
+                    @if (s.NotPlannedPercent is int share)
+                    {
+                        <b> (@share%)</b>
+                    }
+                </div>
+            </MudPaper>
+            <MudPaper Outlined="true" Class="orbit-stat">
+                <div class="orbit-stat-label" title="All time logged to date on the estimated tasks (cancelled ones aside), against their estimates">Estimate variance</div>
+                <div class="orbit-stat-value @ReportText.VarianceClass(s.AllEstimate.VarianceMinutes)">@(s.AllEstimate.EstimatedTasks == 0 ? "-" : TimeFormat.Signed(s.AllEstimate.VarianceMinutes))</div>
+                <div class="orbit-sub">@ReportText.Estimated(s.AllEstimate) estimated · @ReportText.Actual(s.AllEstimate) logged</div>
+            </MudPaper>
+        </div>
+
+        <div class="orbit-chart-grid">
+            @foreach (var chart in _charts)
+            {
+                <MudPaper Outlined="true" Class="orbit-chart">
+                    <MudText Typo="Typo.subtitle2" HtmlTag="h2" Class="mb-2">@chart.Title</MudText>
+                    <div class="orbit-chart-body">@((MarkupString)chart.Svg)</div>
+                </MudPaper>
+            }
+        </div>
+    </div>
+
+    <MudText Typo="Typo.subtitle2" HtmlTag="h2" Class="px-4 pt-2 pb-2">By person</MudText>
+    @if (Report.People.Count == 0)
+    {
+        <p class="orbit-empty">Nobody has a task or logged time in this sprint.</p>
+    }
+    else
+    {
+        <div class="orbit-table-wrap">
+            <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks orbit-report">
+                <thead>
+                    <tr>
+                        <th>Person</th>
+                        <th class="text-right" title="Their planned tasks (cancelled ones aside). A task several people share counts for each of them, and once in the total.">Planned tasks</th>
+                        <th class="text-right">Done</th>
+                        <th class="text-right">Left open</th>
+                        <th class="text-right" title="Their Not Planned tasks (cancelled ones aside)">Not Planned tasks</th>
+                        <th class="text-right" title="Their own time on planned tasks, dated in the sprint">On planned</th>
+                        <th class="text-right" title="Their own time on Not Planned tasks, dated in the sprint">On Not Planned</th>
+                        <th class="text-right" title="Not Planned work's share of the time they logged in the sprint">Not Planned share</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var p in Report.People)
+                    {
+                        <tr>
+                            <td class="@(p.UserId is null ? "orbit-muted" : null)">
+                                @if (p.UserId is null)
+                                {
+                                    <i>@p.Name</i>
+                                }
+                                else
+                                {
+                                    @p.Name
+                                }
+                            </td>
+                            <td class="text-right">@p.PlannedTasks</td>
+                            <td class="text-right">@p.PlannedDone</td>
+                            <td class="text-right">@p.PlannedLeftOpen</td>
+                            <td class="text-right">@p.NotPlannedTasks</td>
+                            <td class="text-right">@TimeFormat.Minutes(p.PlannedMinutes)</td>
+                            <td class="text-right">@TimeFormat.Minutes(p.NotPlannedMinutes)</td>
+                            <td class="text-right">@ReportText.Percent(p.NotPlannedPercent)</td>
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td>Total</td>
+                        <td class="text-right">@(s.Planned.Total - s.Planned.Cancelled)</td>
+                        <td class="text-right">@s.Planned.Done</td>
+                        <td class="text-right">@s.Planned.LeftOpen</td>
+                        <td class="text-right">@(s.NotPlanned.Total - s.NotPlanned.Cancelled)</td>
+                        <td class="text-right">@TimeFormat.Minutes(s.PlannedSprintMinutes)</td>
+                        <td class="text-right">@TimeFormat.Minutes(s.NotPlannedSprintMinutes)</td>
+                        <td class="text-right">@ReportText.Percent(s.NotPlannedPercent)</td>
+                    </tr>
+                </tfoot>
+            </MudSimpleTable>
+        </div>
+    }
+
+    <MudText Typo="Typo.subtitle2" HtmlTag="h2" Class="px-4 pt-4 pb-2">By project</MudText>
+    @if (Report.Rows.Count == 0)
+    {
+        <p class="orbit-empty">No tasks for the selected filters.</p>
+    }
+    else
+    {
+        <div class="orbit-table-wrap">
+            <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks orbit-report">
+                <thead>
+                    <tr>
+                        <th>Project</th>
+                        <th style="width:12%">Progress</th>
+                        <th class="text-right">Done</th>
+                        <th class="text-right" title="Open when the sprint ended, or open now while it runs">Left open</th>
+                        <th class="text-right">Cancelled</th>
+                        <th class="text-right" title="Everyone's time dated in the sprint, and all time logged to date">Logged in sprint</th>
+                        <th class="text-right" title="The estimates of the tasks that have one (cancelled ones aside)">Estimated</th>
+                        <th class="text-right" title="All time logged on the estimated tasks to date, against their estimates">Variance</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var g in Report.Rows)
+                    {
+                        var t = g.Tasks;
+                        var key = g.Key;
+                        var open = _open.Contains(key);
+                        <tr class="@(g.Kind == SprintGroupKind.NotPlanned ? "orbit-report-section" : null)">
+                            <td>
+                                @if (g.Project is { } p)
+                                {
+                                    <span class="orbit-number">@p.Number</span><a href="@($"/Projects/Details/{p.Id}")" class="orbit-title">@p.Name</a>
+                                    <div class="orbit-sub">@p.DepartmentName</div>
+                                }
+                                else
+                                {
+                                    <b>@g.Name</b>
+                                    <div class="orbit-sub">@(g.Kind == SprintGroupKind.NotPlanned ? "Work that came up during the sprint" : "Planned tasks on no project")</div>
+                                }
+                                <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" OnClick="() => Toggle(key)"
+                                           EndIcon="@(open ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                                           aria-expanded="@(open ? "true" : "false")">People and tasks</MudButton>
+                            </td>
+                            <td>
+                                <div class="orbit-small">@ReportText.Progress(t)</div>
+                                <MudProgressLinear Value="t.PercentDone" Color="Color.Success" Rounded="true" title="@($"{t.PercentDone}% done")" />
+                            </td>
+                            <td class="text-right">@t.Done</td>
+                            <td class="text-right">
+                                @t.LeftOpen
+                                @if (t.LeftOpen > 0 && t.LeftOpenRemainingMinutes > 0)
+                                {
+                                    <div class="orbit-sub text-nowrap">@TimeFormat.Minutes(t.LeftOpenRemainingMinutes) left</div>
+                                }
+                            </td>
+                            <td class="text-right">@t.Cancelled</td>
+                            <td class="text-right">
+                                <b>@TimeFormat.Minutes(g.SprintMinutes)</b>
+                                <div class="orbit-sub text-nowrap">@TimeFormat.Minutes(g.ToDateMinutes) to date</div>
+                            </td>
+                            <td class="text-right">@ReportText.Estimated(g.Estimate)</td>
+                            <td class="text-right">
+                                <span class="@ReportText.VarianceClass(g.Estimate.VarianceMinutes)">@ReportText.Variance(g.Estimate)</span>
+                                @if (g.Estimate.OverTasks > 0)
+                                {
+                                    <div class="orbit-sub">@g.Estimate.OverTasks over estimate</div>
+                                }
+                            </td>
+                        </tr>
+                        @if (open)
+                        {
+                            <tr class="orbit-report-detail">
+                                <td colspan="8" class="pa-0">
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th class="orbit-muted ps-10">Person</th>
+                                                <th class="orbit-muted text-right" title="Their tasks here (cancelled ones aside). A task several people share counts for each of them.">Tasks</th>
+                                                <th class="orbit-muted text-right">Done</th>
+                                                <th class="orbit-muted text-right">Left open</th>
+                                                <th class="orbit-muted text-right" title="The estimates of their tasks here. A shared task's estimate counts in full for each of its assignees.">Estimated</th>
+                                                <th class="orbit-muted text-right" title="Their own time on these tasks, dated in the sprint">Logged in sprint</th>
+                                                <th class="orbit-muted text-right" title="Their own time on these tasks to date">Logged to date</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var x in g.People)
+                                            {
+                                                <tr>
+                                                    <td class="@(x.UserId is null ? "ps-10 orbit-muted" : "ps-10")">
+                                                        @if (x.UserId is null)
+                                                        {
+                                                            <i>@x.Name</i>
+                                                        }
+                                                        else
+                                                        {
+                                                            @x.Name
+                                                        }
+                                                    </td>
+                                                    <td class="text-right">@x.Tasks</td>
+                                                    <td class="text-right">@x.Done</td>
+                                                    <td class="text-right">@x.LeftOpen</td>
+                                                    <td class="text-right">@ReportText.Estimated(x)</td>
+                                                    <td class="text-right">@TimeFormat.Minutes(x.SprintMinutes)</td>
+                                                    <td class="text-right">@TimeFormat.Minutes(x.ToDateMinutes)</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                    <table class="orbit-report-tasks">
+                                        <thead>
+                                            <tr>
+                                                <th class="orbit-muted ps-10">Task</th>
+                                                <th class="orbit-muted">Status</th>
+                                                <th class="orbit-muted" title="Where the task ended the sprint">Outcome</th>
+                                                <th class="orbit-muted">Assignee</th>
+                                                <th class="orbit-muted text-right">Estimate</th>
+                                                <th class="orbit-muted text-right" title="Everyone's time on the task, dated in the sprint">Logged in sprint</th>
+                                                <th class="orbit-muted text-right" title="All time logged on the task to date, by anyone">Logged to date</th>
+                                                <th></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var x in g.TaskRows)
+                                            {
+                                                <tr>
+                                                    <td class="ps-10">
+                                                        <span class="orbit-number">@x.Number</span><a href="@($"/Tasks/Details/{x.TaskId}")" class="orbit-title">@x.Title</a>
+                                                        @if (x.ProjectLabel is { } project)
+                                                        {
+                                                            <div class="orbit-sub">@project</div>
+                                                        }
+                                                    </td>
+                                                    <td><MudChip T="string" Size="Size.Small" Color="TaskLook.Status(x.Status)">@x.Status.Label()</MudChip></td>
+                                                    <td><MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="OutcomeColour(x.Outcome)">@ReportText.Label(x.Outcome)</MudChip></td>
+                                                    <td>@x.Assignee</td>
+                                                    <td class="text-right">@ReportText.Estimate(x.EstimateMinutes)</td>
+                                                    <td class="text-right">@TimeFormat.Minutes(x.SprintMinutes)</td>
+                                                    <td class="text-right">@TimeFormat.Minutes(x.TotalMinutes)</td>
+                                                    <td>
+                                                        <div class="orbit-gap-row">
+                                                            @if (x.IsOver)
+                                                            {
+                                                                <MudChip T="string" Size="Size.Small" Color="Color.Warning" title="More time has been logged than was estimated">Over estimate</MudChip>
+                                                            }
+                                                            <span class="orbit-muted orbit-small">@ReportText.Note(x, withOver: false)</span>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+                <tfoot>
+                    @foreach (var (label, t, sprintMinutes, toDate, estimate) in Totals(s))
+                    {
+                        <tr>
+                            <td>@label</td>
+                            <td class="orbit-small">@ReportText.Progress(t)</td>
+                            <td class="text-right">@t.Done</td>
+                            <td class="text-right">@t.LeftOpen</td>
+                            <td class="text-right">@t.Cancelled</td>
+                            <td class="text-right">
+                                @TimeFormat.Minutes(sprintMinutes)
+                                <div class="orbit-sub text-nowrap">@TimeFormat.Minutes(toDate) to date</div>
+                            </td>
+                            <td class="text-right">@ReportText.Estimated(estimate)</td>
+                            <td class="text-right @ReportText.VarianceClass(estimate.VarianceMinutes)">@ReportText.Variance(estimate)</td>
+                        </tr>
+                    }
+                </tfoot>
+            </MudSimpleTable>
+        </div>
+    }
+    <div class="orbit-card-footer">
+        The sprint's window is its start date to its end date, both days included; time counts in it by the day it was logged for.
+        Planned tasks are those in the sprint and, once it has ended, the open ones it handed on to the next sprint or the Backlog
+        (read from the sprint's completion), so a past sprint still shows what was left open. Outcomes are each task's status as at
+        the sprint's completion, read from its status history, or now while it runs: Done, Left open or Cancelled. Later changes
+        don't alter them: a task closed when the sprint ended and reopened since keeps its outcome, marked Reopened since. Not
+        Planned work is the tasks that are Not Planned now and were created, set to Done or logged against in the window; a support
+        task since moved to the Backlog or a sprint drops out. Created and completed times count by the UTC day. The estimate left
+        on the left-open tasks is each one's estimate less all time logged on it, never below nothing. Estimated and variance
+        compare the estimated tasks (those cancelled when the sprint ended aside) with all time logged on them to date. The
+        charts show the twelve projects and people with the most, the rest together. The project and assignee filters pick tasks
+        (the project's, the person's, shared ones included); a picked task's figures still cover everyone's time. The department
+        is the task's.
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public SprintStatusReport Report { get; set; } = null!;
+
+    /// <summary>
+    /// The groups whose people and tasks are showing, by key, so they stay open when a filter changes and the report reloads
+    /// (<c>ReportView</c> keeps this component, so this set, across runs). Another sprint closes them all.
+    /// </summary>
+    private readonly HashSet<string> _open = [];
+    private Guid? _sprintId;
+    private IReadOnlyList<SprintCharts.Chart> _charts = [];
+
+    protected override void OnParametersSet()
+    {
+        if (Report.Sprint?.Id != _sprintId) _open.Clear();
+        _sprintId = Report.Sprint?.Id;
+        _charts = SprintCharts.All(Report);
+    }
+
+    private void Toggle(string key)
+    {
+        if (!_open.Remove(key)) _open.Add(key);
+    }
+
+    private static Color OutcomeColour(SprintTaskOutcome o) => o switch
+    {
+        SprintTaskOutcome.Done => Color.Success,
+        SprintTaskOutcome.LeftOpen => Color.Warning,
+        _ => Color.Default
+    };
+
+    private static IEnumerable<(string Label, SprintTaskCounts Tasks, int SprintMinutes, int ToDate, EstimateComparison Estimate)> Totals(SprintStatusSummary s)
+    {
+        yield return ("Planned work", s.Planned, s.PlannedSprintMinutes, s.PlannedToDateMinutes, s.PlannedEstimate);
+        if (s.NotPlanned.Total > 0) yield return (SprintGroupRow.NotPlannedName, s.NotPlanned, s.NotPlannedSprintMinutes, s.NotPlannedToDateMinutes, s.NotPlannedEstimate);
+        yield return ("All work", s.All, s.SprintMinutes, s.ToDateMinutes, s.AllEstimate);
+    }
+}

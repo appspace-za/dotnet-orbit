@@ -156,7 +156,7 @@ public sealed class SprintService(ApplicationDbContext db, IActorProvider actors
             current.Status = SprintStatus.Completed;
             current.CompletedAt = now;
             audit.Add(actor, AuditEntity.Sprint, current.Id, AuditAction.Completed, null, current.Name,
-                new { rolledForwardTo = sprint.Id, rolledForwardTaskIds = open.Select(t => t.Id).ToArray() });
+                SprintCompletedDetails.RolledForward(sprint.Id, open.Select(t => t.Id)));
             // Save before activating the new sprint so the single-active-sprint index is never violated mid-batch.
             await db.SaveChangesAsync(ct);
         }
@@ -190,7 +190,7 @@ public sealed class SprintService(ApplicationDbContext db, IActorProvider actors
         sprint.Status = SprintStatus.Completed;
         sprint.CompletedAt = now;
         audit.Add(actor, AuditEntity.Sprint, sprint.Id, AuditAction.Completed, null, sprint.Name,
-            new { returnedToBacklogTaskIds = open.Select(t => t.Id).ToArray() });
+            SprintCompletedDetails.ReturnedToBacklog(open.Select(t => t.Id)));
         await db.SaveChangesAsync(ct);
         return sprint;
     }

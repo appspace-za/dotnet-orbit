@@ -1,5 +1,6 @@
 @page "/Sprints/Details/{Id:guid}"
 @inherits SprintPageBase
+@using Orbit.Components.Pages.Reports
 @* A sprint's page (spec §6.3): its dates, goal and progress, and its tasks across departments with the rows' live controls.
    Ticked tasks can be moved back to the backlog while the sprint isn't completed. *@
 
@@ -40,6 +41,12 @@ else
             @if (s.Status != SprintStatus.Completed)
             {
                 <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="/Backlog">Plan from backlog</MudButton>
+            }
+            @* The sprint's review (§12 Sprint status). reports.view is needed at Department or All, as ReportingService requires. *@
+            @if (s.Status != SprintStatus.Planned && AccessPolicy.CanViewReports(_actor!))
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Assessment"
+                           Href="@ReportRun.SprintLink(s.Id)">Report</MudButton>
             }
             @if (canManage)
             {

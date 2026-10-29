@@ -35,10 +35,19 @@ else
 
     <MudPaper Outlined="true" Class="orbit-card">
         <div class="orbit-filters">
-            <MudDatePicker Label="From" Date="@PickerDate.Of(run.From)" DateChanged="d => Go(ReportRun.FromKey, PickerDate.Write(d))" DateFormat="yyyy-MM-dd"
-                           Editable="true" AutoClose="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-filter" />
-            <MudDatePicker Label="To" Date="@PickerDate.Of(run.To)" DateChanged="d => Go(ReportRun.ToKey, PickerDate.Write(d))" DateFormat="yyyy-MM-dd"
-                           Editable="true" AutoClose="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-filter" />
+            @if (run.Definition.BySprint)
+            {
+                @* A sprint in place of the dates. Another sprint has other projects and people, so their filters start again. *@
+                <FilterSelect Label="Sprint" Value="@(run.SprintId?.ToString())" Options="run.SprintOptions" Class="orbit-filter orbit-filter-wide"
+                              ValueChanged="v => Go(ReportRun.SprintKey, v, ReportRun.ProjectKey, ReportRun.AssigneeKey)" />
+            }
+            else
+            {
+                <MudDatePicker Label="From" Date="@PickerDate.Of(run.From)" DateChanged="d => Go(ReportRun.FromKey, PickerDate.Write(d))" DateFormat="yyyy-MM-dd"
+                               Editable="true" AutoClose="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-filter" />
+                <MudDatePicker Label="To" Date="@PickerDate.Of(run.To)" DateChanged="d => Go(ReportRun.ToKey, PickerDate.Write(d))" DateFormat="yyyy-MM-dd"
+                               Editable="true" AutoClose="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-filter" />
+            }
             @if (run.CanChooseDepartment)
             {
                 <FilterSelect Label="Department" Value="@(run.DepartmentId?.ToString())" ValueChanged="v => Go(ReportRun.DepartmentKey, v)" Options="_departments" />
@@ -52,8 +61,11 @@ else
             {
                 <FilterSelect Label="Owner" Value="@(run.OwnerId?.ToString())" ValueChanged="v => Go(ReportRun.OwnerKey, v)" Options="_owners"
                               Title="The projects this person owns" />
+            }
+            @if (run.Definition.ByAssignee)
+            {
                 <FilterSelect Label="Assignee" Value="@(run.AssigneeId?.ToString())" ValueChanged="v => Go(ReportRun.AssigneeKey, v)" Options="_assignees"
-                              Title="The projects with a task assigned to this person (cancelled tasks aside)" />
+                              Title="@(run.Definition.BySprint ? "The tasks assigned to this person" : "The projects with a task assigned to this person (cancelled tasks aside)")" />
             }
         </div>
     </MudPaper>
@@ -156,6 +168,11 @@ else
         {
             <ReportAssetStatus @key="run" Report="assets" />
         }
+        else if (run.SprintReport is { } sprint)
+        {
+            @* No @key: the component stays across runs, so the groups opened stay open when a filter changes. *@
+            <ReportSprintStatus Report="sprint" />
+        }
     </MudPaper>
 }
 
@@ -168,6 +185,7 @@ else
     [SupplyParameterFromQuery(Name = ReportRun.DepartmentKey)] public string? DepartmentId { get; set; }
     [SupplyParameterFromQuery(Name = ReportRun.OwnerKey)] public string? OwnerId { get; set; }
     [SupplyParameterFromQuery(Name = ReportRun.AssigneeKey)] public string? AssigneeId { get; set; }
+    [SupplyParameterFromQuery(Name = ReportRun.SprintKey)] public string? SprintId { get; set; }
 
     private ReportRun? _run;
     private IReadOnlyList<(string Value, string Text)> _departments = [], _projects = [], _owners = [], _assignees = [];
@@ -175,7 +193,7 @@ else
 
     protected override async Task OnParametersSetAsync()
     {
-        var address = ReportAddress.Parse(Kind, From, To, ProjectId, DepartmentId, OwnerId, AssigneeId);
+        var address = ReportAddress.Parse(Kind, From, To, ProjectId, DepartmentId, OwnerId, AssigneeId, SprintId);
         _loading = true;
         await Load(async s =>
         {
@@ -190,7 +208,7 @@ else
     }
 
     /// <summary>Applies a changed filter: the report reloads at its new address, as the Razor page's Run button did.</summary>
-    private void Go(string key, string? value) => Nav.NavigateTo($"/Reports/View?{_run!.Query(key, value)}");
+    private void Go(string key, string? value, params string[] clear) => Nav.NavigateTo($"/Reports/View?{_run!.Query(key, value, clear)}");
 
     private static IReadOnlyList<(string Value, string Text)> WithAll(IReadOnlyList<(string Value, string Text)> options) => [("", "All"), .. options];
 

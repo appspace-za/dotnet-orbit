@@ -560,6 +560,25 @@ And one about assets:
   its tasks. A department filter picks the assets the department manages; there is no project filter. The PDF is
   landscape.
 
+And one about sprints, for the sprint review at sprint planning:
+
+- **Sprint status** - one sprint, picked in place of a date range (the active sprint by default, or open it from the
+  sprint page's **Report** button). It shows the tasks planned into the sprint by outcome: done, left open or
+  cancelled. Beside them is the Not Planned work done during the sprint: tasks that are Not Planned and were created,
+  completed or logged against between its start and end dates.
+  - Once the next sprint has started, the open tasks it handed on still show, marked with where they went. Tasks that
+    came in from the sprint before are marked too.
+  - Outcomes are each task's status when the sprint ended, read from its history, so changing a task later doesn't
+    change a completed sprint's figures. A task closed then and open now is marked *Reopened since*.
+  - The summary has tiles and four charts: planned work outcome, tasks by project, time by person and time per day,
+    each split between planned and Not Planned work. Past twelve projects or people, the chart groups the rest into
+    one bar. The tiles give the estimate left on the left-open tasks and how
+    much of the sprint's time went on Not Planned work.
+  - Below the summary come a by-person table and one row per project in the sprint, then No project and Not Planned.
+    Expand a row for its people and tasks.
+  - Project and Assignee filters pick tasks, and the Project filter lists only the sprint's projects. The PDF is
+    landscape, with the same charts.
+
 ## Configuration
 
 See `Orbit.Web/appsettings.json` for defaults and `deploy/orbit.env.example` for the production environment

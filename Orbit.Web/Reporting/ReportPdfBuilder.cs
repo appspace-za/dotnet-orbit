@@ -4,19 +4,28 @@ using QuestPDF.Infrastructure;
 
 namespace Orbit.Reporting;
 
-/// <summary>Renders a report's rows as a simple tabular PDF via QuestPDF (Community licence).</summary>
+/// <summary>Renders a report's rows as a simple tabular PDF via QuestPDF (Community licence), with any charts it has.</summary>
 public static class ReportPdfBuilder
 {
+    /// <summary>One part of the document: a <see cref="Table"/> or a set of <see cref="Charts"/>.</summary>
+    public abstract record Section;
+
     /// <summary>
     /// A captioned table. <paramref name="Widths"/> gives each column a relative width; omitted, the columns share the page equally.
     /// <paramref name="FontSize"/> shrinks the text of a table too wide for the page's 10pt; the caption keeps its size.
     /// </summary>
     public sealed record Table(
         IReadOnlyList<string> Headers, IReadOnlyList<IReadOnlyList<string>> Rows, string? Caption = null, IReadOnlyList<float>? Widths = null,
-        float? FontSize = null);
+        float? FontSize = null) : Section;
 
-    /// <summary>An A4 document of <paramref name="tables"/>; <paramref name="landscape"/> turns the page for a wide table.</summary>
-    public static byte[] Build(string title, string subtitle, IReadOnlyList<Table> tables, bool landscape = false)
+    /// <summary>A chart: its caption and its SVG (<see cref="SvgCharts"/>), drawn the width of its cell.</summary>
+    public sealed record Chart(string Caption, string Svg);
+
+    /// <summary>Charts side by side, <paramref name="PerRow"/> to a row.</summary>
+    public sealed record Charts(IReadOnlyList<Chart> Items, int PerRow = 2) : Section;
+
+    /// <summary>An A4 document of <paramref name="sections"/>; <paramref name="landscape"/> turns the page for a wide table.</summary>
+    public static byte[] Build(string title, string subtitle, IReadOnlyList<Section> sections, bool landscape = false)
     {
         return Document.Create(container =>
         {
@@ -36,8 +45,25 @@ public static class ReportPdfBuilder
                 page.Content().PaddingVertical(12).Column(col =>
                 {
                     col.Spacing(16);
-                    foreach (var table in tables)
+                    foreach (var part in sections)
                     {
+                        if (part is Charts charts)
+                        {
+                            foreach (var row in charts.Items.Chunk(Math.Max(1, charts.PerRow)))
+                                col.Item().ShowEntire().Row(r =>
+                                {
+                                    r.Spacing(24);
+                                    foreach (var chart in row)
+                                        r.RelativeItem().Column(c =>
+                                        {
+                                            c.Item().PaddingBottom(4).Text(chart.Caption).SemiBold().FontSize(12);
+                                            c.Item().Svg(chart.Svg).FitWidth();
+                                        });
+                                    for (var empty = row.Length; empty < charts.PerRow; empty++) r.RelativeItem();
+                                });
+                            continue;
+                        }
+                        if (part is not Table table) continue;
                         col.Item().Column(section =>
                         {
                             if (!string.IsNullOrWhiteSpace(table.Caption))
