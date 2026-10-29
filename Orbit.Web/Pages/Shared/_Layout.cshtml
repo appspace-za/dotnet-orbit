@@ -101,7 +101,8 @@
             });
         })();
     </script>
-    @* The account pages' client-side validation (_ValidationScriptsPartial) needs jQuery. *@
+    @* The account pages' client-side validation needs jQuery. Their _ValidationScriptsPartial is the Identity package's own,
+       which loads the package's copies of the validation scripts (/Identity/lib/...) but expects the layout to load jQuery. *@
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     @await RenderSectionAsync("Scripts", required: false)
 </body>
