@@ -80,16 +80,9 @@ else
         </div>
         <MudGrid Spacing="3">
             <MudItem xs="12" md="6">
-                <MudSelect T="Guid" Value="_form.AssetTypeId ?? Guid.Empty" ValueChanged="TypeChanged" Label="Type" Required="true"
-                           Variant="Variant.Outlined" ToStringFunc="TypeName"
-                           HelperText="@(_types.Count == 0 && _form.DepartmentId is not null ? "This department has no asset types yet. Someone who configures its assets adds them under Assets > Asset types." : null)"
-                           Error="@(_types.Count == 0 && _form.DepartmentId is not null)">
-                    <MudSelectItem T="Guid" Value="Guid.Empty">- choose -</MudSelectItem>
-                    @foreach (var t in _types)
-                    {
-                        <MudSelectItem T="Guid" Value="t.Id">@TypeName(t.Id)</MudSelectItem>
-                    }
-                </MudSelect>
+                <SearchSelect TValue="Guid" Value="@(_form.AssetTypeId ?? Guid.Empty)" ValueChanged="TypeChanged" Options="_typeOptions" Label="Type" Required="true"
+                              HelperText="@(_types.Count == 0 && _form.DepartmentId is not null ? "This department has no asset types yet. Someone who configures its assets adds them under Assets > Asset types." : null)"
+                              Error="@(_types.Count == 0 && _form.DepartmentId is not null)" />
             </MudItem>
         </MudGrid>
         <MudTextField T="string" @bind-Value="_form.Description" Label="Description" Lines="2" MaxLength="4000" Variant="Variant.Outlined" />
@@ -160,13 +153,7 @@ else
                 </MudItem>
             }
             <MudItem xs="12" md="6">
-                <MudSelect T="Guid" @bind-Value="LocationChoice" Label="Location" Variant="Variant.Outlined" ToStringFunc="LocationName">
-                    <MudSelectItem T="Guid" Value="Guid.Empty">- none -</MudSelectItem>
-                    @foreach (var l in _locations)
-                    {
-                        <MudSelectItem T="Guid" Value="l.Id">@LocationName(l.Id)</MudSelectItem>
-                    }
-                </MudSelect>
+                <SearchSelect TValue="Guid" @bind-Value="LocationChoice" Options="_locationOptions" Pinned="1" Label="Location" />
             </MudItem>
         </MudGrid>
 
@@ -210,6 +197,8 @@ else
     private IReadOnlyList<Department> _departments = [];
     private IReadOnlyList<AssetType> _types = [];
     private IReadOnlyList<AssetLocation> _locations = [];
+    /// <summary>The Type and Location pickers' options (§13 item 121), set with the lists by <see cref="SetChoices"/>.</summary>
+    private IReadOnlyList<PickOption<Guid>> _typeOptions = [], _locationOptions = [];
     private AssetSuggestions _suggestions = new([], [], []);
     private AssetPropertyFields _fields = new();
     /// <summary>The chosen holders, shown as chips; saved as the form's AssigneeIds.</summary>
@@ -252,7 +241,7 @@ else
         var allDepartments = await s.Get<DepartmentService>().ListAsync(includeArchived: true);
         _departments = _canChooseDepartment ? allDepartments.Where(d => !d.IsArchived || d.Id == _form.DepartmentId).ToList() : [];
         _departmentName = allDepartments.FirstOrDefault(d => d.Id == _form.DepartmentId)?.Name;
-        (_types, _locations) = await ChoicesAsync(s, _form.DepartmentId);
+        SetChoices(await ChoicesAsync(s, _form.DepartmentId));
         _suggestions = await assets.SuggestionsAsync();
         _holders = (await s.Get<UserDirectoryService>().FindManyAsync(_form.AssigneeIds)).ToList();
         // The fields show the asset's values (an edit) or the source's (a copy, on the source's type).
@@ -287,21 +276,26 @@ else
         _form.Properties = values;
     }
 
-    private string TypeName(Guid id) =>
-        id == Guid.Empty ? "- choose -"
-        : _types.FirstOrDefault(t => t.Id == id) is { } t
-            ? (string.IsNullOrEmpty(t.Category) ? t.Name : $"{t.Category} / {t.Name}") + (t.IsArchived ? " (archived)" : "")
-            : "";
+    private static string TypeName(AssetType t) =>
+        (string.IsNullOrEmpty(t.Category) ? t.Name : $"{t.Category} / {t.Name}") + (t.IsArchived ? " (archived)" : "");
 
-    private string LocationName(Guid id) =>
-        id == Guid.Empty ? "- none -"
-        : _locations.FirstOrDefault(l => l.Id == id) is { } l ? l.Name + (l.IsArchived ? " (archived)" : "")
-        : "";
+    private static string LocationName(AssetLocation l) => l.Name + (l.IsArchived ? " (archived)" : "");
+
+    /// <summary>
+    /// A department's types and locations, with the pickers' options made from them in the same step so they can't disagree:
+    /// "- choose -" then the types; "- none -" (kept at the top while typing) then the locations.
+    /// </summary>
+    private void SetChoices((IReadOnlyList<AssetType> Types, IReadOnlyList<AssetLocation> Locations) choices)
+    {
+        (_types, _locations) = choices;
+        _typeOptions = [new(Guid.Empty, "- choose -"), .. _types.Select(t => new PickOption<Guid>(t.Id, TypeName(t)))];
+        _locationOptions = [new(Guid.Empty, "- none -"), .. _locations.Select(l => new PickOption<Guid>(l.Id, LocationName(l)))];
+    }
 
     private async Task DepartmentChangedAsync(Guid id)
     {
         _busy = true;
-        if (await Act(async s => (_types, _locations) = await ChoicesAsync(s, id)))
+        if (await Act(async s => SetChoices(await ChoicesAsync(s, id))))
         {
             _form.DepartmentId = id;
             if (_types.All(t => t.Id != _form.AssetTypeId)) _form.AssetTypeId = null;

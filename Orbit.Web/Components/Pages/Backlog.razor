@@ -36,12 +36,12 @@ else
             {
                 <FilterSelect Label="Department" Value="@DepartmentId" ValueChanged="v => GoAsync(nameof(DepartmentId), v)" Options="_departments" />
             }
-            <FilterSelect Label="Project" Value="@ProjectChoice" ValueChanged="v => GoAsync(ProjectKey, v)" Options="_projects"
+            <FilterSelect Label="Project" Value="@ProjectChoice" ValueChanged="v => GoAsync(ProjectKey, v)" Special="FilterSelect.AllOrNone" Options="_projects"
                           Title="An open project, or None for the tasks on no project" />
             <FilterSelect Label="Priority" Value="@PriorityChoice" ValueChanged="v => GoAsync(PriorityKey, v)" Options="PriorityOptions" />
             <FilterSelect Label="Type" Value="@TypeChoice" ValueChanged="v => GoAsync(TypeKey, v)" Options="TypeOptions" />
             <FilterSelect Label="Source" Value="@SourceChoice" ValueChanged="v => GoAsync(SourceKey, v)" Options="SourceOptions" />
-            <FilterSelect Label="Assignee" Value="@AssigneeChoice" ValueChanged="v => GoAsync(AssigneeKey, v)" Options="_assignees"
+            <FilterSelect Label="Assignee" Value="@AssigneeChoice" ValueChanged="v => GoAsync(AssigneeKey, v)" Special="FilterSelect.AllOrNone" Options="_assignees"
                           Title="One of the people the task is assigned to, or None for the tasks nobody is assigned to" />
             <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="ResetAsync"
                        title="Clear the filters - they are remembered for this browser session until you reset them">Reset</MudButton>
@@ -167,16 +167,12 @@ else
             _departments = canSeeAll
                 ? [("", "All"), .. (await s.Get<DepartmentService>().ListAsync(false)).Select(d => (d.Id.ToString(), d.Name))]
                 : [];
-            _projects =
-            [
-                ("", "All"), (FilterChoice.None, "None"),
-                .. (await s.Get<ProjectService>().ListOpenForPickerAsync(departmentId))
-                    .Select(p => (p.Id.ToString(), canSeeAll ? $"{p.Department.Name} / {p.Name}" : p.Name))
-            ];
+            _projects = (await s.Get<ProjectService>().ListOpenForPickerAsync(departmentId))
+                .Select(p => (p.Id.ToString(), canSeeAll ? $"{p.Department.Name} / {p.Name}" : p.Name)).ToList();
             var people = canSeeAll
                 ? await users.ListAsync(null, departmentId, false)
                 : actor.DepartmentId is Guid ownDept ? await users.GetAssignableAsync(ownDept) : [];
-            _assignees = [("", "All"), (FilterChoice.None, "None"), .. people.Select(u => (u.Id.ToString(), u.DisplayName))];
+            _assignees = people.Select(u => (u.Id.ToString(), u.DisplayName)).ToList();
 
             _selected.IntersectWith(result.Items.Select(t => t.Id));
             _canSeeAll = canSeeAll;

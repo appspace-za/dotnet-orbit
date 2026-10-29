@@ -3,10 +3,10 @@
 @* The task form (spec §6.2), for a new task (TaskCreate: blank, on a project or sprint, or a subtask, §6.15) or an existing one
    (TaskEdit). The department follows the task form's rule (§6.2.1): picking a project fills it with the project's, and only
    whoever creates tasks everywhere chooses it. The Assignees picker offers the people of the department in force and drops
-   those who don't belong when it changes (§6.2.3); the Parent task picker offers the project's tasks, or for a standalone task
-   its department's (§6.15). The Requestee is offered with tasks.create_for above Own (§6.2.2), the asset with assets.view
-   (§6.19). Editing adds Status and the Solution notes box (§6.2.4), and asks before you set your own task Done with no time
-   logged on it (§6.10). *@
+   those who don't belong when it changes (§6.2.3); the Parent task picker searches the project's open tasks, or for a standalone
+   task its department's (§6.15). The Requestee is offered with tasks.create_for above Own (§6.2.2), the asset with assets.view
+   (§6.19). Project, Requestee and Parent task are selects you can type into (SearchSelect, §13 item 121). Editing adds Status
+   and the Solution notes box (§6.2.4), and asks before you set your own task Done with no time logged on it (§6.10). *@
 
 @if (Refusal is not null)
 {
@@ -40,13 +40,7 @@ else
         @* Project, then the department (for whoever may choose it), then the asset: side by side on a wide screen. *@
         <MudGrid Spacing="3">
             <MudItem xs="12" md="@FirstRowWidth">
-                <MudSelect T="Guid" Value="ProjectChoice" ValueChanged="ProjectChanged" Label="Project" Variant="Variant.Outlined"
-                           ToStringFunc="@(id => _projects.FirstOrDefault(p => p.Id == id).Text ?? "")">
-                    @foreach (var p in _projects)
-                    {
-                        <MudSelectItem T="Guid" Value="p.Id">@p.Text</MudSelectItem>
-                    }
-                </MudSelect>
+                <SearchSelect TValue="Guid" Value="ProjectChoice" ValueChanged="ProjectChanged" Options="_projectOptions" Pinned="1" Label="Project" />
                 <div class="orbit-help">
                     @(_canChooseDepartment
                         ? "Choosing a project sets the department to the project's own; change it below to file the task for another department."
@@ -138,13 +132,7 @@ else
                 @if (_canChooseRequestee)
                 {
                     <div class="mt-3">
-                        <MudSelect T="Guid" @bind-Value="RequesteeChoice" Label="Requestee (optional)" Variant="Variant.Outlined"
-                                   ToStringFunc="@(id => _requestees.FirstOrDefault(r => r.Id == id).Text ?? "")">
-                            @foreach (var r in _requestees)
-                            {
-                                <MudSelectItem T="Guid" Value="r.Id">@r.Text</MudSelectItem>
-                            }
-                        </MudSelect>
+                        <SearchSelect TValue="Guid" @bind-Value="RequesteeChoice" Options="_requestees" Pinned="1" Label="Requestee (optional)" />
                         <div class="orbit-help">Create the task on someone's behalf. They can open, edit and plan it as their own, and are emailed.</div>
                     </div>
                 }
@@ -182,14 +170,12 @@ else
                 <div class="orbit-help">Backlog: to plan into a sprint at sprint planning. Not Planned: work that came up during the sprint.</div>
             </MudItem>
             <MudItem xs="12" md="4">
-                <MudSelect T="Guid" @bind-Value="ParentChoice" Label="Parent task" Variant="Variant.Outlined" ToStringFunc="ParentName">
-                    <MudSelectItem T="Guid" Value="Guid.Empty">@NoParent</MudSelectItem>
-                    @foreach (var pc in OfferedParents)
-                    {
-                        <MudSelectItem T="Guid" Value="pc.Id">@ParentText(pc)</MudSelectItem>
-                    }
-                </MudSelect>
-                <div class="orbit-help">Makes this a subtask. Only tasks on the same project are offered (for a standalone task, standalone tasks in its department).</div>
+                <SearchSelect TValue="Guid" Value="@(_form.ParentTaskId ?? Guid.Empty)" ValueChanged="ParentChanged" Options="NoParentOptions"
+                              Search="SearchParentsAsync" SelectedText="@ParentLabel(_parent)" Limit="20" Label="Parent task" />
+                <div class="orbit-help">
+                    Makes this a subtask. Type part of a title, a task number or a department. Only open tasks on the same project are
+                    offered (for a standalone task, standalone tasks in its department).
+                </div>
             </MudItem>
             <MudItem xs="12" md="2">
                 <MudNumericField T="int?" @bind-Value="_form.EstimateMinutes" Label="Estimate" Min="0" Max="525600" Step="5" Placeholder="e.g. 90"
@@ -231,6 +217,8 @@ else
     [Parameter] public Guid? ParentTaskId { get; set; }
 
     private const string NoParent = "(none - top-level task)";
+    /// <summary>The Parent task picker's fixed entry, above what its search finds.</summary>
+    private static readonly IReadOnlyList<PickOption<Guid>> NoParentOptions = [new(Guid.Empty, NoParent)];
 
     private TaskForm _form = new();
     private TaskItem? _task;
@@ -244,7 +232,9 @@ else
     /// <summary>Guid.Empty is "(default)".</summary>
     private IReadOnlyList<(Guid Id, string Text)> _departments = [];
     /// <summary>Guid.Empty is "(standalone task)"; each project carries its department, which the department follows.</summary>
-    private IReadOnlyList<(Guid Id, string Text, Guid? DepartmentId)> _projects = [];
+    private IReadOnlyList<ProjectChoice> _projects = [];
+    /// <summary>The Project picker's options: <see cref="_projects"/> with each project's number as the line it can be found by.</summary>
+    private IReadOnlyList<PickOption<Guid>> _projectOptions = [];
     /// <summary>Not Planned, the Backlog, then the open sprints (§6.3).</summary>
     private IReadOnlyList<(SprintPlacement Value, string Text)> _sprints = [];
     /// <summary>
@@ -253,16 +243,19 @@ else
     /// </summary>
     private bool _sprintPicked;
     /// <summary>Guid.Empty is "(nobody else)".</summary>
-    private IReadOnlyList<(Guid Id, string Text)> _requestees = [];
-    /// <summary>Every parent the caller may pick, each with its project and department; <see cref="OfferedParents"/> filters them.</summary>
-    private IReadOnlyList<ParentCandidate> _parents = [];
+    private IReadOnlyList<PickOption<Guid>> _requestees = [];
+    /// <summary>The chosen parent, with its project and department, so a change of either can clear one that no longer fits (§6.15).</summary>
+    private ParentCandidate? _parent;
+    /// <summary>The parents the picker's searches have found, by id, so a pick knows its project and department.</summary>
+    private readonly Dictionary<Guid, ParentCandidate> _seenParents = [];
+    /// <summary>The task and everything below it, which the Parent task picker never offers (worked out once, on opening).</summary>
+    private IReadOnlyList<Guid> _excludedParents = [];
     /// <summary>The chosen assignees, shown as chips; saved as the form's AssigneeIds.</summary>
     private List<UserSummary> _assignees = [];
     private string? _assetLabel, _requesteeLabel;
 
     private Guid ProjectChoice => _form.ProjectId ?? Guid.Empty;
     private Guid DepartmentChoice => _form.DepartmentId ?? Guid.Empty;
-    private Guid ParentChoice { get => _form.ParentTaskId ?? Guid.Empty; set => _form.ParentTaskId = value == Guid.Empty ? null : value; }
     private Guid RequesteeChoice { get => _form.RequesteeId ?? Guid.Empty; set => _form.RequesteeId = value == Guid.Empty ? null : value; }
     private DateTime? StartDate { get => PickerDate.Of(_form.StartDate); set => _form.StartDate = PickerDate.Day(value); }
     private DateTime? DueDate { get => PickerDate.Of(_form.DueDate); set => _form.DueDate = PickerDate.Day(value); }
@@ -278,29 +271,52 @@ else
     /// <summary>
     /// The department the task would belong to, as the Razor form's script worked it out (§6.2.1): the department chosen (or kept,
     /// for whoever can't choose it), else the chosen project's, else the task's own or the caller's. The Assignees picker searches
-    /// it, and for a standalone task the Parent task picker offers its tasks.
+    /// it, and for a standalone task the Parent task picker searches its tasks.
     /// </summary>
     private Guid? DepartmentInForce =>
         _form.DepartmentId
-        ?? _projects.FirstOrDefault(p => p.Id == ProjectChoice && p.Id != Guid.Empty).DepartmentId
+        ?? _projects.FirstOrDefault(p => p.Id == ProjectChoice && p.Id != Guid.Empty)?.DepartmentId
         ?? _task?.DepartmentId
         ?? _defaultDepartmentId;
 
     /// <summary>
-    /// The Parent task options (§6.15), as the Razor form's script filtered them: the tasks on the chosen project, or for a
-    /// standalone task the standalone tasks in its department. The parent chosen is always among them, so opening never drops it.
+    /// Whether a parent still fits the form (§6.15), as the Razor form's script filtered them: a task on the chosen project, or for
+    /// a standalone task a standalone task in its department.
     /// </summary>
-    private IEnumerable<ParentCandidate> OfferedParents => _parents.Where(p => p.Id == _form.ParentTaskId || ParentFits(p));
-
     private bool ParentFits(ParentCandidate p) => _form.ProjectId is Guid project
         ? p.ProjectId == project
         : p.ProjectId is null && (DepartmentInForce is not Guid department || p.DepartmentId == department);
 
-    private static string ParentText(ParentCandidate p) =>
-        p.ProjectName is null ? $"{p.Title} ({p.DepartmentName})" : $"{p.ProjectName} / {p.Title}";
+    /// <summary>A parent as the picker lists it: its title, over its number and department (and its status, when closed).</summary>
+    private static PickOption<Guid> ParentOption(ParentCandidate p) =>
+        new(p.Id, p.Title, string.Join(" · ", new[] { p.Number, p.DepartmentName, p.Status.IsClosed() ? p.Status.Label() : null }
+            .Where(x => !string.IsNullOrEmpty(x))));
 
-    private string ParentName(Guid id) =>
-        id == Guid.Empty ? NoParent : _parents.FirstOrDefault(p => p.Id == id) is { } parent ? ParentText(parent) : "";
+    /// <summary>The chosen parent as the box names it: its title, and its status when it is closed (§6.15).</summary>
+    private static string? ParentLabel(ParentCandidate? p) =>
+        p is null ? null : p.Status.IsClosed() ? $"{p.Title} ({p.Status.Label()})" : p.Title;
+
+    /// <summary>
+    /// The Parent task picker's search: up to <paramref name="take"/> open tasks the task could be filed under where the form
+    /// now stands - the chosen project's, or for a standalone task its department's - leaving out the task and its own
+    /// subtasks. Opened without typing, the list starts with the current parent, so a closed one is listed with its status.
+    /// </summary>
+    private async Task<IReadOnlyList<PickOption<Guid>>> SearchParentsAsync(IServiceProvider s, string? text, int take, CancellationToken ct)
+    {
+        var found = await s.Get<TaskStructureService>().SearchParentCandidatesAsync(
+            _form.ProjectId, _form.ProjectId is null ? DepartmentInForce : null, _excludedParents, text, take, ct);
+        foreach (var p in found) _seenParents[p.Id] = p;
+        IEnumerable<ParentCandidate> listed = string.IsNullOrWhiteSpace(text) && _parent is { } current && found.All(p => p.Id != current.Id)
+            ? [current, .. found]
+            : found;
+        return listed.Select(ParentOption).ToList();
+    }
+
+    private void ParentChanged(Guid id)
+    {
+        _form.ParentTaskId = id == Guid.Empty ? null : id;
+        _parent = _form.ParentTaskId is Guid chosen ? _seenParents.GetValueOrDefault(chosen) : null;
+    }
 
     protected override async Task OnParametersSetAsync() => await Load(async s =>
     {
@@ -319,9 +335,11 @@ else
         else
         {
             var projectId = ProjectId;
-            // "Add subtask" (§6.15): the new task starts on the parent's project, in the parent's department.
-            if (ParentTaskId is Guid parentId && (await structure.LoadAncestorsAsync(parentId)).LastOrDefault() is { } parent)
+            // "Add subtask" (§6.15): the new task starts on the parent's project, in the parent's department. The parent is
+            // loaded as the task page loads it, so a task the caller can't see, or one that is gone, opens no form (§13 item 122).
+            if (ParentTaskId is Guid parentId)
             {
+                var parent = await s.Get<TaskService>().GetAsync(parentId);
                 form.ParentTaskId = parent.Id;
                 projectId = parent.ProjectId;
                 form.DepartmentId = parent.DepartmentId;
@@ -332,17 +350,21 @@ else
         }
 
         var lookups = await TaskFormLookups.BuildAsync(actor, s.Get<DepartmentService>(), projects, s.Get<UserDirectoryService>(),
-            s.Get<SprintService>(), structure, s.Get<AssetService>(), form, task?.Id, TaskFormLookups.RefOf(task?.Asset), true, task?.Requestee, default);
+            s.Get<SprintService>(), structure, task, s.Get<AssetService>(), form, TaskFormLookups.RefOf(task?.Asset), true, task?.Requestee, default);
         _canChooseDepartment = lookups.CanChooseDepartment;
         _canPickAsset = lookups.CanPickAsset;
         _offerRequestee = lookups.OfferRequestee;
         _canChooseRequestee = lookups.CanChooseRequestee;
         _defaultDepartmentId = lookups.DefaultDepartmentId;
         _departments = lookups.Departments.Select(i => (IdOf(i.Value), i.Text)).ToList();
-        _projects = lookups.Projects.Select(o => (IdOf(o.Value), o.Text, o.DepartmentId)).ToList();
+        _projects = lookups.Projects;
+        _projectOptions = [.. _projects.Select(p => p.ToPick())];
         _sprints = lookups.Sprints;
-        _requestees = lookups.Requestees.Select(i => (IdOf(i.Value), i.Text)).ToList();
-        _parents = lookups.Parents;
+        _requestees = lookups.Requestees;
+        _parent = lookups.SelectedParent;
+        _seenParents.Clear();
+        if (_parent is not null) _seenParents[_parent.Id] = _parent;
+        _excludedParents = lookups.ExcludedParentIds;
         _assignees = lookups.SelectedAssignees.ToList();
         _assetLabel = lookups.SelectedAssetLabel;
         _requesteeLabel = lookups.RequesteeLabel;
@@ -360,8 +382,9 @@ else
         // on the Backlog as a standalone task (§13 item 117).
         if (task is null) form.Sprint = asked ?? SprintPlacement.DefaultFor(form.ProjectId);
         if (_sprints.All(x => x.Value != form.Sprint)) form.Sprint = SprintPlacement.DefaultFor(form.ProjectId);
-        if (form.ParentTaskId is Guid chosenParent && _parents.All(p => p.Id != chosenParent)) form.ParentTaskId = null;
-        if (_canChooseRequestee && form.RequesteeId is Guid chosenRequestee && _requestees.All(r => r.Id != chosenRequestee)) form.RequesteeId = null;
+        // A parent that no longer exists is dropped; any other is kept and named, closed or not (§6.15).
+        if (form.ParentTaskId is not null && _parent is null) form.ParentTaskId = null;
+        if (_canChooseRequestee && form.RequesteeId is Guid chosenRequestee && _requestees.All(r => r.Value != chosenRequestee)) form.RequesteeId = null;
 
         _form = form;
         _task = task;
@@ -377,7 +400,7 @@ else
         _form.ProjectId = id == Guid.Empty ? null : id;
         if (_canChooseDepartment)
         {
-            var department = _projects.FirstOrDefault(p => p.Id == id && id != Guid.Empty).DepartmentId;
+            var department = _projects.FirstOrDefault(p => p.Id == id && id != Guid.Empty)?.DepartmentId;
             _form.DepartmentId = department is Guid d && _departments.Any(x => x.Id == d) ? d : null;
         }
         if (!_sprintPicked) _form.Sprint = SprintPlacement.DefaultFor(_form.ProjectId);
@@ -400,8 +423,11 @@ else
     /// <summary>After a change of project or department: a parent that no longer fits is cleared, and assignees who don't belong are dropped.</summary>
     private void FollowDepartment()
     {
-        if (_form.ParentTaskId is Guid parentId && _parents.FirstOrDefault(p => p.Id == parentId) is { } parent && !ParentFits(parent))
+        if (_form.ParentTaskId is not null && (_parent is null || !ParentFits(_parent)))
+        {
             _form.ParentTaskId = null;
+            _parent = null;
+        }
         PruneAssignees();
     }
 

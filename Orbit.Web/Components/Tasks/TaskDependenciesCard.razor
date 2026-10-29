@@ -31,13 +31,8 @@
                     <MudSelectItem T="string" Value="@("waits-on")">waits on</MudSelectItem>
                     <MudSelectItem T="string" Value="@("blocks")">is waited on by</MudSelectItem>
                 </MudSelect>
-                <MudSelect T="Guid" @bind-Value="_other" Label="Task" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Class="orbit-field-lg"
-                           ToStringFunc="CandidateName" Placeholder="Choose a task on the same project">
-                    @foreach (var c in Candidates)
-                    {
-                        <MudSelectItem T="Guid" Value="c.Id">@CandidateName(c.Id)</MudSelectItem>
-                    }
-                </MudSelect>
+                <SearchSelect TValue="Guid" @bind-Value="_other" Options="_candidateOptions" Label="Task" Placeholder="Choose a task on the same project"
+                              Margin="Margin.Dense" Dense="true" Class="orbit-field-lg" />
                 <MudSelect T="DependencyType" @bind-Value="_type" Label="Type" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true"
                            Class="orbit-field-sm" ToStringFunc="@(t => $"{t.Code()} - {t.Label()}")">
                     @foreach (var t in Enum.GetValues<DependencyType>())
@@ -69,8 +64,18 @@
     private int _lag;
     private bool _busy;
 
-    private string CandidateName(Guid id) =>
-        Candidates.FirstOrDefault(c => c.Id == id) is { } c ? $"{c.Title} ({c.Department.Name}, {c.Status.Label()})" : "";
+    /// <summary>The Task picker's options (§13 item 121): each candidate's title, over its number, department and status.</summary>
+    private IReadOnlyList<PickOption<Guid>> _candidateOptions = [];
+    private IReadOnlyList<TaskItem>? _optionsFrom;
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(_optionsFrom, Candidates)) return;
+        _optionsFrom = Candidates;
+        _candidateOptions = Candidates
+            .Select(c => new PickOption<Guid>(c.Id, c.Title, $"{c.Number} · {c.Department.Name} · {c.Status.Label()}"))
+            .ToList();
+    }
 
     /// <summary>One table of links: <paramref name="waitsOnIt"/> for the tasks this one waits on, otherwise those waiting on it.</summary>
     private RenderFragment Links(IReadOnlyList<DependencyView> links, bool waitsOnIt) => __builder =>

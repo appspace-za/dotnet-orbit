@@ -49,14 +49,8 @@
                                  Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-field-xs" />
                 @if (CanLogForOthers)
                 {
-                    <MudSelect T="Guid" @bind-Value="_for" Label="For" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true"
-                               Class="orbit-field-sm" ToStringFunc="PersonName">
-                        <MudSelectItem T="Guid" Value="Guid.Empty">Me</MudSelectItem>
-                        @foreach (var u in TimeUsers)
-                        {
-                            <MudSelectItem T="Guid" Value="u.Id">@u.DisplayName</MudSelectItem>
-                        }
-                    </MudSelect>
+                    <SearchSelect TValue="Guid" @bind-Value="_for" Options="_forOptions" Pinned="1" Label="For"
+                                  Margin="Margin.Dense" Dense="true" Class="orbit-field-sm" />
                 }
                 <MudTextField T="string" @bind-Value="_note" Label="Note" Placeholder="optional" MaxLength="1000"
                               Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-field-grow" />
@@ -90,7 +84,9 @@
 
     private int TotalMinutes => Entries.Sum(e => e.DurationMinutes);
 
-    private string PersonName(Guid id) => id == Guid.Empty ? "Me" : TimeUsers.FirstOrDefault(u => u.Id == id)?.DisplayName ?? "";
+    /// <summary>The For picker's options (§13 item 121): Me (Guid.Empty) first, then <see cref="TimeUsers"/> with their emails.</summary>
+    private IReadOnlyList<PickOption<Guid>> _forOptions = [];
+    private IReadOnlyList<UserSummary>? _optionsFrom;
 
     /// <summary>
     /// The date box offers today. A Blazor page stays open for days, so whenever the task page reloads (after each change on it,
@@ -101,6 +97,12 @@
         var today = DateTime.UtcNow.Date;
         if (_date == _defaultDate) _date = today;
         _defaultDate = today;
+
+        if (!ReferenceEquals(_optionsFrom, TimeUsers))
+        {
+            _optionsFrom = TimeUsers;
+            _forOptions = [new(Guid.Empty, "Me"), .. TimeUsers.Select(u => new PickOption<Guid>(u.Id, u.DisplayName, u.Email))];
+        }
     }
 
     private async Task LogAsync()

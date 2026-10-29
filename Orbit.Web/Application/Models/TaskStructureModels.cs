@@ -48,5 +48,10 @@ public sealed class TaskStructure
 /// <summary>For task tables: how many unmet links gate a task's next move, and a one-line reason for the badge tooltip.</summary>
 public sealed record WaitingSummary(int Count, string Reason);
 
-/// <summary>An option for the Parent task picker; the project and department let the form filter client-side.</summary>
-public sealed record ParentCandidate(Guid Id, string Title, Guid? ProjectId, string? ProjectName, Guid DepartmentId, string DepartmentName);
+/// <summary>
+/// An option for the Parent task picker (§6.15): its number, title and department to find and show it by, and its project and
+/// department so the form can clear it when the task moves somewhere it no longer fits. The status names a kept closed parent
+/// as such.
+/// </summary>
+public sealed record ParentCandidate(
+    Guid Id, string Number, string Title, Guid? ProjectId, Guid DepartmentId, string DepartmentName, TaskItemStatus Status);

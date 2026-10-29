@@ -43,13 +43,7 @@ else
                 </MudItem>
             }
             <MudItem xs="12" sm="6" md="3">
-                <MudSelect T="Guid" @bind-Value="_ownerId" Label="Owner" Variant="Variant.Outlined"
-                           ToStringFunc="@(id => _owners.FirstOrDefault(o => o.Value == id).Text ?? "")">
-                    @foreach (var o in _owners)
-                    {
-                        <MudSelectItem T="Guid" Value="o.Value">@o.Text</MudSelectItem>
-                    }
-                </MudSelect>
+                <SearchSelect TValue="Guid" @bind-Value="_ownerId" Options="_owners" SelectedText="@(_project?.Owner?.DisplayName)" Label="Owner" />
             </MudItem>
         </MudGrid>
         <MudTextField T="string" @bind-Value="_description" Label="Description" Lines="4" Variant="Variant.Outlined" />
@@ -87,7 +81,11 @@ else
     private Project? _project;
     private bool _canChooseDepartment, _busy;
     private IReadOnlyList<Department> _departments = [];
-    private IReadOnlyList<(Guid Value, string Text)> _owners = [];
+    /// <summary>
+    /// Who may own the project, each with their email as the line they can be found by (§13 item 121). A saved owner who isn't
+    /// among them (deactivated, moved) is still named, by the picker's SelectedText.
+    /// </summary>
+    private IReadOnlyList<PickOption<Guid>> _owners = [];
     private string? _name, _description;
     private Guid _departmentId, _ownerId;
     private ProjectStatus _status = ProjectStatus.Active;
@@ -118,7 +116,8 @@ else
         var people = seesEverywhere
             ? await users.ListAsync(null, null, false)
             : actor.DepartmentId is Guid ownDept ? await users.GetAssignableAsync(ownDept) : [];
-        _owners = people.Select(u => (u.Id, seesEverywhere ? $"{u.DisplayName} ({u.DepartmentName ?? u.Role.Name})" : u.DisplayName)).ToList();
+        _owners = people.Select(u => new PickOption<Guid>(u.Id, seesEverywhere ? $"{u.DisplayName} ({u.DepartmentName ?? u.Role.Name})" : u.DisplayName, u.Email))
+            .ToList();
     });
 
     private async Task SaveAsync()

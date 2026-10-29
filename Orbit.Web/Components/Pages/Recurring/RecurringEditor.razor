@@ -39,13 +39,7 @@ else
         @* Project, then the department (for whoever may choose it), then the asset: side by side on a wide screen, as on the task form. *@
         <MudGrid Spacing="3">
             <MudItem xs="12" md="@FirstRowWidth">
-                <MudSelect T="Guid" Value="ProjectChoice" ValueChanged="ProjectChanged" Label="Project" Variant="Variant.Outlined"
-                           ToStringFunc="@(id => _projects.FirstOrDefault(p => p.Id == id).Text ?? "")">
-                    @foreach (var p in _projects)
-                    {
-                        <MudSelectItem T="Guid" Value="p.Id">@p.Text</MudSelectItem>
-                    }
-                </MudSelect>
+                <SearchSelect TValue="Guid" Value="ProjectChoice" ValueChanged="ProjectChanged" Options="_projectOptions" Pinned="1" Label="Project" />
             </MudItem>
             @if (_canChooseDepartment)
             {
@@ -155,7 +149,9 @@ else
     /// <summary>Guid.Empty is "(default)".</summary>
     private IReadOnlyList<(Guid Id, string Text)> _departments = [];
     /// <summary>Guid.Empty is "(standalone task)"; each project carries its department, which the department follows.</summary>
-    private IReadOnlyList<(Guid Id, string Text, Guid? DepartmentId)> _projects = [];
+    private IReadOnlyList<ProjectChoice> _projects = [];
+    /// <summary>The Project picker's options, each project with its number as the line it can be found by (§13 item 121).</summary>
+    private IReadOnlyList<PickOption<Guid>> _projectOptions = [];
     /// <summary>The chosen assignees, shown as chips; saved as the form's AssigneeIds.</summary>
     private List<UserSummary> _assignees = [];
     private string? _assetLabel;
@@ -180,7 +176,7 @@ else
     /// chosen, else the project's, else the caller's own. The Assignees picker searches it.
     /// </summary>
     private Guid? EffectiveDepartmentId =>
-        _form.DepartmentId ?? _projects.FirstOrDefault(p => p.Id == ProjectChoice && p.Id != Guid.Empty).DepartmentId ?? _defaultDepartmentId;
+        _form.DepartmentId ?? _projects.FirstOrDefault(p => p.Id == ProjectChoice && p.Id != Guid.Empty)?.DepartmentId ?? _defaultDepartmentId;
 
     protected override async Task OnParametersSetAsync() => await Load(async s =>
     {
@@ -208,7 +204,8 @@ else
         _canPickAsset = lookups.CanPickAsset;
         _defaultDepartmentId = lookups.DefaultDepartmentId;
         _departments = lookups.Departments.Select(i => (Guid.TryParse(i.Value, out var g) ? g : Guid.Empty, i.Text)).ToList();
-        _projects = lookups.Projects.Select(o => (Guid.TryParse(o.Value, out var g) ? g : Guid.Empty, o.Text, o.DepartmentId)).ToList();
+        _projects = lookups.Projects;
+        _projectOptions = [.. _projects.Select(p => p.ToPick())];
         _assignees = lookups.SelectedAssignees.ToList();
         _assetLabel = lookups.SelectedAssetLabel;
         // A choice the select doesn't offer falls back to its first option, as the Razor select did: a project that doesn't exist
@@ -224,7 +221,7 @@ else
         _form.ProjectId = id == Guid.Empty ? null : id;
         if (_canChooseDepartment)
         {
-            var department = _projects.FirstOrDefault(p => p.Id == id && id != Guid.Empty).DepartmentId;
+            var department = _projects.FirstOrDefault(p => p.Id == id && id != Guid.Empty)?.DepartmentId;
             _form.DepartmentId = department is Guid d && _departments.Any(x => x.Id == d) ? d : null;
         }
         PruneAssignees();

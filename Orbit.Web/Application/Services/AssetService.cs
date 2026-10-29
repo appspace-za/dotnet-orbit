@@ -119,21 +119,21 @@ public sealed class AssetService(ApplicationDbContext db, IActorProvider actors,
         var actor = await actors.GetAsync(ct);
         var t = text?.Trim();
         if (string.IsNullOrEmpty(t)) return [];
-        var pattern = $"%{t}%";
-        var prefix = $"{t}%";
+        var pattern = SqlLike.Contains(t);
+        var prefix = SqlLike.StartsWith(t);
         var lower = t.ToLower();
         var rows = await Scoping.Assets(db.Assets.AsNoTracking(), actor)
             .Where(a => a.Status != AssetStatus.Disposed)
-            .Where(a => EF.Functions.ILike(a.Name, pattern)
-                || (a.AssetNumber != null && EF.Functions.ILike(a.AssetNumber, pattern))
-                || (a.SerialNumber != null && EF.Functions.ILike(a.SerialNumber, pattern))
-                || (a.Manufacturer != null && EF.Functions.ILike(a.Manufacturer, pattern))
-                || (a.Model != null && EF.Functions.ILike(a.Model, pattern))
-                || (a.AssetLocation != null && EF.Functions.ILike(a.AssetLocation.Name, pattern))
-                || a.Assignments.Any(x => EF.Functions.ILike(x.User.DisplayName, pattern)))
+            .Where(a => EF.Functions.ILike(a.Name, pattern, SqlLike.EscapeCharacter)
+                || (a.AssetNumber != null && EF.Functions.ILike(a.AssetNumber, pattern, SqlLike.EscapeCharacter))
+                || (a.SerialNumber != null && EF.Functions.ILike(a.SerialNumber, pattern, SqlLike.EscapeCharacter))
+                || (a.Manufacturer != null && EF.Functions.ILike(a.Manufacturer, pattern, SqlLike.EscapeCharacter))
+                || (a.Model != null && EF.Functions.ILike(a.Model, pattern, SqlLike.EscapeCharacter))
+                || (a.AssetLocation != null && EF.Functions.ILike(a.AssetLocation.Name, pattern, SqlLike.EscapeCharacter))
+                || a.Assignments.Any(x => EF.Functions.ILike(x.User.DisplayName, pattern, SqlLike.EscapeCharacter)))
             .OrderBy(a => (a.AssetNumber != null && a.AssetNumber.ToLower() == lower) || (a.SerialNumber != null && a.SerialNumber.ToLower() == lower)
                 ? 0
-                : EF.Functions.ILike(a.Name, prefix) ? 1 : 2)
+                : EF.Functions.ILike(a.Name, prefix, SqlLike.EscapeCharacter) ? 1 : 2)
             .ThenBy(a => a.Name).ThenBy(a => a.AssetNumber).ThenBy(a => a.Id)
             .Take(Math.Clamp(take, 1, 50))
             .Select(a => new
@@ -715,11 +715,11 @@ public sealed class AssetService(ApplicationDbContext db, IActorProvider actors,
 
         if (!string.IsNullOrWhiteSpace(f.Search))
         {
-            var pattern = $"%{f.Search.Trim()}%";
-            q = q.Where(a => (a.AssetNumber != null && EF.Functions.ILike(a.AssetNumber, pattern)) || EF.Functions.ILike(a.Name, pattern)
-                || (a.SerialNumber != null && EF.Functions.ILike(a.SerialNumber, pattern))
-                || (a.Manufacturer != null && EF.Functions.ILike(a.Manufacturer, pattern))
-                || (a.Model != null && EF.Functions.ILike(a.Model, pattern)));
+            var pattern = SqlLike.Contains(f.Search.Trim());
+            q = q.Where(a => (a.AssetNumber != null && EF.Functions.ILike(a.AssetNumber, pattern, SqlLike.EscapeCharacter)) || EF.Functions.ILike(a.Name, pattern, SqlLike.EscapeCharacter)
+                || (a.SerialNumber != null && EF.Functions.ILike(a.SerialNumber, pattern, SqlLike.EscapeCharacter))
+                || (a.Manufacturer != null && EF.Functions.ILike(a.Manufacturer, pattern, SqlLike.EscapeCharacter))
+                || (a.Model != null && EF.Functions.ILike(a.Model, pattern, SqlLike.EscapeCharacter)));
         }
 
         if (f.Check is AssetCheckFilter check)

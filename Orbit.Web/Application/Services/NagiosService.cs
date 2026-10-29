@@ -82,10 +82,10 @@ public sealed class NagiosService(
         var text = query?.Trim();
         if (!string.IsNullOrEmpty(text))
         {
-            var anywhere = $"%{text}%";
-            var prefix = $"{text}%";
-            q = q.Where(u => EF.Functions.ILike(u.DisplayName, anywhere) || EF.Functions.ILike(u.Email!, anywhere))
-                .OrderBy(u => EF.Functions.ILike(u.DisplayName, prefix) ? 0 : 1).ThenBy(u => u.DisplayName);
+            var anywhere = SqlLike.Contains(text);
+            var prefix = SqlLike.StartsWith(text);
+            q = q.Where(u => EF.Functions.ILike(u.DisplayName, anywhere, SqlLike.EscapeCharacter) || EF.Functions.ILike(u.Email!, anywhere, SqlLike.EscapeCharacter))
+                .OrderBy(u => EF.Functions.ILike(u.DisplayName, prefix, SqlLike.EscapeCharacter) ? 0 : 1).ThenBy(u => u.DisplayName);
         }
         else
         {

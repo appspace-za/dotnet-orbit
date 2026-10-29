@@ -1,0 +1,111 @@
+@typeparam TValue
+@inject OrbitRunner Runner
+@* A select you can type into (spec §6.2, §13 item 121): the box shows the current choice; clicking it lists every option, and
+   typing narrows the list to the options with every word typed in their text or their detail line (PickerSearch). The leading
+   Pinned options ("All", "None", "(standalone task)") stay at the top whatever is typed. With Search, the options come from the
+   server as you type and Options are the fixed entries shown above them (the Parent task picker). At most Limit options are
+   listed below the pinned ones; MudAutocomplete's MaxItems cuts the list and its MoreItemsTemplate says more match, counting
+   each search's own answer, so a slow search that finishes late can't change what a newer one says (§13 item 122). Tab
+   doesn't pick: with nothing chosen it would take the first option as you tab past. MudAutocomplete is the root element, so
+   the classes that size a MudSelect (orbit-filter, orbit-field-*) size this the same. *@
+<MudAutocomplete T="PickOption<TValue>" Value="_selected" ValueChanged="PickedAsync" SearchFunc="SearchAsync" ToStringFunc="@(o => o?.Text)"
+                 Strict="false" MinCharacters="0" OpenOnFocus="true" SelectOnActivation="true" CoerceText="true" ResetValueOnEmptyText="false"
+                 MaxItems="@(PinnedCount + Limit)" RelativeWidth="DropdownWidth.Adaptive" DebounceInterval="@(Search is null ? 100 : 250)"
+                 Label="@Label" Placeholder="@Placeholder" HelperText="@HelperText" Error="Error" ErrorText="@ErrorText" Required="Required"
+                 Disabled="Disabled" Variant="Variant.Outlined" Margin="Margin" Dense="Dense" Class="@Class" title="@Title">
+    <ItemTemplate Context="o">
+        <div>
+            <div>@o.Text</div>
+            @if (!string.IsNullOrEmpty(o.Detail))
+            {
+                <div class="orbit-sub">@o.Detail</div>
+            }
+        </div>
+    </ItemTemplate>
+    <NoItemsTemplate>
+        <div class="pa-2 orbit-muted">Nothing matches.</div>
+    </NoItemsTemplate>
+    <MoreItemsTemplate>
+        <div class="pa-2 orbit-muted orbit-small">More match - type to narrow the list.</div>
+    </MoreItemsTemplate>
+</MudAutocomplete>
+
+@code {
+    [Parameter] public TValue Value { get; set; } = default!;
+    [Parameter] public EventCallback<TValue> ValueChanged { get; set; }
+    /// <summary>The options to choose from; with <see cref="Search"/>, the fixed entries listed above the server's answers.</summary>
+    [Parameter] public IReadOnlyList<PickOption<TValue>> Options { get; set; } = [];
+    /// <summary>
+    /// The options for the typed text, from the server (in the caller's scope); null filters <see cref="Options"/> in memory.
+    /// It is given how many to fetch at most: one more than <see cref="Limit"/>, so the list can say that more match.
+    /// </summary>
+    [Parameter] public Func<IServiceProvider, string?, int, CancellationToken, Task<IReadOnlyList<PickOption<TValue>>>>? Search { get; set; }
+    /// <summary>The current value's text when <see cref="Options"/> doesn't hold it (a value found by <see cref="Search"/>); blank shows nothing.</summary>
+    [Parameter] public string? SelectedText { get; set; }
+    /// <summary>How many leading options always show, whatever is typed ("All", "None"). With <see cref="Search"/> every fixed entry does.</summary>
+    [Parameter] public int Pinned { get; set; }
+    /// <summary>At most this many options are listed (besides the pinned ones); the list says when more match.</summary>
+    [Parameter] public int Limit { get; set; } = 50;
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public string? Placeholder { get; set; }
+    [Parameter] public string? HelperText { get; set; }
+    [Parameter] public bool Error { get; set; }
+    [Parameter] public string? ErrorText { get; set; }
+    [Parameter] public bool Required { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public Margin Margin { get; set; } = Margin.None;
+    [Parameter] public bool Dense { get; set; }
+    [Parameter] public string? Class { get; set; }
+    /// <summary>A tooltip for the box.</summary>
+    [Parameter] public string? Title { get; set; }
+
+    private PickOption<TValue>? _selected, _picked;
+
+    /// <summary>The leading options that always show: the first <see cref="Pinned"/>, or every fixed entry with <see cref="Search"/>.</summary>
+    private int PinnedCount => Search is null ? Math.Clamp(Pinned, 0, Options.Count) : Options.Count;
+
+    private static bool Same(TValue a, TValue b) => EqualityComparer<TValue>.Default.Equals(a, b);
+
+    /// <summary>
+    /// The option the box shows: the one with the value, else the one last picked while it still has the value, else one named by
+    /// <see cref="SelectedText"/>. A value changed from outside - a parent task cleared because it no longer fits - shows at once.
+    /// </summary>
+    protected override void OnParametersSet()
+    {
+        _selected = Options.FirstOrDefault(o => Same(o.Value, Value))
+            ?? (_picked is { } picked && Same(picked.Value, Value) ? picked : null)
+            ?? (string.IsNullOrEmpty(SelectedText) ? null : new PickOption<TValue>(Value, SelectedText));
+    }
+
+    /// <summary>
+    /// The pinned options, then the matches: all of them in memory, or up to one more than <see cref="Limit"/> from the server.
+    /// MaxItems cuts the list; anything past it shows the "More match" line. Keeps no state, so overlapping searches can't mix.
+    /// </summary>
+    private async Task<IEnumerable<PickOption<TValue>>> SearchAsync(string? text, CancellationToken ct)
+    {
+        var pinned = PinnedCount;
+        var local = PickerSearch.Filter(Options, text, o => o.Text, o => o.Detail, pinned);
+        var head = local.Take(pinned).ToList();
+        if (Search is not { } search) return local;
+        IReadOnlyList<PickOption<TValue>> found;
+        try
+        {
+            found = await Runner.RunAsync(s => search(s, text, Limit + 1, ct));
+        }
+        catch (Exception ex) when (ex is OrbitException or OperationCanceledException)
+        {
+            found = [];
+        }
+        return [.. head, .. found.Where(o => !head.Any(h => Same(h.Value, o.Value)))];
+    }
+
+    /// <summary>A pick raises ValueChanged only when the value changes (the asset form's Type resets its properties on a change).</summary>
+    private async Task PickedAsync(PickOption<TValue>? option)
+    {
+        if (option is null) return;
+        _picked = option;
+        _selected = option;
+        if (Same(option.Value, Value)) return;
+        await ValueChanged.InvokeAsync(option.Value);
+    }
+}

@@ -56,7 +56,7 @@ else
             <FilterSelect Label="Type" Value="@AssetTypeId" ValueChanged="v => GoAsync(nameof(AssetTypeId), v)" Options="_types" />
             <FilterSelect Label="Location" Value="@LocationId" ValueChanged="v => GoAsync(nameof(LocationId), v)" Options="_locations" />
             <FilterSelect Label="Status" Value="@Status" ValueChanged="v => GoAsync(nameof(Status), v)" Options="StatusOptions" />
-            <FilterSelect Label="Assigned to" Value="@Holder" ValueChanged="v => GoAsync(nameof(Holder), v)" Options="_holders" />
+            <FilterSelect Label="Assigned to" Value="@Holder" ValueChanged="v => GoAsync(nameof(Holder), v)" Special="HolderSpecial" Options="_holders" />
             <FilterSelect Label="Check" Value="@Check" ValueChanged="v => GoAsync(nameof(Check), v)" Options="CheckOptions" />
             <FilterSelect Label="Warranty" Value="@Warranty" ValueChanged="v => GoAsync(nameof(Warranty), v)" Options="WarrantyOptions" />
             <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="ResetAsync"
@@ -180,6 +180,10 @@ else
     private static readonly IReadOnlyList<(string Value, string Text)> WarrantyOptions =
         [("", "Any"), (nameof(AssetWarrantyFilter.Expiring), "Expiring soon"), (nameof(AssetWarrantyFilter.Expired), "Expired")];
 
+    /// <summary>The Assigned to filter's special entries (§6.19), kept at the top while typing.</summary>
+    private static readonly IReadOnlyList<(string Value, string Text)> HolderSpecial =
+        [("", "Anyone"), ("me", "Me"), ("none", "Unassigned"), ("deactivated", "Held by deactivated users")];
+
     private Actor? _actor;
     private PagedResult<AssetListItem>? _result;
     private IReadOnlyList<(string Value, string Text)> _departments = [], _types = [], _locations = [], _holders = [];
@@ -225,11 +229,7 @@ else
                 : (o.Group is { Length: > 0 } g2 ? $"{g2} / {o.Name} ({o.DepartmentName})" : $"{o.Name} ({o.DepartmentName})");
         _types = [("", "All"), .. typeOptions.Select(o => (o.Id.ToString(), OptionLabel(o)))];
         _locations = [("", "All"), .. locationOptions.Select(o => (o.Id.ToString(), OptionLabel(o)))];
-        _holders =
-        [
-            ("", "Anyone"), ("me", "Me"), ("none", "Unassigned"), ("deactivated", "Held by deactivated users"),
-            .. (await assets.HoldersAsync()).Select(h => (h.Id.ToString(), h.Name + (h.IsActive ? "" : " (deactivated)")))
-        ];
+        _holders = (await assets.HoldersAsync()).Select(h => (h.Id.ToString(), h.Name + (h.IsActive ? "" : " (deactivated)"))).ToList();
         _departments = everywhere
             ? [("", "All"), .. (await s.Get<DepartmentService>().ListAsync(true)).Select(d => (d.Id.ToString(), d.Name))]
             : [];

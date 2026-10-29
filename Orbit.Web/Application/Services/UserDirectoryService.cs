@@ -26,8 +26,8 @@ public sealed class UserDirectoryService(ApplicationDbContext db, IActorProvider
         else if (departmentId is Guid d) q = q.Where(u => u.DepartmentId == d);
         if (!string.IsNullOrWhiteSpace(query))
         {
-            var pattern = $"%{query.Trim()}%";
-            q = q.Where(u => EF.Functions.ILike(u.DisplayName, pattern) || EF.Functions.ILike(u.Email!, pattern));
+            var pattern = SqlLike.Contains(query.Trim());
+            q = q.Where(u => EF.Functions.ILike(u.DisplayName, pattern, SqlLike.EscapeCharacter) || EF.Functions.ILike(u.Email!, pattern, SqlLike.EscapeCharacter));
         }
         var users = await q.OrderBy(u => u.DisplayName).ToListAsync(ct);
         return await ToSummariesAsync(db, users, ct);
@@ -71,10 +71,10 @@ public sealed class UserDirectoryService(ApplicationDbContext db, IActorProvider
         var text = query?.Trim();
         if (!string.IsNullOrEmpty(text))
         {
-            var anywhere = $"%{text}%";
-            var prefix = $"{text}%";
-            q = q.Where(u => EF.Functions.ILike(u.DisplayName, anywhere) || EF.Functions.ILike(u.Email!, anywhere))
-                .OrderBy(u => EF.Functions.ILike(u.DisplayName, prefix) ? 0 : 1).ThenBy(u => u.DisplayName);
+            var anywhere = SqlLike.Contains(text);
+            var prefix = SqlLike.StartsWith(text);
+            q = q.Where(u => EF.Functions.ILike(u.DisplayName, anywhere, SqlLike.EscapeCharacter) || EF.Functions.ILike(u.Email!, anywhere, SqlLike.EscapeCharacter))
+                .OrderBy(u => EF.Functions.ILike(u.DisplayName, prefix, SqlLike.EscapeCharacter) ? 0 : 1).ThenBy(u => u.DisplayName);
         }
         else
         {
@@ -140,13 +140,13 @@ public sealed class UserDirectoryService(ApplicationDbContext db, IActorProvider
     {
         var text = query?.Trim();
         if (string.IsNullOrEmpty(text)) return [];
-        var anywhere = $"%{text}%";
-        var prefix = $"{text}%";
+        var anywhere = SqlLike.Contains(text);
+        var prefix = SqlLike.StartsWith(text);
         var users = await db.Users.AsNoTracking().Include(u => u.Department)
             .Where(u => u.IsActive && !u.IsSystemAccount && u.Id != excludingUserId
-                && (EF.Functions.ILike(u.DisplayName, anywhere) || EF.Functions.ILike(u.Email!, anywhere)
-                    || (u.Department != null && EF.Functions.ILike(u.Department.Name, anywhere))))
-            .OrderBy(u => EF.Functions.ILike(u.DisplayName, prefix) ? 0 : 1).ThenBy(u => u.DisplayName)
+                && (EF.Functions.ILike(u.DisplayName, anywhere, SqlLike.EscapeCharacter) || EF.Functions.ILike(u.Email!, anywhere, SqlLike.EscapeCharacter)
+                    || (u.Department != null && EF.Functions.ILike(u.Department.Name, anywhere, SqlLike.EscapeCharacter))))
+            .OrderBy(u => EF.Functions.ILike(u.DisplayName, prefix, SqlLike.EscapeCharacter) ? 0 : 1).ThenBy(u => u.DisplayName)
             .Take(Math.Clamp(limit, 1, 50))
             .ToListAsync(ct);
         return await ToSummariesAsync(db, users, ct);

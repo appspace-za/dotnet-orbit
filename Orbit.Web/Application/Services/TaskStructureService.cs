@@ -119,22 +119,72 @@ public sealed class TaskStructureService(ApplicationDbContext db, IActorProvider
                 .OrderBy(t => t.Title).Take(500).ToListAsync(ct);
 
     /// <summary>
-    /// Options for the Parent task picker: open tasks within the actor's tasks.view scope (§6.5). The form filters them by project client-side.
+    /// The Parent task picker's search (§6.15, §13 items 121 and 122): up to <paramref name="take"/> open tasks within the actor's
+    /// tasks.view scope (§6.5) that a task on <paramref name="projectId"/> could be filed under - the project's tasks, or for a
+    /// standalone task the standalone tasks in <paramref name="departmentId"/> (in any department when that is null). The
+    /// <paramref name="exclude"/>d tasks are left out: the task being edited and everything below it (<see cref="SubtreeIdsAsync"/>,
+    /// worked out once when the form opens), as it can't sit under its own subtask. Every word typed must be in the title, the
+    /// number (T-26-00012) or the department, as the picker shows them; an exact number comes first, then titles starting with
+    /// the text. Only the matches leave the database, so it works however many tasks there are.
     /// </summary>
-    public async Task<IReadOnlyList<ParentCandidate>> ListParentCandidatesAsync(Guid? excludeTaskId = null, CancellationToken ct = default)
+    public async Task<IReadOnlyList<ParentCandidate>> SearchParentCandidatesAsync(
+        Guid? projectId, Guid? departmentId, IReadOnlyCollection<Guid> exclude, string? text, int take = 20, CancellationToken ct = default)
     {
         var actor = await actors.GetAsync(ct);
-        var q = db.Tasks.AsNoTracking()
+        var q = Scoping.Tasks(db.Tasks.AsNoTracking(), actor)
             .Where(t => t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled);
-        q = Scoping.Tasks(q, actor);
-        if (excludeTaskId is Guid exclude) q = q.Where(t => t.Id != exclude && t.ParentTaskId != exclude);
-        var rows = await q
-            .OrderBy(t => t.Project == null ? 1 : 0).ThenBy(t => t.Project!.Name).ThenBy(t => t.Title)
-            .Take(1000)
-            .Select(t => new { t.Id, t.Title, t.ProjectId, ProjectName = t.Project == null ? null : t.Project.Name, t.DepartmentId, DepartmentName = t.Department.Name })
+        q = projectId is Guid pid ? q.Where(t => t.ProjectId == pid)
+            : departmentId is Guid did ? q.Where(t => t.ProjectId == null && t.DepartmentId == did)
+            : q.Where(t => t.ProjectId == null);
+        if (exclude.Count > 0) q = q.Where(t => !exclude.Contains(t.Id));
+        foreach (var word in PickerSearch.Words(text))
+        {
+            var pattern = SqlLike.Contains(word);
+            q = q.Where(t => EF.Functions.ILike(t.Title, pattern, SqlLike.EscapeCharacter) || EF.Functions.ILike(t.Number, pattern, SqlLike.EscapeCharacter)
+                || EF.Functions.ILike(t.Department.Name, pattern, SqlLike.EscapeCharacter));
+        }
+
+        var whole = text?.Trim();
+        IOrderedQueryable<TaskItem> ordered;
+        if (string.IsNullOrEmpty(whole))
+        {
+            ordered = q.OrderBy(t => t.Title);
+        }
+        else
+        {
+            var lower = whole.ToLower();
+            var prefix = SqlLike.StartsWith(whole);
+            ordered = q.OrderBy(t => t.Number.ToLower() == lower ? 0 : EF.Functions.ILike(t.Title, prefix, SqlLike.EscapeCharacter) ? 1 : 2).ThenBy(t => t.Title);
+        }
+        return await ordered.ThenBy(t => t.Number)
+            .Take(Math.Clamp(take, 1, 51))
+            .Select(t => new ParentCandidate(t.Id, t.Number, t.Title, t.ProjectId, t.DepartmentId, t.Department.Name, t.Status))
             .ToListAsync(ct);
-        return rows.Select(r => new ParentCandidate(r.Id, r.Title, r.ProjectId, r.ProjectName, r.DepartmentId, r.DepartmentName)).ToList();
     }
+
+    /// <summary>
+    /// A task as the Parent task picker names it - the task form's current parent, closed or not; null when it no longer exists.
+    /// The parent <paramref name="child"/> already has is named to whoever opened the child (the caller loaded it through
+    /// <see cref="TaskService"/>), as the task page's breadcrumbs name it; any other task only to whoever can see it (§6.5, §13
+    /// item 122). A new choice comes from the scoped search.
+    /// </summary>
+    public async Task<ParentCandidate?> FindParentCandidateAsync(Guid parentId, TaskItem? child, CancellationToken ct = default)
+    {
+        var actor = await actors.GetAsync(ct);
+        var parent = await db.Tasks.AsNoTracking().Include(t => t.Assignments).Include(t => t.Department)
+            .FirstOrDefaultAsync(t => t.Id == parentId, ct);
+        if (parent is null) return null;
+        if (child?.ParentTaskId != parentId)
+            AccessPolicy.Require(AccessPolicy.CanViewTask(actor, parent), "This task belongs to another department.");
+        return new ParentCandidate(parent.Id, parent.Number, parent.Title, parent.ProjectId, parent.DepartmentId, parent.Department.Name, parent.Status);
+    }
+
+    /// <summary>
+    /// A task and every task below it, by id: what the Parent task picker leaves out for that task (§6.15). The caller has
+    /// already loaded the task through <see cref="TaskService"/>.
+    /// </summary>
+    public async Task<IReadOnlyList<Guid>> SubtreeIdsAsync(TaskItem task, CancellationToken ct = default) =>
+        [task.Id, .. await DescendantIdsAsync(task.Id, ct)];
 
     /// <summary>Every link on a project - the data a Gantt is drawn from. The caller has already checked the project is visible.</summary>
     public async Task<IReadOnlyList<TaskDependency>> ListForProjectAsync(Guid projectId, CancellationToken ct = default) =>
@@ -371,16 +421,26 @@ public sealed class TaskStructureService(ApplicationDbContext db, IActorProvider
     /// <summary>All tasks below a root, tracked (they are what a move updates).</summary>
     private async Task<List<TaskItem>> LoadDescendantsAsync(Guid rootId, CancellationToken ct)
     {
-        var all = new List<TaskItem>();
+        var ids = await DescendantIdsAsync(rootId, ct);
+        return ids.Count == 0 ? [] : await db.Tasks.Include(t => t.Department).Where(t => ids.Contains(t.Id)).ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// The ids of every task below a root, a level at a time (one query per level, at most <see cref="MaxDepth"/>); a loop in
+    /// bad data ends where it comes back round. The one walk down the tree from the database.
+    /// </summary>
+    private async Task<List<Guid>> DescendantIdsAsync(Guid rootId, CancellationToken ct)
+    {
+        var all = new List<Guid>();
         var seen = new HashSet<Guid> { rootId };
         var frontier = new List<Guid> { rootId };
         for (var depth = 0; frontier.Count > 0 && depth < MaxDepth; depth++)
         {
-            var rows = await db.Tasks.Include(t => t.Department)
-                .Where(t => t.ParentTaskId != null && frontier.Contains(t.ParentTaskId.Value)).ToListAsync(ct);
-            frontier = new List<Guid>();
-            foreach (var r in rows)
-                if (seen.Add(r.Id)) { all.Add(r); frontier.Add(r.Id); }
+            var level = frontier;
+            var children = await db.Tasks.AsNoTracking()
+                .Where(t => t.ParentTaskId != null && level.Contains(t.ParentTaskId.Value)).Select(t => t.Id).ToListAsync(ct);
+            frontier = children.Where(seen.Add).ToList();
+            all.AddRange(frontier);
         }
         return all;
     }

@@ -58,9 +58,9 @@ public sealed class TaskService(
         if (plannedFor is DateOnly planned) q = q.Where(t => t.PlannedFor == planned);
         if (!string.IsNullOrWhiteSpace(f.Search))
         {
-            var pattern = $"%{f.Search.Trim()}%";
-            q = q.Where(t => EF.Functions.ILike(t.Title, pattern) || EF.Functions.ILike(t.Description ?? "", pattern)
-                || EF.Functions.ILike(t.SolutionNotes ?? "", pattern) || EF.Functions.ILike(t.Number, pattern));
+            var pattern = SqlLike.Contains(f.Search.Trim());
+            q = q.Where(t => EF.Functions.ILike(t.Title, pattern, SqlLike.EscapeCharacter) || EF.Functions.ILike(t.Description ?? "", pattern, SqlLike.EscapeCharacter)
+                || EF.Functions.ILike(t.SolutionNotes ?? "", pattern, SqlLike.EscapeCharacter) || EF.Functions.ILike(t.Number, pattern, SqlLike.EscapeCharacter));
         }
 
         var page = Math.Max(1, f.Page);

@@ -236,7 +236,9 @@ a.orbit-plain:hover { background: var(--mud-palette-table-hover); }
 .orbit-tasks .orbit-title { font-weight: 600; text-decoration: none; color: var(--mud-palette-text-primary); }
 .orbit-tasks a.orbit-title:hover { color: var(--mud-palette-primary); text-decoration: underline; }
 .orbit-tasks .orbit-overdue, .orbit-overdue input { color: var(--mud-palette-error) !important; font-weight: 600; }
-.orbit-tasks .orbit-sub { font-size: .8rem; color: var(--mud-palette-text-secondary); }
+/* Small print under a title: a subtask's parent in task tables, and the second line of a picker's option (a number, an email),
+   whose dropdown renders in the popover provider, outside .orbit-tasks. */
+.orbit-tasks .orbit-sub, .mud-popover .orbit-sub { font-size: .8rem; color: var(--mud-palette-text-secondary); }
 .orbit-tasks .orbit-check { width: 2.5rem; }
 .orbit-tasks .orbit-today { width: 4rem; text-align: center; }
 /* MudBlazor wraps each chip in a .mud-chip-container, which is display: contents, so the margin goes on the chip. */

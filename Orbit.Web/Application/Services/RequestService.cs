@@ -332,8 +332,8 @@ public sealed class RequestService(
         if (filter.Status is RequestStatus s) q = q.Where(r => r.Status == s);
         if (!string.IsNullOrWhiteSpace(filter.Query))
         {
-            var pattern = $"%{filter.Query.Trim()}%";
-            q = q.Where(r => EF.Functions.ILike(r.Number, pattern) || EF.Functions.ILike(r.Title, pattern) || EF.Functions.ILike(r.Requester.DisplayName, pattern));
+            var pattern = SqlLike.Contains(filter.Query.Trim());
+            q = q.Where(r => EF.Functions.ILike(r.Number, pattern, SqlLike.EscapeCharacter) || EF.Functions.ILike(r.Title, pattern, SqlLike.EscapeCharacter) || EF.Functions.ILike(r.Requester.DisplayName, pattern, SqlLike.EscapeCharacter));
         }
         return await q.OrderByDescending(r => r.Status == RequestStatus.InProgress).ThenByDescending(r => r.CreatedAt)
             .Take(Math.Clamp(filter.Take, 1, 500)).ToListAsync(ct);
@@ -448,7 +448,7 @@ public sealed class RequestService(
             .FirstOrDefaultAsync(f => f.Id == fieldId, ct) ?? throw new NotFoundException("Field not found.");
         var t = query?.Trim();
         if (string.IsNullOrEmpty(t)) return [];
-        var pattern = $"%{t}%";
+        var pattern = SqlLike.Contains(t);
         var me = actor.UserId!.Value;
         var n = Math.Clamp(take, 1, 50);
         var requesterDepartment = await RequesterDepartmentAsync(actor, [field], stepId, ct);
@@ -459,20 +459,20 @@ public sealed class RequestService(
         {
             case RequestFieldType.Asset:
                 return await AssetItemsAsync(OfferedAssets(field.PickerScope, bound, me)
-                    .Where(a => EF.Functions.ILike(a.Name, pattern) || (a.AssetNumber != null && EF.Functions.ILike(a.AssetNumber, pattern))
-                        || (a.SerialNumber != null && EF.Functions.ILike(a.SerialNumber, pattern)))
+                    .Where(a => EF.Functions.ILike(a.Name, pattern, SqlLike.EscapeCharacter) || (a.AssetNumber != null && EF.Functions.ILike(a.AssetNumber, pattern, SqlLike.EscapeCharacter))
+                        || (a.SerialNumber != null && EF.Functions.ILike(a.SerialNumber, pattern, SqlLike.EscapeCharacter)))
                     .OrderBy(a => a.Name).Take(n), ct);
             case RequestFieldType.Project:
                 var projects = db.Projects.AsNoTracking().Where(p => p.Status == ProjectStatus.Active || p.Status == ProjectStatus.OnHold);
                 if (bound.DepartmentId is Guid projectsOf) projects = projects.Where(p => p.DepartmentId == projectsOf);
-                return await projects.Where(p => EF.Functions.ILike(p.Name, pattern) || EF.Functions.ILike(p.Number, pattern))
+                return await projects.Where(p => EF.Functions.ILike(p.Name, pattern, SqlLike.EscapeCharacter) || EF.Functions.ILike(p.Number, pattern, SqlLike.EscapeCharacter))
                     .OrderBy(p => p.Name).Take(n)
                     .Select(p => new RequestLookupItem(p.Id, p.Number + " " + p.Name, p.Department.Name, p.Status == ProjectStatus.OnHold ? "On hold" : null))
                     .ToListAsync(ct);
             case RequestFieldType.User:
                 var people = db.Users.AsNoTracking().Where(u => u.IsActive && !u.IsSystemAccount);
                 if (bound.DepartmentId is Guid peopleOf) people = people.Where(u => u.DepartmentId == peopleOf);
-                return await people.Where(u => EF.Functions.ILike(u.DisplayName, pattern) || (u.Email != null && EF.Functions.ILike(u.Email, pattern)))
+                return await people.Where(u => EF.Functions.ILike(u.DisplayName, pattern, SqlLike.EscapeCharacter) || (u.Email != null && EF.Functions.ILike(u.Email, pattern, SqlLike.EscapeCharacter)))
                     .OrderBy(u => u.DisplayName).Take(n)
                     .Select(u => new RequestLookupItem(u.Id, u.DisplayName, u.Department != null ? u.Department.Name : null, u.Email))
                     .ToListAsync(ct);

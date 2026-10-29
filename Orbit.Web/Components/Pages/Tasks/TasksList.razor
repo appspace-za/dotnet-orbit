@@ -40,9 +40,9 @@ else
             {
                 <FilterSelect Label="Department" Value="@DepartmentId" ValueChanged="v => GoAsync(nameof(DepartmentId), v)" Options="_departments" />
             }
-            <FilterSelect Label="Project" Value="@ProjectChoice" ValueChanged="v => GoAsync(ProjectKey, v)" Options="_projects"
+            <FilterSelect Label="Project" Value="@ProjectChoice" ValueChanged="v => GoAsync(ProjectKey, v)" Special="FilterSelect.AllOrNone" Options="_projects"
                           Title="An open project, or None for the tasks on no project" />
-            <FilterSelect Label="Sprint" Value="@SprintChoice" ValueChanged="v => GoAsync(SprintKey, v)" Options="_sprintOptions"
+            <FilterSelect Label="Sprint" Value="@SprintChoice" ValueChanged="v => GoAsync(SprintKey, v)" Special="SprintSpecial" Options="_sprintOptions"
                           Title="A planned or active sprint; Backlog for the tasks waiting for sprint planning; Not Planned for the work that came up during a sprint" />
             @if (FilterChoice.Id(AssetId) is not null)
             {
@@ -55,9 +55,9 @@ else
                 <AssetPicker Label="Asset" Class="orbit-filter orbit-filter-wide" Picked="a => GoAsync(nameof(AssetId), a.Id.ToString())" />
             }
             <FilterSelect Label="Status" Value="@StatusChoice" ValueChanged="v => GoAsync(StatusKey, v)" Options="StatusOptions" />
-            <FilterSelect Label="Assignee" Value="@AssigneeChoice" ValueChanged="v => GoAsync(AssigneeKey, v)" Options="_assignees"
+            <FilterSelect Label="Assignee" Value="@AssigneeChoice" ValueChanged="v => GoAsync(AssigneeKey, v)" Special="FilterSelect.AllOrNone" Options="_assignees"
                           Title="One of the people the task is assigned to, or None for the tasks nobody is assigned to" />
-            <FilterSelect Label="Requestee" Value="@RequesteeChoice" ValueChanged="v => GoAsync(RequesteeKey, v)" Options="_requestees"
+            <FilterSelect Label="Requestee" Value="@RequesteeChoice" ValueChanged="v => GoAsync(RequesteeKey, v)" Special="_requesteeSpecial" Options="_requestees"
                           Title="Whom the task was created for - with Me, also your own tasks other departments hold; None for the tasks created for nobody else" />
             <FilterSelect Label="Priority" Value="@PriorityChoice" ValueChanged="v => GoAsync(PriorityKey, v)" Options="PriorityOptions" />
             <FilterSelect Label="Type" Value="@TypeChoice" ValueChanged="v => GoAsync(TypeKey, v)" Options="TypeOptions" />
@@ -144,7 +144,13 @@ else
     private IReadOnlyDictionary<Guid, WaitingSummary> _waiting = new Dictionary<Guid, WaitingSummary>();
     private IReadOnlyList<UserSummary> _quickEditAssignees = [];
     private IReadOnlyList<Sprint> _openSprints = [];
+    /// <summary>The Sprint filter's special entries (§6.3), kept at the top while typing: All, Not Planned, the Backlog.</summary>
+    private static readonly IReadOnlyList<(string Value, string Text)> SprintSpecial =
+        [("", "All"), (SprintPlacement.NotPlannedValue, SprintPlacement.NotPlannedLabel), (SprintPlacement.BacklogValue, SprintPlacement.BacklogLabel)];
+
     private IReadOnlyList<(string Value, string Text)> _departments = [], _projects = [], _sprintOptions = [], _assignees = [], _requestees = [];
+    /// <summary>The Requestee filter's special entries, kept at the top while typing: All, None and, when signed in, Me.</summary>
+    private IReadOnlyList<(string Value, string Text)> _requesteeSpecial = FilterSelect.AllOrNone;
     private bool _canSeeAll, _canFilterByAsset;
     private string? _assetLabel;
 
@@ -197,22 +203,17 @@ else
             _departments = canSeeAll
                 ? [("", "All"), .. (await s.Get<DepartmentService>().ListAsync(true)).Select(d => (d.Id.ToString(), d.Name))]
                 : [];
-            _projects =
-            [
-                ("", "All"), (FilterChoice.None, "None"),
-                .. (await s.Get<ProjectService>().ListOpenForPickerAsync(departmentId))
-                    .Select(p => (p.Id.ToString(), canSeeAll ? $"{p.Department.Name} / {p.Name}" : p.Name))
-            ];
+            _projects = (await s.Get<ProjectService>().ListOpenForPickerAsync(departmentId))
+                .Select(p => (p.Id.ToString(), canSeeAll ? $"{p.Department.Name} / {p.Name}" : p.Name)).ToList();
             var people = canSeeAll
                 ? await users.ListAsync(null, departmentId, false)
                 : actor.DepartmentId is Guid ownDept ? await users.GetAssignableAsync(ownDept) : [];
-            _assignees = [("", "All"), (FilterChoice.None, "None"), .. people.Select(u => (u.Id.ToString(), u.DisplayName))];
+            _assignees = people.Select(u => (u.Id.ToString(), u.DisplayName)).ToList();
             // The Requestee filter (§6.2.2): "Me" first, then the same people. Someone outside the list (another department's
             // person, from a shared link) stays selected rather than silently dropped.
-            var requestees = new List<(string, string)> { ("", "All"), (FilterChoice.None, "None") };
-            if (actor.UserId is Guid me) requestees.Add((me.ToString(), "Me"));
-            requestees.AddRange(people.Where(u => u.Id != actor.UserId).Select(u => (u.Id.ToString(), u.DisplayName)));
-            if (filter.RequesteeId is Guid requesteeId && requestees.All(r => r.Item1 != requesteeId.ToString())
+            _requesteeSpecial = actor.UserId is Guid me ? [.. FilterSelect.AllOrNone, (me.ToString(), "Me")] : FilterSelect.AllOrNone;
+            var requestees = people.Where(u => u.Id != actor.UserId).Select(u => (u.Id.ToString(), u.DisplayName)).ToList();
+            if (filter.RequesteeId is Guid requesteeId && requesteeId != actor.UserId && requestees.All(r => r.Item1 != requesteeId.ToString())
                 && await users.FindAsync(requesteeId) is { } requestee)
                 requestees.Add((requestee.Id.ToString(), requestee.DisplayName));
             _requestees = requestees;
@@ -220,11 +221,7 @@ else
             // The filter may be narrowed to one department; the inline control needs candidates for every listed task.
             _quickEditAssignees = await users.GetQuickEditCandidatesAsync();
             _openSprints = await sprints.ListOpenAsync();
-            var sprintOptions = new List<(string, string)>
-            {
-                ("", "All"), (SprintPlacement.NotPlannedValue, SprintPlacement.NotPlannedLabel), (SprintPlacement.BacklogValue, SprintPlacement.BacklogLabel)
-            };
-            sprintOptions.AddRange(_openSprints.Select(sp => (sp.Id.ToString(), $"{sp.Name} ({sp.Status})")));
+            var sprintOptions = _openSprints.Select(sp => (sp.Id.ToString(), $"{sp.Name} ({sp.Status})")).ToList();
             // A remembered or linked sprint that has since been completed stays selected rather than silently dropped.
             if (filter.SprintId is Guid chosen && _openSprints.All(sp => sp.Id != chosen))
                 sprintOptions.Add((chosen.ToString(), await sprints.FindAsync(chosen) is { } sprint ? $"{sprint.Name} ({sprint.Status})" : "Unknown sprint"));

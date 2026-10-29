@@ -26,8 +26,8 @@ public sealed class ProjectService(NumberingService numbering, ApplicationDbCont
 
         if (!string.IsNullOrWhiteSpace(f.Search))
         {
-            var pattern = $"%{f.Search.Trim()}%";
-            q = q.Where(p => EF.Functions.ILike(p.Name, pattern) || EF.Functions.ILike(p.Number, pattern));
+            var pattern = SqlLike.Contains(f.Search.Trim());
+            q = q.Where(p => EF.Functions.ILike(p.Name, pattern, SqlLike.EscapeCharacter) || EF.Functions.ILike(p.Number, pattern, SqlLike.EscapeCharacter));
         }
 
         var rows = await q.OrderBy(p => p.Name).Select(p => new

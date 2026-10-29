@@ -166,6 +166,15 @@ floating in a corner. The Tasks list also has a **Sprint** filter: a planned or 
 standalone tasks on no project, the tasks nobody is assigned to, and the tasks created for nobody else. Assignee
 *None* replaced the old *Unassigned* tick box. The Backlog's Project and Assignee filters offer *None* too.
 
+**Long lists can be searched by typing** (spec §6.2). The task form's Project, Parent task and Requestee fields, the
+recurring form's Project, the project form's Owner, the time card's *For*, the task page's dependency picker and the
+asset form's Type and Location are dropdowns you can type into: click to see every option, or type part of a name, a
+number (`P-26-0003`, `T-26-00012`) or an email to narrow the list. Parent task searches the project's open tasks as you
+type, by title, number or department, so it copes with any number of tasks, and never offers the task's own subtasks; a
+closed parent the task already has is shown with its status. A list page's filter with more
+than 10 options works the same way, with *All*, *None*, *Me*, *Backlog* and *Not Planned* kept at the top while you
+type. Every search box matches what you type literally: `%` and `_` are ordinary characters, not wildcards.
+
 A task has a **type**, the kind of work it is: Meeting, Planning, Task (the default), Training, Audit, Change, Request
 or Problem. It is chosen on the task form, shown as a coloured badge beside the title (a plain Task has none in the
 lists) and is a filter on the Tasks list and the Backlog. A request flow's task step sets the type of the task it
