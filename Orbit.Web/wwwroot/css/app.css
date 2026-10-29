@@ -189,7 +189,7 @@ a.orbit-plain:hover { background: var(--mud-palette-table-hover); }
 /* MudBlazor sets the input's font itself (.mud-input > .mud-input-root), so these name the same elements more specifically. */
 .orbit-code .mud-input > input.mud-input-root, .orbit-code .mud-input > textarea.mud-input-root { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .orbit-code .mud-input > textarea.mud-input-root { font-size: .85rem; white-space: pre; overflow-x: auto; tab-size: 4; }
-/* A wide form. The task and asset forms (spec §6.2, §6.19) take the page's full width instead. */
+/* A wide form. The task, asset, project, recurring task and sprint forms (spec §6.1-§6.4, §6.19) take the page's full width instead. */
 .orbit-form-wide { max-width: 72rem; }
 .orbit-form-full { max-width: none; }
 .orbit-section-title { color: var(--mud-palette-text-secondary); font-size: .75rem; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; margin-top: .75rem; }

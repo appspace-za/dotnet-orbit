@@ -23,40 +23,56 @@ else
     </nav>
     <MudText Typo="Typo.h5" HtmlTag="h1" Class="mb-3">@(ProjectId is null ? "New project" : "Edit project")</MudText>
 
-    <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-form">
-        <MudTextField T="string" @bind-Value="_name" Label="Name" MaxLength="200" Required="true" RequiredError="Give the project a name."
-                      Variant="Variant.Outlined" Immediate="true" />
-        <MudTextField T="string" @bind-Value="_description" Label="Description" Lines="4" Variant="Variant.Outlined" />
-        <div class="orbit-form-row">
+    <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-form orbit-form-full">
+        @* The name, with the department (for whoever may choose it) and the owner beside it on a wide screen. *@
+        <MudGrid Spacing="3">
+            <MudItem xs="12" md="6">
+                <MudTextField T="string" @bind-Value="_name" Label="Name" MaxLength="200" Required="true" RequiredError="Give the project a name."
+                              Variant="Variant.Outlined" Immediate="true" />
+            </MudItem>
             @if (_canChooseDepartment)
             {
-                <MudSelect T="Guid" @bind-Value="_departmentId" Label="Department" Variant="Variant.Outlined" Class="orbit-field-sm"
-                           ToStringFunc="@(id => _departments.FirstOrDefault(d => d.Id == id)?.Name ?? "- choose -")">
-                    @foreach (var d in _departments)
+                <MudItem xs="12" sm="6" md="3">
+                    <MudSelect T="Guid" @bind-Value="_departmentId" Label="Department" Variant="Variant.Outlined"
+                               ToStringFunc="@(id => _departments.FirstOrDefault(d => d.Id == id)?.Name ?? "- choose -")">
+                        @foreach (var d in _departments)
+                        {
+                            <MudSelectItem T="Guid" Value="d.Id">@d.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+            }
+            <MudItem xs="12" sm="6" md="3">
+                <MudSelect T="Guid" @bind-Value="_ownerId" Label="Owner" Variant="Variant.Outlined"
+                           ToStringFunc="@(id => _owners.FirstOrDefault(o => o.Value == id).Text ?? "")">
+                    @foreach (var o in _owners)
                     {
-                        <MudSelectItem T="Guid" Value="d.Id">@d.Name</MudSelectItem>
+                        <MudSelectItem T="Guid" Value="o.Value">@o.Text</MudSelectItem>
                     }
                 </MudSelect>
-            }
-            <MudSelect T="Guid" @bind-Value="_ownerId" Label="Owner" Variant="Variant.Outlined" Class="orbit-field-lg"
-                       ToStringFunc="@(id => _owners.FirstOrDefault(o => o.Value == id).Text ?? "")">
-                @foreach (var o in _owners)
-                {
-                    <MudSelectItem T="Guid" Value="o.Value">@o.Text</MudSelectItem>
-                }
-            </MudSelect>
-            <MudSelect T="ProjectStatus" @bind-Value="_status" Label="Status" Variant="Variant.Outlined" Class="orbit-field-sm" ToStringFunc="@(s => s.Label())">
-                @foreach (var s in Enum.GetValues<ProjectStatus>())
-                {
-                    <MudSelectItem T="ProjectStatus" Value="s">@s.Label()</MudSelectItem>
-                }
-            </MudSelect>
-            <MudDatePicker @bind-Date="_targetDate" Label="Target date" DateFormat="yyyy-MM-dd" Editable="true" Clearable="true" AutoClose="true"
-                           Variant="Variant.Outlined" Class="orbit-field-sm" />
-            <MudNumericField T="int?" @bind-Value="_buffer" Label="Project buffer (days)" Min="0" Max="260" Placeholder="e.g. 5"
-                             Variant="Variant.Outlined" Class="orbit-field-sm" />
-        </div>
-        <div class="orbit-help">Project buffer: working days of schedule protection to keep before the target date; blank for none.</div>
+            </MudItem>
+        </MudGrid>
+        <MudTextField T="string" @bind-Value="_description" Label="Description" Lines="4" Variant="Variant.Outlined" />
+        @* Where it stands and when it is due. *@
+        <MudGrid Spacing="3">
+            <MudItem xs="12" sm="4">
+                <MudSelect T="ProjectStatus" @bind-Value="_status" Label="Status" Variant="Variant.Outlined" ToStringFunc="@(s => s.Label())">
+                    @foreach (var s in Enum.GetValues<ProjectStatus>())
+                    {
+                        <MudSelectItem T="ProjectStatus" Value="s">@s.Label()</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudDatePicker @bind-Date="_targetDate" Label="Target date" DateFormat="yyyy-MM-dd" Editable="true" Clearable="true" AutoClose="true"
+                               Variant="Variant.Outlined" />
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudNumericField T="int?" @bind-Value="_buffer" Label="Project buffer (days)" Min="0" Max="260" Placeholder="e.g. 5"
+                                 Variant="Variant.Outlined" />
+                <div class="orbit-help">Working days of schedule protection to keep before the target date; blank for none.</div>
+            </MudItem>
+        </MudGrid>
         <div class="orbit-gap-row mt-3">
             <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="SaveAsync">@(ProjectId is null ? "Create project" : "Save")</MudButton>
             <MudButton Variant="Variant.Outlined" Href="@(_project is null ? "/Projects" : $"/Projects/Details/{_project.Id}")">Cancel</MudButton>

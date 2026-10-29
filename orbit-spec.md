@@ -438,6 +438,7 @@ An instance's incidents die with it; the tasks they raised are ordinary tasks an
 - Web addresses in the project's description and its comments are links that open in a new tab, as on a task (§6.2).
 - A **Gantt** button on the project page opens the project's timeline (§6.16), for anyone who can see the project.
 - The project form carries the **required project buffer** in working days beside the target date (§6.17), and the project page shows a **Critical path** card: the last analysis's buffer status, planned completion against the target, remaining buffer and whether the analysis is out of date, with **Run critical path analysis** (for those who may edit the project) and **View on Gantt**.
+- The project form (`/Projects/Create`, `/Projects/Edit/{id}`) fills the page's width, its fields in columns that stack on a narrow screen (decision 115).
 - Archive a project (soft — doesn't delete tasks).
 
 **Acceptance.** Unit tests in `Orbit.Tests/Access/CommentAccessTests.cs`: CMT-001 commenting on a project follows viewing it (its own department, its owner at Own, the built-in role anywhere; another department and a role without grants are refused); CMT-002 a department that only shares the project through its tasks may comment but still may not attach files, edit it or add tasks to it, and `projects.view` at Own isn't widened by sharing.
@@ -543,7 +544,7 @@ Sprints are **shared company-wide**, cutting across departments — a single spr
 
 - **Backlog view:** all tasks with `SprintId = null` (not yet planned), filterable by project, department, priority, type, source and assignee, as on the Tasks list (Project and Assignee offer *None* there too) — the pool the team plans from. It shows the tasks within the viewer's `tasks.view` scope (§6.5): a department-scoped role sees its own department's backlog, with the viewer's own tasks filed elsewhere, a company-wide one every department's (with a department filter). The backlog's filters are remembered for the browser session like the Tasks list's (§6.2, *Filters that stick*). It shows 100 tasks a page with *Previous* / *Next*; *select all* picks the tasks on the page shown, and planning returns to the same page — or, when that planned the page empty, to the last page that still has tasks.
 - **Sprint list:** all sprints with status (`Planned`/`Active`/`Completed`), dates, and task counts across whichever departments and projects are represented in each sprint.
-- **Create/edit a sprint:** name, goal, start/end dates. No project or department field — a sprint is a company-wide planning window, not scoped to either.
+- **Create/edit a sprint:** name, goal, start/end dates. No project or department field — a sprint is a company-wide planning window, not scoped to either. The form (`/Sprints/Create`, `/Sprints/Edit/{id}`) fills the page's width, the dates beside the name, stacking on a narrow screen (decision 115).
 - **Sprint planning:** from the backlog view, select one or more tasks — regardless of which department or project they belong to, or none — and assign them into a chosen sprint (moves `SprintId`). Tasks can also be pulled back out of a sprint into the backlog. A user can only plan tasks within their `tasks.plan` reach (§6.5) — the shipped roles plan their own department's tasks; a role with `tasks.plan` at All plans any department's. One task can also be moved from the Sprint column of the Tasks list, a project page or My Tasks (§6.2 *Quick edit*), under the same rule.
 - **Sprint board:** once a sprint is `Active`, a board view of its tasks grouped by `Status` (Todo / In Progress / Waiting / Blocked / Done), showing each task's department and project as tags since a sprint's tasks can span several — a simple kanban view scoped to that sprint. The five columns sit side by side on extra-large screens (1200px and wider), three to a row on large screens, two on tablets and one on phones, so the board never scrolls sideways. The sprint page and the board list the sprint's tasks within the viewer's `tasks.view` scope (§6.5); the sprint list's per-department counts are visible to everyone.
 - **Only one `Active` sprint at a time**, company-wide.
@@ -559,6 +560,7 @@ Sprints are **shared company-wide**, cutting across departments — a single spr
 
 ### 6.4 Recurring Tasks
 - Create/edit a recurring task definition (title, project, department, recurrence rule, assignees — any number, picked as on the task form, §6.2.3 — and lead time) — same department scoping as tasks: `Member`/`DepartmentAdmin` create within their own department, `SystemAdmin` anywhere. A `SystemAdmin` may also file a definition under another department's project (§6.2.1); its generated tasks belong to the definition's department, not the project's.
+- The form (`/Recurring/Create`, `/Recurring/Edit/{id}`) fills the page's width, its fields in columns laid out as on the task form (§6.2), stacking on a narrow screen (decision 115).
 - View upcoming generations for a definition (next N occurrences, computed from the RRULE).
 - Web addresses in a definition's description are links that open in a new tab on its page, as on a task's (§6.2).
 - Pause/resume a recurring definition.
@@ -2752,6 +2754,21 @@ Earlier open questions, now resolved:
         - In Chrome as the System Administrator, on the Release build with its jobs off: the header holds *New task*, *New project* and *Register asset* and nothing else, and the last two open their create pages. Nothing was saved.
         - In a 400px frame (the window wouldn't resize) the three buttons sit on one row under the welcome, with no sideways scroll.
         - The dashboard wasn't seen as a role without one of the permissions: the buttons use the same `Actor.Has` checks as the list pages' buttons.
+115. **The project, recurring task and sprint forms use the page's width (§6.1, §6.3, §6.4).** Asked as "the new and edit project pages do not fill the entire width of the screen, it looks strange, it should fill the width of the page like tasks. A new recurring task also does not fill the entire width of the page", then "a new sprint also does not fill the entire width of the page". The three forms stopped at 60rem (`orbit-form`), with their fields at fixed widths (12rem and 22rem) in wrapping rows: the problem decision 113 solved for the task and asset forms. Decided in the plan and approved with it:
+    - **Only these three forms**, new and edit (one editor component behind both pages of each). The smaller forms elsewhere (a department, a user, an API key, an agent) keep their caps, since they weren't asked about.
+    - **The same remedy as decision 113:** `orbit-form-full` lifts the cap and the fields move into `MudGrid` columns, so a wider card doesn't just gain empty space. Everything stacks on a phone.
+    - **Project:** the name across half the row with the department (for whoever may choose it) and the owner beside it, the description full width, then status, target date and project buffer in thirds, the buffer's help under it.
+    - **Recurring task:** laid out as the task form. Title and description full width; project, department and asset sharing the next row (thirds, or halves without the department or the asset); priority and lead time beside the assignees, whose 36rem cap goes as on the task form; the recurrence rule beside the series start date, the RRULE examples under them.
+    - **Sprint:** the name across half the row with the start and end dates beside it, the goal full width under them.
+
+    *Decided while building:*
+    - **The project form's second row takes thirds**, not quarters as planned: three quarters left a quarter of the row empty at its end, the look that was asked about.
+    - **Built as** `ProjectEditor`, `RecurringEditor` (with `ShowAsset` and `FirstRowWidth`, as on `TaskEditor`) and `SprintEditor` on `orbit-form-full` and `MudGrid`; the comment on `.orbit-form-full` in `app.css`. No migration, no service change.
+    - **Verified:**
+        - The build and the tests (422) pass.
+        - In Chrome as the System Administrator, on the Release build with its jobs off: the new and edit pages of all three fill the content area, their rows fill their columns, and an existing recurring task's assignee chip, department and schedule show in their places. Nothing was saved.
+        - In a 400px frame (the window wouldn't resize) every field on the six pages stacks at the card's full width, with no sideways scroll.
+        - The forms weren't seen as a role that can't choose the department, where the project's and the recurring task's first rows have one field fewer.
 
 ## 14. Suggested Build Order
 
@@ -2853,3 +2870,4 @@ Earlier open questions, now resolved:
 96. The circuit guard, the permission handler and the shared list plumbing (§6, §6.2, §6.5, decision 112): `AddOrbitDbContext` in `Program.cs` with `CircuitScopeGuardTests` → `PermissionAuthorizationHandler` on `ActorPrincipal.IsCircuit`, and `HttpActorProvider`'s check dropped → `FilterQuery.FromAddress`/`Keep`/`At`/`Yes` and `PickerDate`, with `FilterQueryTests` → `OrbitListPage` and the four remembering lists on it → the other filter pages, the editors and the Gantt chart on the shared helpers → `CopyButton` on the three admin pages → CLAUDE.md. No migration.
 97. The task and asset forms at the page's width (§6.2, §6.19, decision 113): `.orbit-form-full` in `app.css` → `TaskEditor` on it → `AssetEditor` and `AssetPropertyInputs` on `MudGrid` columns → §6.2, §6.19. No migration.
 98. Create buttons on the dashboard (§6.9, decision 114): the header's menu links replaced by *New task*, *New project* and *Register asset* on their create permissions in `Dashboard.razor` → the `Navigation` comment → §6.9, §6.12 and the README. No migration.
+99. The project, recurring task and sprint forms at the page's width (§6.1, §6.3, §6.4, decision 115): `ProjectEditor`, `RecurringEditor` and `SprintEditor` on `.orbit-form-full` and `MudGrid` columns → the `app.css` comment → §6.1, §6.3, §6.4. No migration.

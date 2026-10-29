@@ -31,92 +31,98 @@ else
     </nav>
     <MudText Typo="Typo.h5" HtmlTag="h1" Class="mb-3">@(_definition is null ? "New recurring task" : "Edit recurring task")</MudText>
 
-    <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-form">
+    <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-form orbit-form-full">
         <MudTextField T="string" @bind-Value="_form.Title" Label="Title" MaxLength="300" Required="true" RequiredError="Title is required."
                       Variant="Variant.Outlined" Immediate="true" />
         <MudTextField T="string" @bind-Value="_form.Description" Label="Description" Lines="3" Variant="Variant.Outlined" />
 
-        <div class="orbit-form-row">
-            <MudSelect T="Guid" Value="ProjectChoice" ValueChanged="ProjectChanged" Label="Project" Variant="Variant.Outlined" Class="orbit-field-lg"
-                       ToStringFunc="@(id => _projects.FirstOrDefault(p => p.Id == id).Text ?? "")">
-                @foreach (var p in _projects)
-                {
-                    <MudSelectItem T="Guid" Value="p.Id">@p.Text</MudSelectItem>
-                }
-            </MudSelect>
-            @if (_canChooseDepartment)
-            {
-                <MudSelect T="Guid" Value="DepartmentChoice" ValueChanged="DepartmentChanged" Label="Department" Variant="Variant.Outlined" Class="orbit-field-lg"
-                           ToStringFunc="@(id => _departments.FirstOrDefault(d => d.Id == id).Text ?? "")">
-                    @foreach (var d in _departments)
+        @* Project, then the department (for whoever may choose it), then the asset: side by side on a wide screen, as on the task form. *@
+        <MudGrid Spacing="3">
+            <MudItem xs="12" md="@FirstRowWidth">
+                <MudSelect T="Guid" Value="ProjectChoice" ValueChanged="ProjectChanged" Label="Project" Variant="Variant.Outlined"
+                           ToStringFunc="@(id => _projects.FirstOrDefault(p => p.Id == id).Text ?? "")">
+                    @foreach (var p in _projects)
                     {
-                        <MudSelectItem T="Guid" Value="d.Id">@d.Text</MudSelectItem>
+                        <MudSelectItem T="Guid" Value="p.Id">@p.Text</MudSelectItem>
                     }
                 </MudSelect>
+            </MudItem>
+            @if (_canChooseDepartment)
+            {
+                <MudItem xs="12" md="@FirstRowWidth">
+                    <MudSelect T="Guid" Value="DepartmentChoice" ValueChanged="DepartmentChanged" Label="Department" Variant="Variant.Outlined"
+                               ToStringFunc="@(id => _departments.FirstOrDefault(d => d.Id == id).Text ?? "")">
+                        @foreach (var d in _departments)
+                        {
+                            <MudSelectItem T="Guid" Value="d.Id">@d.Text</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <div class="orbit-help">Default: the project's department, or your own when there is no project. Generated tasks belong to this department.</div>
+                </MudItem>
             }
-        </div>
-        @if (_canChooseDepartment)
-        {
-            <div class="orbit-help mt-0">Department default: the project's department, or your own when there is no project. Generated tasks belong to this department.</div>
-        }
-
-        @if (_canPickAsset || _form.AssetId is not null)
-        {
-            <div class="orbit-form-row">
-                <div class="orbit-field-lg">
+            @if (ShowAsset)
+            {
+                <MudItem xs="12" md="@FirstRowWidth">
                     @if (!_canPickAsset)
                     {
                         @* Named, and kept on save, for someone who can't search assets (§6.19). *@
                         <MudTextField T="string" Value="_assetLabel" Label="Asset" ReadOnly="true" Disabled="true" Variant="Variant.Outlined" />
                     }
-                    else if (_form.AssetId is not null)
-                    {
-                        <span class="orbit-gap-row">
-                            <span class="orbit-muted orbit-small">Asset:</span>
-                            <MudChip T="string" Variant="Variant.Outlined" OnClose="@(_ => ClearAsset())" title="The asset each generated task is about">@_assetLabel</MudChip>
-                        </span>
-                    }
                     else
                     {
-                        <AssetPicker Label="Asset (optional)" Picked="AssetPicked" />
+                        @if (_form.AssetId is not null)
+                        {
+                            <span class="orbit-gap-row">
+                                <span class="orbit-muted orbit-small">Asset:</span>
+                                <MudChip T="string" Variant="Variant.Outlined" OnClose="@(_ => ClearAsset())" title="The asset each generated task is about">@_assetLabel</MudChip>
+                            </span>
+                        }
+                        else
+                        {
+                            <AssetPicker Label="Asset (optional)" Picked="AssetPicked" />
+                        }
+                        <div class="orbit-help">Each generated task is about this asset - a monthly vehicle inspection, say. Left off once the asset is disposed.</div>
                     }
-                </div>
-            </div>
-            @if (_canPickAsset)
-            {
-                <div class="orbit-help mt-0">Each generated task is about this asset - a monthly vehicle inspection, say. Left off once the asset is disposed.</div>
+                </MudItem>
             }
-        }
+        </MudGrid>
 
-        <div class="orbit-form-row">
-            <MudSelect T="TaskPriority" @bind-Value="_form.Priority" Label="Priority" Variant="Variant.Outlined" Class="orbit-field-sm"
-                       ToStringFunc="@(p => p.ToString())">
-                @foreach (var p in Enum.GetValues<TaskPriority>())
-                {
-                    <MudSelectItem T="TaskPriority" Value="p">@p</MudSelectItem>
-                }
-            </MudSelect>
-            <MudNumericField T="int" @bind-Value="_form.LeadTimeDays" Label="Lead time (days)" Min="0" Max="365"
-                             Variant="Variant.Outlined" Class="orbit-field-sm" />
-        </div>
-        <div class="orbit-help mt-0">Lead time: how many days before the due date the task is created.</div>
+        @* How urgent, how far ahead, and who does it. *@
+        <MudGrid Spacing="3">
+            <MudItem xs="12" sm="6" md="3">
+                <MudSelect T="TaskPriority" @bind-Value="_form.Priority" Label="Priority" Variant="Variant.Outlined" ToStringFunc="@(p => p.ToString())">
+                    @foreach (var p in Enum.GetValues<TaskPriority>())
+                    {
+                        <MudSelectItem T="TaskPriority" Value="p">@p</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudNumericField T="int" @bind-Value="_form.LeadTimeDays" Label="Lead time (days)" Min="0" Max="365" Variant="Variant.Outlined" />
+                <div class="orbit-help">How many days before the due date the task is created.</div>
+            </MudItem>
+            <MudItem xs="12" md="6">
+                <div class="orbit-section-title mt-0 mb-1">Assignees</div>
+                <PeopleField Selected="_assignees" SelectedChanged="AssigneesChanged" DepartmentId="EffectiveDepartmentId"
+                             Placeholder="Type a name, or click to choose..." />
+                <div class="orbit-help">
+                    @(_assignees.Count == 0 ? "Nobody - unassigned. " : "")Each generated task is assigned to these people, as far as they are still active.
+                </div>
+            </MudItem>
+        </MudGrid>
 
-        <div class="orbit-people-field-box">
-            <div class="orbit-section-title mt-0 mb-1">Assignees</div>
-            <PeopleField Selected="_assignees" SelectedChanged="AssigneesChanged" DepartmentId="EffectiveDepartmentId"
-                         Placeholder="Type a name, or click to choose..." />
-            <div class="orbit-help">
-                @(_assignees.Count == 0 ? "Nobody - unassigned. " : "")Each generated task is assigned to these people, as far as they are still active.
-            </div>
-        </div>
-
-        <div class="orbit-form-row">
-            <MudTextField T="string" @bind-Value="_form.RecurrenceRule" Label="Recurrence rule (iCal RRULE)" MaxLength="500" Required="true"
-                          RequiredError="The recurrence rule must include FREQ (e.g. FREQ=WEEKLY;BYDAY=MO)."
-                          Variant="Variant.Outlined" Class="orbit-field-grow orbit-code" />
-            <MudDatePicker @bind-Date="StartDate" Label="Series start date" DateFormat="yyyy-MM-dd" Editable="true" AutoClose="true" Required="true"
-                           Variant="Variant.Outlined" Class="orbit-field-sm" />
-        </div>
+        @* The schedule. *@
+        <MudGrid Spacing="3">
+            <MudItem xs="12" md="8">
+                <MudTextField T="string" @bind-Value="_form.RecurrenceRule" Label="Recurrence rule (iCal RRULE)" MaxLength="500" Required="true"
+                              RequiredError="The recurrence rule must include FREQ (e.g. FREQ=WEEKLY;BYDAY=MO)."
+                              Variant="Variant.Outlined" Class="orbit-code" />
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudDatePicker @bind-Date="StartDate" Label="Series start date" DateFormat="yyyy-MM-dd" Editable="true" AutoClose="true" Required="true"
+                               Variant="Variant.Outlined" />
+            </MudItem>
+        </MudGrid>
         <div class="orbit-help mt-0">
             Examples:
             <code>FREQ=DAILY</code> every day ·
@@ -156,6 +162,11 @@ else
 
     private Guid ProjectChoice => _form.ProjectId ?? Guid.Empty;
     private Guid DepartmentChoice => _form.DepartmentId ?? Guid.Empty;
+
+    /// <summary>The asset field shows for whoever can pick an asset, or while the definition is about one (named, read-only, to anyone else).</summary>
+    private bool ShowAsset => _canPickAsset || _form.AssetId is not null;
+    /// <summary>Project, Department and Asset share the first row: three to a row, or two.</summary>
+    private int FirstRowWidth => _canChooseDepartment && ShowAsset ? 4 : 6;
 
     /// <summary>A required date: clearing the box keeps the date it had.</summary>
     private DateTime? StartDate

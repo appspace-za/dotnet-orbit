@@ -26,14 +26,21 @@ else
     </nav>
     <MudText Typo="Typo.h5" HtmlTag="h1" Class="mb-3">@(Id is null ? "New sprint" : "Edit sprint")</MudText>
 
-    <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-form">
-        <MudTextField T="string" @bind-Value="_name" Label="Name" Placeholder="Sprint 14" MaxLength="200" Required="true"
-                      RequiredError="Give the sprint a name." Variant="Variant.Outlined" Immediate="true" />
+    <MudPaper Outlined="true" Class="orbit-card orbit-card-body orbit-form orbit-form-full">
+        @* The name with the dates beside it on a wide screen, the goal under them. *@
+        <MudGrid Spacing="3">
+            <MudItem xs="12" md="6">
+                <MudTextField T="string" @bind-Value="_name" Label="Name" Placeholder="Sprint 14" MaxLength="200" Required="true"
+                              RequiredError="Give the sprint a name." Variant="Variant.Outlined" Immediate="true" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudDatePicker @bind-Date="_start" Label="Start date" DateFormat="yyyy-MM-dd" Editable="true" AutoClose="true" Variant="Variant.Outlined" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudDatePicker @bind-Date="_end" Label="End date" DateFormat="yyyy-MM-dd" Editable="true" AutoClose="true" Variant="Variant.Outlined" />
+            </MudItem>
+        </MudGrid>
         <MudTextField T="string" @bind-Value="_goal" Label="Goal (optional)" Lines="3" Variant="Variant.Outlined" />
-        <div class="orbit-form-row">
-            <MudDatePicker @bind-Date="_start" Label="Start date" DateFormat="yyyy-MM-dd" Editable="true" AutoClose="true" Variant="Variant.Outlined" Class="orbit-field-sm" />
-            <MudDatePicker @bind-Date="_end" Label="End date" DateFormat="yyyy-MM-dd" Editable="true" AutoClose="true" Variant="Variant.Outlined" Class="orbit-field-sm" />
-        </div>
         <div class="orbit-help">Sprints are company-wide: they have no project or department, and pull tasks from any department during planning.</div>
         <div class="orbit-gap-row mt-3">
             <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="SaveAsync">@(Id is null ? "Create sprint" : "Save")</MudButton>
