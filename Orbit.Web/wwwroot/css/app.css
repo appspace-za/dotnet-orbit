@@ -185,8 +185,10 @@ a.orbit-plain:hover { background: var(--mud-palette-table-hover); }
 .orbit-report.mud-simple-table tfoot td { font-weight: 600; background: var(--mud-palette-background-gray); border-top: 1px solid var(--mud-palette-table-lines); }
 .orbit-report .orbit-report-detail > td { background: var(--mud-palette-background-gray); }
 .orbit-report-tasks { border-top: 1px solid var(--mud-palette-table-lines); }
-/* Sprint status (§12): the Not Planned row sits apart from the projects; the summary's tiles and charts sit inside the card. */
+/* Sprint status (§12): the No project row sits apart from the projects, and in a row's opened task list a heading sets the tasks
+   worked on though not planned into the sprint apart from its planned ones; the summary's tiles and charts sit inside the card. */
 .orbit-report.mud-simple-table tr.orbit-report-section > td { border-top: 2px solid var(--mud-palette-table-lines); }
+.orbit-report.mud-simple-table .orbit-report-tasks tr.orbit-report-subhead > td { border-top: 1px solid var(--mud-palette-table-lines); color: var(--mud-palette-text-secondary); font-size: .8125rem; font-weight: 600; }
 .orbit-report-summary { padding: 1rem 1rem 0; }
 .orbit-chart-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: .75rem; margin-bottom: 1rem; }
 @media (min-width: 1280px) { .orbit-chart-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

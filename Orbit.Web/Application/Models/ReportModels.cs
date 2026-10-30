@@ -308,8 +308,11 @@ public sealed record SprintCompletion(Guid SprintId, DateTime At, Guid? RolledFo
 public sealed record SprintTaskFacts(
     TaskTimeFacts Task, Guid? ProjectId, Guid? SprintId, bool InBacklog, DateTime CreatedAt, DateTime? CompletedAt, int SprintMinutes);
 
-/// <summary>A project with planned work in the sprint (or an unplanned task on it: Not Planned, Backlog or another sprint's).</summary>
-public sealed record SprintProjectFacts(Guid Id, string Number, string Name, string DepartmentName);
+/// <summary>
+/// A project with work of any kind in the sprint: planned, Not Planned, from the Backlog or from another sprint. <see cref="Status"/>
+/// is its status now, shown beside its name on its By project row (decision 131).
+/// </summary>
+public sealed record SprintProjectFacts(Guid Id, string Number, string Name, ProjectStatus Status, string DepartmentName);
 
 /// <summary>One person's time on one task: dated in the sprint's window, and to date.</summary>
 public sealed record SprintPersonTime(Guid TaskId, Guid UserId, int SprintMinutes, int TotalMinutes);
@@ -352,8 +355,9 @@ public sealed record SprintTaskCounts(
 
 /// <summary>
 /// A task in a group's list. <see cref="Status"/> is its status now; <see cref="Outcome"/> where it stood when the sprint ended.
-/// <see cref="ProjectLabel"/> names its project on an unplanned task. <see cref="CarriedInFrom"/> is the sprint it came in from
-/// open; <see cref="LeftOpenTo"/> where it went when the sprint ended ("Backlog" or a sprint), null while the sprint runs.
+/// <see cref="Work"/> is its kind of work: planned, or - on its project's row all the same - Not Planned, from the Backlog or from
+/// another sprint. <see cref="CarriedInFrom"/> is the sprint it came in from open; <see cref="LeftOpenTo"/> where it went when the
+/// sprint ended ("Backlog" or a sprint), null while the sprint runs.
 /// <see cref="ReopenedSince"/> is a task closed when the sprint ended and open now. <see cref="OtherSprint"/> is the other sprint an
 /// unplanned task is in - a later one (<see cref="OtherSprintIsLater"/>), worked on ahead, or an earlier one.
 /// <see cref="DoneBeforeSprint"/> is a task that was already Done when the sprint started and hasn't changed since: a planned one
@@ -361,9 +365,9 @@ public sealed record SprintTaskCounts(
 /// this sprint, though its outcome is Done.
 /// </summary>
 public sealed record SprintTaskRow(
-    Guid TaskId, string Number, string Title, TaskItemStatus Status, SprintTaskOutcome Outcome, string Assignee, string? ProjectLabel,
+    Guid TaskId, string Number, string Title, TaskItemStatus Status, SprintTaskOutcome Outcome, string Assignee,
     int? EstimateMinutes, int SprintMinutes, int TotalMinutes, string? CarriedInFrom, string? LeftOpenTo, bool ReopenedSince,
-    string? OtherSprint = null, bool OtherSprintIsLater = false, bool DoneBeforeSprint = false)
+    SprintWorkKind Work, string? OtherSprint = null, bool OtherSprintIsLater = false, bool DoneBeforeSprint = false)
 {
     /// <summary>Cancelled when the sprint ended, whatever it is now: the figures leave it out of the estimates and the people's tasks.</summary>
     public bool IsCancelled => Outcome == SprintTaskOutcome.Cancelled;
@@ -378,18 +382,10 @@ public sealed record SprintPersonRow(
     Guid? UserId, string Name, int Tasks, int Done, int LeftOpen, int EstimatedTasks, int EstimatedMinutes, int SprintMinutes,
     int ToDateMinutes);
 
-public enum SprintGroupKind
-{
-    Project,
-    NoProject,
-    NotPlanned,
-    Backlog,
-    OtherSprint
-}
-
 /// <summary>
-/// The kinds of work in a sprint's report (§12 Sprint status): the planned tasks - a project's or on no project - and the three
-/// kinds of unplanned work, each a group of its own (<see cref="SprintGroupRow.Work"/>). The report keeps their figures apart.
+/// The kinds of work in a sprint's report (§12 Sprint status): the planned tasks and the three kinds of unplanned work
+/// (<see cref="SprintTaskRow.Work"/>). The summary, the people and the days keep their figures apart; a project's row holds its
+/// tasks of every kind together, as the projects charts count them.
 /// </summary>
 public enum SprintWorkKind
 {
@@ -400,52 +396,37 @@ public enum SprintWorkKind
 }
 
 /// <summary>
-/// A project's planned tasks in the sprint, the planned tasks on no project, the Not Planned work, the Backlog tasks worked on
-/// during the sprint, or other sprints' tasks worked on during it (§12 Sprint status), with its people and its task list.
+/// A By project row (§12 Sprint status), with its people and its task list: a project's tasks, or - <see cref="Project"/> null -
+/// those on no project, last. A row holds its planned tasks and its Not Planned, Backlog and other sprints' tasks worked on in the
+/// sprint, as the projects charts count them (decision 129), kept apart (decision 130): <see cref="PlannedTasks"/> and
+/// <see cref="PlannedTaskRows"/> are the planned part, <see cref="UnplannedTasks"/> and <see cref="UnplannedTaskRows"/> the rest,
+/// each part's task list by outcome, status and number. <see cref="Minutes"/> is everyone's time in the sprint on each kind of
+/// work. The row's figures cover both parts.
 /// </summary>
 public sealed record SprintGroupRow(
-    SprintGroupKind Kind, SprintProjectFacts? Project, SprintTaskCounts Tasks, int SprintMinutes, int ToDateMinutes,
-    EstimateComparison Estimate, IReadOnlyList<SprintPersonRow> People, IReadOnlyList<SprintTaskRow> TaskRows)
+    SprintProjectFacts? Project, SprintTaskCounts PlannedTasks, SprintTaskCounts UnplannedTasks, SprintKindCounts Minutes,
+    int ToDateMinutes, EstimateComparison Estimate, IReadOnlyList<SprintPersonRow> People,
+    IReadOnlyList<SprintTaskRow> PlannedTaskRows, IReadOnlyList<SprintTaskRow> UnplannedTaskRows)
 {
-    public const string NoProjectName = "No project", NotPlannedName = "Not Planned", BacklogName = "From the Backlog",
-        OtherSprintName = "From another sprint";
+    /// <summary>The name of the row of tasks on no project.</summary>
+    public const string NoProjectName = "No project";
+
+    /// <summary>All the row's tasks by outcome, planned or not.</summary>
+    public SprintTaskCounts Tasks => PlannedTasks.Plus(UnplannedTasks);
+
+    /// <summary>Everyone's time in the sprint on the row's tasks.</summary>
+    public int SprintMinutes => Minutes.Total;
+
+    /// <summary>Everyone's time in the sprint on the row's tasks not planned into it.</summary>
+    public int UnplannedSprintMinutes => Minutes.Unplanned;
+
+    /// <summary>The row's task list: its planned tasks, then those worked on though not planned into the sprint.</summary>
+    public IEnumerable<SprintTaskRow> TaskRows => PlannedTaskRows.Concat(UnplannedTaskRows);
 
     /// <summary>A key that stays the same between runs, for which rows are open on screen.</summary>
-    public string Key => Project?.Id.ToString() ?? Kind.ToString();
+    public string Key => Project?.Id.ToString() ?? "NoProject";
 
-    /// <summary>The group's kind of work: a project's and the no-project tasks are planned, each other group its own kind.</summary>
-    public SprintWorkKind Work => Kind switch
-    {
-        SprintGroupKind.Project or SprintGroupKind.NoProject => SprintWorkKind.Planned,
-        SprintGroupKind.NotPlanned => SprintWorkKind.NotPlanned,
-        SprintGroupKind.Backlog => SprintWorkKind.Backlog,
-        SprintGroupKind.OtherSprint => SprintWorkKind.OtherSprint,
-        _ => throw new ArgumentOutOfRangeException(nameof(Kind), Kind, null)
-    };
-
-    /// <summary>Work outside the sprint's plan: the Not Planned work, and the Backlog and other sprints' tasks worked on anyway.</summary>
-    public bool IsUnplanned => Work != SprintWorkKind.Planned;
-
-    public string Name => Kind == SprintGroupKind.Project ? Project?.Name ?? "" : NameOf(Kind);
-
-    /// <summary>The group an unplanned kind of work makes. Planned work makes a group per project, and one for no project.</summary>
-    public static SprintGroupKind GroupOf(SprintWorkKind kind) => kind switch
-    {
-        SprintWorkKind.NotPlanned => SprintGroupKind.NotPlanned,
-        SprintWorkKind.Backlog => SprintGroupKind.Backlog,
-        SprintWorkKind.OtherSprint => SprintGroupKind.OtherSprint,
-        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Planned work makes a group per project.")
-    };
-
-    /// <summary>The name of a group that isn't a project's.</summary>
-    public static string NameOf(SprintGroupKind kind) => kind switch
-    {
-        SprintGroupKind.NoProject => NoProjectName,
-        SprintGroupKind.NotPlanned => NotPlannedName,
-        SprintGroupKind.Backlog => BacklogName,
-        SprintGroupKind.OtherSprint => OtherSprintName,
-        _ => ""
-    };
+    public string Name => Project?.Name ?? NoProjectName;
 }
 
 /// <summary>
@@ -496,10 +477,15 @@ public sealed record SprintStatusSummary(
     public int SprintMinutes => Planned.SprintMinutes + UnplannedSprintMinutes;
     public int ToDateMinutes => Planned.ToDateMinutes + NotPlanned.ToDateMinutes + Backlog.ToDateMinutes + OtherSprint.ToDateMinutes;
 
-    /// <summary>Backlog tasks were worked on in the sprint (for the tasks picked): the report shows their group and columns.</summary>
+    /// <summary>
+    /// Backlog tasks were worked on in the sprint (for the tasks picked): the report shows their columns, totals row and chart series.
+    /// </summary>
     public bool HasBacklog => Backlog.Tasks.Total > 0;
 
-    /// <summary>Other sprints' tasks were worked on in the sprint (for the tasks picked): the report shows their group and columns.</summary>
+    /// <summary>
+    /// Other sprints' tasks were worked on in the sprint (for the tasks picked): the report shows their columns, totals row and chart
+    /// series.
+    /// </summary>
     public bool HasOtherSprint => OtherSprint.Tasks.Total > 0;
 
     /// <summary>Unplanned work's share of the time logged in the sprint; null when none was logged.</summary>
@@ -588,22 +574,14 @@ public sealed record SprintPersonTasks(Guid? UserId, string Name, int Done, int 
 }
 
 /// <summary>
-/// A project's work in the sprint, every kind together - Tasks by project and Time by project: its tasks of every kind by outcome,
-/// cancelled ones included, and its time in the sprint on each kind of work. <see cref="Project"/> null is the tasks on no project.
-/// Unlike the By project rows, an unplanned task counts on its own project, not in a group of its kind.
-/// </summary>
-public sealed record SprintProjectWork(SprintProjectFacts? Project, SprintTaskCounts Tasks, SprintKindCounts Minutes);
-
-/// <summary>
 /// Sprint status (§12): one sprint's planned work, and the unplanned work done in its window - the Not Planned work, and the Backlog
 /// and other sprints' tasks worked on anyway. <see cref="Sprint"/> null is no sprint to report on. <see cref="AsAt"/> is when the
 /// outcomes are read: the sprint's completion, or now. <see cref="LeftOpenTo"/> is where the open tasks went when it ended ("Backlog"
-/// or a sprint), null while it runs. <see cref="Rows"/> are its projects, then No project, then Not Planned, From the Backlog and From
-/// another sprint; <see cref="Days"/> one row for each day of the sprint. The options are the filters', worked out before they apply:
-/// the projects of the planned tasks, and the assignees of all the tasks. <see cref="Sprints"/> are the sprints the Sprint filter
-/// offers (<c>SprintReportRules.Offered</c>), the first of them the default. <see cref="PersonTasks"/> are each person's tasks by
-/// outcome, in <see cref="People"/>' order, Unassigned last. <see cref="ProjectWork"/> is each project's work of every kind, in the
-/// projects' order, No project last.
+/// or a sprint), null while it runs. <see cref="Rows"/> are its projects - each with its planned tasks, then its Not Planned, Backlog
+/// and other sprints' tasks - then No project, which the projects charts draw too; <see cref="Days"/> one row for each day of the
+/// sprint. The options are the filters', worked out before they apply: the projects with a row, and the assignees of all the
+/// tasks. <see cref="Sprints"/> are the sprints the Sprint filter offers (<c>SprintReportRules.Offered</c>), the first of them the
+/// default. <see cref="PersonTasks"/> are each person's tasks by outcome, in <see cref="People"/>' order, Unassigned last.
 /// </summary>
 public sealed record SprintStatusReport(
     SprintFacts? Sprint, DateTime AsAt, SprintStatusSummary Summary, IReadOnlyList<SprintImpactRow> People,
@@ -612,7 +590,6 @@ public sealed record SprintStatusReport(
 {
     public IReadOnlyList<SprintFacts> Sprints { get; init; } = [];
     public IReadOnlyList<SprintPersonTasks> PersonTasks { get; init; } = [];
-    public IReadOnlyList<SprintProjectWork> ProjectWork { get; init; } = [];
 
     public static SprintStatusReport Empty(DateTime asAt) => new(null, asAt, SprintStatusSummary.None, [], [], [], null, [], []);
 }

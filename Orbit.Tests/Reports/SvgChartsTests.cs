@@ -225,7 +225,7 @@ public class SvgChartsTests
         var sprint = new SprintFacts(Guid.NewGuid(), "Sprint 14", null, new DateOnly(2026, 10, 19), new DateOnly(2026, 10, 30),
             SprintStatus.Active, null);
         var alice = Guid.NewGuid();
-        var project = new SprintProjectFacts(Guid.NewGuid(), "P-26-00001", "Alpha", "Ops");
+        var project = new SprintProjectFacts(Guid.NewGuid(), "P-26-00001", "Alpha", ProjectStatus.Active, "Ops");
         var created = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
         var done = new DateTime(2026, 10, 21, 9, 0, 0, DateTimeKind.Utc);
         SprintTaskFacts Facts(string number, Guid? projectId, Guid? sprintId, bool inBacklog, TaskItemStatus status, Guid[] assignees,
@@ -291,7 +291,7 @@ public class SvgChartsTests
         var sprint = new SprintFacts(Guid.NewGuid(), "Sprint 14", null, new DateOnly(2026, 10, 19), new DateOnly(2026, 10, 30),
             SprintStatus.Active, null);
         var created = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
-        var projects = Enumerable.Range(1, 30).Select(i => new SprintProjectFacts(Guid.NewGuid(), $"P-26-{i:00000}", $"Project {i}", "Ops")).ToList();
+        var projects = Enumerable.Range(1, 30).Select(i => new SprintProjectFacts(Guid.NewGuid(), $"P-26-{i:00000}", $"Project {i}", ProjectStatus.Active, "Ops")).ToList();
         var people = Enumerable.Range(1, 40).Select(i => new ReportPerson(Guid.NewGuid(), $"Person {i}", true)).ToList();
         var tasks = projects.Select((p, i) => new SprintTaskFacts(
             new TaskTimeFacts(Guid.NewGuid(), $"T-26-{i:00000}", "Task", TaskItemStatus.InProgress, [people[i].Id], null, 0),
@@ -306,7 +306,7 @@ public class SvgChartsTests
         var time = people.Select((p, i) => new SprintPersonTime(tasks[i % tasks.Count].Task.Id, p.Id, 60 + i, 60 + i)).ToList();
         var report = SprintReportRules.Build(sprint, tasks, time, [], [], projects.ToDictionary(p => p.Id), [],
             new Dictionary<Guid, string>(), new HashSet<Guid> { nextSprint }, people.ToDictionary(p => p.Id), null, null, DateTime.UtcNow);
-        Assert.Equal(34, report.Rows.Count);
+        Assert.Equal(31, report.Rows.Count); // thirty projects and No project, with its unplanned work of every kind (RPT-043)
         Assert.True(report.Summary.HasBacklog);
         Assert.True(report.Summary.HasOtherSprint);
         Assert.Equal(40, report.People.Count);
@@ -343,7 +343,7 @@ public class SvgChartsTests
         var sprint = new SprintFacts(Guid.NewGuid(), "Sprint 14", null, new DateOnly(2026, 10, 19), new DateOnly(2026, 10, 30),
             SprintStatus.Active, null);
         var created = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
-        var projects = Enumerable.Range(1, 14).Select(i => new SprintProjectFacts(Guid.NewGuid(), $"P-26-{i:00000}", $"Project {i}", "Ops")).ToList();
+        var projects = Enumerable.Range(1, 14).Select(i => new SprintProjectFacts(Guid.NewGuid(), $"P-26-{i:00000}", $"Project {i}", ProjectStatus.Active, "Ops")).ToList();
         var people = Enumerable.Range(1, 15).Select(i => new ReportPerson(Guid.NewGuid(), $"Person {i}", true)).ToList();
         var n = 0;
         SprintTaskFacts NewTask(SprintProjectFacts p, Guid[] assignees, int minutes) => new(

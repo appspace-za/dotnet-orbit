@@ -425,7 +425,7 @@ public sealed class ReportingService(ApplicationDbContext db, IActorProvider act
         var projectIds = tasks.Select(t => t.ProjectId).OfType<Guid>().Distinct().ToList();
         var projects = await db.Projects.AsNoTracking()
             .Where(p => projectIds.Contains(p.Id))
-            .Select(p => new SprintProjectFacts(p.Id, p.Number, p.Name, p.Department.Name))
+            .Select(p => new SprintProjectFacts(p.Id, p.Number, p.Name, p.Status, p.Department.Name))
             .ToDictionaryAsync(p => p.Id, ct);
         var sprintNames = allSprints.ToDictionary(s => s.Id, s => s.Name);
         var userIds = tasks.SelectMany(t => t.Task.AssigneeIds).Concat(time.Select(t => t.UserId)).Distinct().ToList();

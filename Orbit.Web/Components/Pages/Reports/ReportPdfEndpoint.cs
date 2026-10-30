@@ -129,10 +129,18 @@ public static class ReportPdfEndpoint
             "By person (time logged in the sprint)",
             [3, 1.3f, 1, 1.1f, .. unplanned.Select(_ => 1.5f), 1.4f, .. unplanned.Select(_ => 1.5f), 1.5f]);
 
-        static IReadOnlyList<string> GroupCells(string name, SprintTaskCounts t, int sprint, int toDate, EstimateComparison e) =>
-            [name, Progress(t), t.Done.ToString(), t.LeftOpen.ToString(), t.Cancelled.ToString(), Minutes(sprint), Minutes(toDate),
-             Estimated(e), Variance(e)];
-        var groups = r.Rows.Select(g => GroupCells(GroupLabel(g), g.Tasks, g.SprintMinutes, g.ToDateMinutes, g.Estimate)).ToList();
+        static IReadOnlyList<string> GroupCells(string name, SprintTaskCounts t, int sprint, int toDate, EstimateComparison e,
+            string progressNote = "", string leftOpenNote = "", string timeNote = "") =>
+            [name, Progress(t) + progressNote, t.Done.ToString(), t.LeftOpen + leftOpenNote, t.Cancelled.ToString(),
+             Minutes(sprint) + timeNote, Minutes(toDate), Estimated(e), Variance(e)];
+        var groups = r.Rows.Select(g =>
+        {
+            // A row with tasks worked on though not planned into the sprint splits its progress, left open and time, as the page does.
+            var split = g.UnplannedTasks.Total > 0;
+            return GroupCells(GroupLabel(g), g.Tasks, g.SprintMinutes, g.ToDateMinutes, g.Estimate,
+                split ? $"\n{PlannedSplit(g)}" : "", g.UnplannedTasks.LeftOpen > 0 ? $"\n{UnplannedLeftOpen(g)}" : "",
+                split ? $"\n{Minutes(g.UnplannedSprintMinutes)} unplanned" : "");
+        }).ToList();
         if (groups.Count > 0)
         {
             groups.Add(GroupCells("Planned work", s.Planned.Tasks, s.Planned.SprintMinutes, s.Planned.ToDateMinutes, s.Planned.Estimate));
@@ -156,18 +164,23 @@ public static class ReportPdfEndpoint
             yield return new ReportPdfBuilder.Table(["Person", "Tasks", "Done", "Left open", "Estimated", "Logged in sprint", "Logged to date"],
                 people, $"{name}: people", [3.4f, 1, 1, 1.1f, 1.3f, 1.5f, 1.5f]);
 
-            var isUnplanned = g.IsUnplanned;
-            yield return new ReportPdfBuilder.Table(
-                ["Task", isUnplanned ? "Project" : "Status", "Outcome", "Assignee", "Estimate", "In sprint", "To date", ""],
-                g.TaskRows.Select(t => (IReadOnlyList<string>)
-                    [$"{t.Number} {t.Title}", isUnplanned ? t.ProjectLabel ?? "-" : t.Status.Label(), Label(t.Outcome), t.Assignee,
-                     Estimate(t.EstimateMinutes), Minutes(t.SprintMinutes), Minutes(t.TotalMinutes), Note(t)]).ToList(),
-                $"{name}: tasks", [4.4f, 1.8f, 1.1f, 1.9f, 1.1f, 1.1f, 1.1f, 2.6f]);
+            IReadOnlyList<string> taskHeaders = ["Task", "Status", "Outcome", "Assignee", "Estimate", "In sprint", "To date", ""];
+            float[] taskWidths = [4.4f, 1.8f, 1.1f, 1.9f, 1.1f, 1.1f, 1.1f, 2.6f];
+            static IReadOnlyList<IReadOnlyList<string>> TaskCells(IEnumerable<SprintTaskRow> tasks) => tasks.Select(t => (IReadOnlyList<string>)
+                [$"{t.Number} {t.Title}", t.Status.Label(), Label(t.Outcome), t.Assignee, Estimate(t.EstimateMinutes),
+                 Minutes(t.SprintMinutes), Minutes(t.TotalMinutes), Note(t)]).ToList();
+            // A row lists its planned tasks, then those worked on though not planned into the sprint, as the page does.
+            if (g.PlannedTaskRows.Count > 0)
+                yield return new ReportPdfBuilder.Table(taskHeaders, TaskCells(g.PlannedTaskRows), $"{name}: tasks", taskWidths);
+            if (g.UnplannedTaskRows.Count > 0)
+                yield return new ReportPdfBuilder.Table(taskHeaders, TaskCells(g.UnplannedTaskRows),
+                    $"{name}: worked on, not planned into the sprint", taskWidths);
         }
     }
 
+    // A project's status now goes on its department line, as the page's chip beside its name (decision 131).
     private static string GroupLabel(SprintGroupRow g) =>
-        g.Project is { } p ? $"{p.Number} {p.Name}\n{p.DepartmentName}".Trim() : g.Name;
+        g.Project is { } p ? $"{p.Number} {p.Name}\n{p.DepartmentName} · {p.Status.Label()}".Trim() : g.Name;
 
     private static string Tasks(int count, int unestimated) => unestimated == 0 ? count.ToString() : $"{count} ({unestimated} unestimated)";
 

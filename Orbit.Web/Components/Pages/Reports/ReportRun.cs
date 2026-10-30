@@ -197,8 +197,8 @@ public sealed class ReportRun
 
     /// <summary>
     /// Sprint status's summary line and options (§12): the sprint, then the filters. The sprint, project and assignee options are
-    /// the report's own - the sprints it offers, the projects with planned work in the sprint, the people on its tasks - and name the
-    /// chosen ones, so a Department-scoped viewer is never refused a project they can't open.
+    /// the report's own - the sprints it offers, the projects with a row (work of any kind in the sprint), the people on its tasks -
+    /// and name the chosen ones, so a Department-scoped viewer is never refused a project they can't open.
     /// </summary>
     private static async Task SprintFiltersAsync(
         ReportRun run, SprintStatusReport report, DepartmentService departments, bool withOptions, CancellationToken ct)

@@ -1,9 +1,10 @@
 @* Sprint status (spec §12): one sprint's planned work beside the unplanned work done in its window - the Not Planned work, and the
    Backlog and other sprints' tasks worked on anyway - for the sprint's review at sprint planning. Summary tiles and seven charts
    (SprintCharts, the same SVG as the PDF's: Planned work outcome across the top, then by project, by person and per day, tasks on
-   the left and time on the right), the people planned against unplanned, then one row per project with planned work, the
-   planned tasks on no project and each unplanned group, each opening on its people and tasks. The Backlog and other-sprint columns
-   and rows show only when such tasks were worked on (SprintStatusSummary.Unplanned). *@
+   the left and time on the right), the people planned against unplanned, then one row per project - its planned tasks, then its
+   Not Planned, Backlog and other sprints' tasks worked on anyway, the same rows as the projects charts (decision 129), with the
+   project's status beside its name (decision 131) - and the tasks on no project last, each opening on its people and tasks. The Backlog and other-sprint columns and totals show only when
+   such tasks were worked on (SprintStatusSummary.Unplanned). *@
 
 @if (Report.Sprint is not { } sprint)
 {
@@ -13,8 +14,6 @@ else
 {
     var s = Report.Summary;
     var unplanned = s.Unplanned;
-    // The first unplanned row is set apart from the planned ones above it.
-    var firstUnplanned = Report.Rows.FirstOrDefault(r => r.IsUnplanned);
     var unplannedDoneBefore = unplanned.Sum(k => s.Of(k).Tasks.DoneBeforeSprint);
     // The time tile's line, joined here rather than set beside @if blocks, which would drop the spaces between its parts.
     List<string> timeParts =
@@ -226,17 +225,21 @@ else
                         var t = g.Tasks;
                         var key = g.Key;
                         var open = _open.Contains(key);
-                        <tr class="@(ReferenceEquals(g, firstUnplanned) ? "orbit-report-section" : null)">
+                        // The tasks worked on though not planned into the sprint follow the row's planned ones, under a heading.
+                        var firstOffPlan = g.UnplannedTaskRows.FirstOrDefault();
+                        // The No project row, always last, is set apart from the project rows above it, when there are any.
+                        <tr class="@(g.Project is null && Report.Rows.Count > 1 ? "orbit-report-section" : null)">
                             <td>
                                 @if (g.Project is { } p)
                                 {
-                                    <span class="orbit-number">@p.Number</span><a href="@($"/Projects/Details/{p.Id}")" class="orbit-title">@p.Name</a>
+                                    @* The project's status now, as the tasks' Status column has theirs (decision 131). *@
+                                    <span class="orbit-number">@p.Number</span><a href="@($"/Projects/Details/{p.Id}")" class="orbit-title">@p.Name</a><MudChip T="string" Size="Size.Small" Color="StatusLook.Project(p.Status)">@p.Status.Label()</MudChip>
                                     <div class="orbit-sub">@p.DepartmentName</div>
                                 }
                                 else
                                 {
                                     <b>@g.Name</b>
-                                    <div class="orbit-sub">@SprintWorkLook.Of(g.Work).GroupNote</div>
+                                    <div class="orbit-sub">Tasks on no project</div>
                                 }
                                 <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" OnClick="() => Toggle(key)"
                                            EndIcon="@(open ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
@@ -245,6 +248,10 @@ else
                             <td>
                                 <div class="orbit-small">@ReportText.Progress(t)</div>
                                 <MudProgressLinear Value="t.PercentDone" Color="Color.Success" Rounded="true" title="@($"{t.PercentDone}% done")" />
+                                @if (g.UnplannedTasks.Total > 0)
+                                {
+                                    <div class="orbit-sub" title="Done of the planned tasks, and of those worked on though not planned into the sprint (Not Planned, from the Backlog or from another sprint)">@ReportText.PlannedSplit(g)</div>
+                                }
                             </td>
                             <td class="text-right">@t.Done</td>
                             <td class="text-right">
@@ -253,11 +260,19 @@ else
                                 {
                                     <div class="orbit-sub text-nowrap">@TimeFormat.Minutes(t.LeftOpenRemainingMinutes) left</div>
                                 }
+                                @if (g.UnplannedTasks.LeftOpen > 0)
+                                {
+                                    <div class="orbit-sub text-nowrap" title="Of them, the tasks worked on though not planned into the sprint, and the estimate left on them: they don't go on to the next sprint">@ReportText.UnplannedLeftOpen(g)</div>
+                                }
                             </td>
                             <td class="text-right">@t.Cancelled</td>
                             <td class="text-right">
                                 <b>@TimeFormat.Minutes(g.SprintMinutes)</b>
                                 <div class="orbit-sub text-nowrap">@TimeFormat.Minutes(g.ToDateMinutes) to date</div>
+                                @if (g.UnplannedTasks.Total > 0)
+                                {
+                                    <div class="orbit-sub text-nowrap" title="Time in the sprint on the tasks worked on though not planned into it">@TimeFormat.Minutes(g.UnplannedSprintMinutes) unplanned</div>
+                                }
                             </td>
                             <td class="text-right">@ReportText.Estimated(g.Estimate)</td>
                             <td class="text-right">
@@ -324,13 +339,15 @@ else
                                         <tbody>
                                             @foreach (var x in g.TaskRows)
                                             {
+                                                if (ReferenceEquals(x, firstOffPlan))
+                                                {
+                                                    <tr class="orbit-report-subhead">
+                                                        <td colspan="8" class="ps-10" title="Not Planned, from the Backlog or from another sprint: worked on during the sprint though not planned into it">Worked on, not planned into the sprint</td>
+                                                    </tr>
+                                                }
                                                 <tr>
                                                     <td class="ps-10">
                                                         <span class="orbit-number">@x.Number</span><a href="@($"/Tasks/Details/{x.TaskId}")" class="orbit-title">@x.Title</a>
-                                                        @if (x.ProjectLabel is { } project)
-                                                        {
-                                                            <div class="orbit-sub">@project</div>
-                                                        }
                                                     </td>
                                                     <td><MudChip T="string" Size="Size.Small" Color="TaskLook.Status(x.Status)">@x.Status.Label()</MudChip></td>
                                                     <td><MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="OutcomeColour(x.Outcome)">@ReportText.Label(x.Outcome)</MudChip></td>
@@ -388,9 +405,13 @@ else
         Tasks are placed by where they are now. Not Planned work is the tasks that are Not Planned now and were created, set to Done
         or logged against in the window. Backlog work is the tasks on the Backlog now that were logged against or set to Done in the
         window, though not planned into the sprint. Other-sprint work is the tasks in any other sprint - a later one, worked on
-        ahead, or an earlier one, such as a finished task reopened - that were logged against or set to Done in the window. So a
-        task since moved off Not Planned or the Backlog shows under From the Backlog or From another sprint instead, and drops out
-        only if it was just created in the window. Not Planned, Backlog and other-sprint work together are the unplanned work, so
+        ahead, or an earlier one, such as a finished task reopened - that were logged against or set to Done in the window. Each
+        shows on its project's row, or No project, after the planned tasks, marked Not Planned, From the Backlog, Planned for a sprint
+        that starts later, or From any other sprint; the row's figures cover them too, and its progress, left open and time say how
+        much was unplanned. The rows are the projects charts' projects, though past twelve the charts put the ones with the least
+        time together. So a task since moved off Not Planned or the Backlog shows as the Backlog's or another
+        sprint's instead, and drops out only if it was just created in the window. The project filter offers the projects with a
+        row. Not Planned, Backlog and other-sprint work together are the unplanned work, so
         every task logged against or set to Done in the window is in one row or another, the department and the filters aside. The
         unplanned share is their part of the time logged in the sprint. Created and completed times count by the UTC day. The
         estimate left on the left-open tasks is each one's estimate less all time logged on it, never below nothing. Estimated and

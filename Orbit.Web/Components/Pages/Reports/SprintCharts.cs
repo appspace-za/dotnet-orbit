@@ -30,7 +30,7 @@ public static class SprintCharts
     /// <summary>The width a half-width chart is drawn at (<see cref="SvgCharts"/>' default).</summary>
     public const double HalfWidth = 640;
 
-    /// <summary>The Backlog and other-sprint groups' names on the charts.</summary>
+    /// <summary>The Backlog and other-sprint work's names on the charts.</summary>
     public const string BacklogLabel = "Backlog", OtherSprintLabel = "Other sprint";
 
     public static readonly SvgCharts.Series Done = new("Done", "oc-done", "#15803d");
@@ -103,7 +103,7 @@ public static class SprintCharts
     public static Chart Projects(SprintStatusReport r)
     {
         const string title = "Tasks by project";
-        var items = ProjectBars(r, p => (Counts(p.Tasks), Total(p.Tasks)));
+        var items = ProjectBars(r, (tasks, _) => (Counts(tasks), Total(tasks)));
         return new(title, SvgCharts.HorizontalBars(items, Outcomes, v => Tasks((int)v), "No tasks in this sprint.", title));
     }
 
@@ -116,33 +116,31 @@ public static class SprintCharts
     {
         const string title = "Time by project";
         var kinds = WorkKinds(r);
-        var items = ProjectBars(r, p => (kinds.Select(k => (double)p.Minutes.Of(k)).ToList(), TimeTip(p.Minutes)));
+        var items = ProjectBars(r, (_, minutes) => (kinds.Select(k => (double)minutes.Of(k)).ToList(), TimeTip(minutes)));
         return new(title, SvgCharts.HorizontalBars(items, SeriesOf(kinds), v => TimeFormat.Minutes((int)Math.Round(v)),
             "No time logged in this sprint.", title));
     }
 
     /// <summary>
-    /// The bars both projects charts draw (<see cref="SprintStatusReport.ProjectWork"/>), so the two keep the same rows: each
-    /// project's - the <see cref="MaxBars"/> with the most time in the sprint, in their order, the rest together - then No project,
-    /// muted. <paramref name="bar"/> gives a bar's values and the text at its tip.
+    /// The bars both projects charts draw, from the By project rows (<see cref="SprintStatusReport.Rows"/>, decision 129), so the
+    /// two keep the same projects as each other and as the table: each project's - the <see cref="MaxBars"/> with the most time in
+    /// the sprint, in their order, the rest together - then No project, muted. <paramref name="bar"/> gives a bar's values and the
+    /// text at its tip from its tasks by outcome and its time in the sprint on each kind of work.
     /// </summary>
     private static List<SvgCharts.Item> ProjectBars(
-        SprintStatusReport r, Func<SprintProjectWork, (IReadOnlyList<double> Values, string Tip)> bar)
+        SprintStatusReport r, Func<SprintTaskCounts, SprintKindCounts, (IReadOnlyList<double> Values, string Tip)> bar)
     {
-        SvgCharts.Item Bar(string name, SprintProjectWork p, string? title = null, bool muted = false)
+        SvgCharts.Item Bar(string name, SprintTaskCounts tasks, SprintKindCounts minutes, string? title = null, bool muted = false)
         {
-            var (values, tip) = bar(p);
+            var (values, tip) = bar(tasks, minutes);
             return new(name, values, tip, Title: title, Muted: muted);
         }
-        var (shown, rest) = Fold(r.ProjectWork.Where(p => p.Project is not null).ToList(), p => p.Minutes.Total);
-        var items = shown.Select(p => Bar(p.Project!.Name, p, $"{p.Project.Number} {p.Project.Name}".Trim())).ToList();
+        var (shown, rest) = Fold(r.Rows.Where(g => g.Project is not null).ToList(), g => g.SprintMinutes);
+        var items = shown.Select(g => Bar(g.Name, g.Tasks, g.Minutes, $"{g.Project!.Number} {g.Project.Name}".Trim())).ToList();
         if (rest.Count > 0)
-        {
-            var together = new SprintProjectWork(null, rest.Aggregate(SprintTaskCounts.None, (all, p) => all.Plus(p.Tasks)),
-                SprintKindCounts.From(k => rest.Sum(p => p.Minutes.Of(k))));
-            items.Add(Bar($"{rest.Count} other projects", together, muted: true));
-        }
-        items.AddRange(r.ProjectWork.Where(p => p.Project is null).Select(p => Bar(SprintGroupRow.NoProjectName, p, muted: true)));
+            items.Add(Bar($"{rest.Count} other projects", rest.Aggregate(SprintTaskCounts.None, (all, g) => all.Plus(g.Tasks)),
+                SprintKindCounts.From(k => rest.Sum(g => g.Minutes.Of(k))), muted: true));
+        items.AddRange(r.Rows.Where(g => g.Project is null).Select(g => Bar(g.Name, g.Tasks, g.Minutes, muted: true)));
         return items;
     }
 

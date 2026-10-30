@@ -69,6 +69,31 @@ public static class ReportText
 
     public static string Progress(SprintTaskCounts t) => Progress(t.Done, t.Total);
 
+    /// <summary>
+    /// A By project row's progress split into its planned tasks and those worked on though not planned into the sprint - Not
+    /// Planned, from the Backlog or from another sprint (decision 129): "Planned 3/5 · unplanned 2/3", or "No planned tasks ·
+    /// unplanned 2/3". The page and the PDF show it only on a row with such tasks.
+    /// </summary>
+    public static string PlannedSplit(SprintGroupRow g)
+    {
+        var (p, u) = (g.PlannedTasks, g.UnplannedTasks);
+        var plannedPart = p.Total == 0 ? "No planned tasks" : $"Planned {p.Done}/{p.Total}";
+        return $"{plannedPart} · unplanned {u.Done}/{u.Total}";
+    }
+
+    /// <summary>
+    /// How many of a By project row's left-open tasks weren't planned into the sprint, and the estimate left on them (decision 130):
+    /// "2 unplanned (1h 15m left)", or "2 unplanned" when nothing is left of their estimates. They don't go on to the next sprint, so
+    /// the rest are the plan's. The page and the PDF show it only on a row with such tasks.
+    /// </summary>
+    public static string UnplannedLeftOpen(SprintGroupRow g)
+    {
+        var u = g.UnplannedTasks;
+        return u.LeftOpenRemainingMinutes > 0
+            ? $"{u.LeftOpen} unplanned ({TimeFormat.Minutes(u.LeftOpenRemainingMinutes)} left)"
+            : $"{u.LeftOpen} unplanned";
+    }
+
     public static string Label(SprintTaskOutcome o) => o switch
     {
         SprintTaskOutcome.Done => "Done",
@@ -77,13 +102,15 @@ public static class ReportText
     };
 
     /// <summary>
-    /// The note beside a task: the other sprint it is in (Planned for a later one, From an earlier one), work done before the sprint,
-    /// where it came in from and went on to, a reopening, and - unless it was cancelled when the sprint ended - its estimate's note.
-    /// The page shows Over estimate as a chip of its own, so it leaves it out here (<paramref name="withOver"/>).
+    /// The note beside a task: what kind of unplanned work it is on its project's row (Not Planned, From the Backlog, Planned for a
+    /// later sprint, From an earlier one), work done before the sprint, where it came in from and went on to, a reopening, and -
+    /// unless it was cancelled when the sprint ended - its estimate's note. The page shows Over estimate as a chip of its own, so it
+    /// leaves it out here (<paramref name="withOver"/>).
     /// </summary>
     public static string Note(SprintTaskRow t, bool withOver = true)
     {
         var notes = new List<string>();
+        if (t.Work is SprintWorkKind.NotPlanned or SprintWorkKind.Backlog) notes.Add(SprintWorkLook.Of(t.Work).Name);
         if (t.OtherSprint is { } sprint) notes.Add(t.OtherSprintIsLater ? $"Planned for {sprint}" : $"From {sprint}");
         if (t.DoneBeforeSprint) notes.Add("Done before the sprint");
         if (t.CarriedInFrom is { } from) notes.Add($"Carried in from {from}");

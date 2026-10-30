@@ -573,11 +573,11 @@ And one about sprints, for the sprint review at sprint planning:
 
 - **Sprint status** - one sprint, picked in place of a date range (the active sprint by default, or open it from the
   sprint page's **Report** button). It shows the tasks planned into the sprint by outcome: done, left open or
-  cancelled. Beside them is the Not Planned work done during the sprint: tasks that are Not Planned and were created,
-  completed or logged against between its start and end dates. Backlog tasks worked on anyway - completed or logged
-  against in those dates, though never planned into the sprint - show apart, as *From the Backlog*. Tasks of another
-  sprint show apart too, as *From another sprint*, each naming its sprint: a later sprint's worked on ahead, or an
-  earlier one's finished task reopened or logged against. So every task worked on in the sprint shows somewhere.
+  cancelled. Beside them is the unplanned work, each task shown on its own project. *Not Planned* tasks were created,
+  completed or logged against between the sprint's start and end dates. Backlog tasks worked on anyway - completed or
+  logged against in those dates, though never planned into the sprint - are marked *From the Backlog*. Tasks of
+  another sprint are marked with that sprint: a later sprint's worked on ahead, or an earlier one's finished task
+  reopened or logged against. So every task worked on in the sprint shows somewhere.
   - Once the next sprint has started, the open tasks it handed on still show, marked with where they went. Tasks that
     came in from the sprint before are marked too.
   - A task that was already done when the sprint started is marked *Done before the sprint*: a planned one stayed in
@@ -592,9 +592,13 @@ And one about sprints, for the sprint review at sprint planning:
     a chart keeps the ones with the most time and groups the rest into one bar, and the tasks and time charts side by
     side show the same ones. The tiles give the estimate left on the left-open tasks and how
     much of the sprint's time went on unplanned work (Not Planned, Backlog and other-sprint work).
-  - Below the summary come a by-person table and one row per project in the sprint, then No project, Not Planned, From the Backlog and From another sprint.
-    Expand a row for its people and tasks.
-  - Project and Assignee filters pick tasks, and the Project filter lists only the sprint's projects. The PDF is
+  - Below the summary come a by-person table and one row per project, then No project for the tasks on none - the
+    rows the projects charts draw (past twelve projects, the charts put the ones with the least time together). A
+    project's row covers what was planned for it and the unplanned tasks worked on anyway, with lines splitting the
+    unplanned part out of its progress, its left-open tasks (which don't go on to the next sprint) and its time. A chip
+    beside each project's name shows its status now (in the PDF, after its department). Expand a row for its people
+    and tasks: the planned ones first, then, under *Worked on, not planned into the sprint*, the rest.
+  - Project and Assignee filters pick tasks, and the Project filter lists the projects with a row. The PDF is
     landscape, with the same charts.
 
 ## Configuration

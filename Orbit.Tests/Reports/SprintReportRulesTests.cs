@@ -32,9 +32,9 @@ public class SprintReportRulesTests
         [Alice] = new(Alice, "Alice", true), [Bob] = new(Bob, "Bob", true), [Carol] = new(Carol, "Carol", false)
     };
 
-    private static readonly SprintProjectFacts Alpha = new(Guid.NewGuid(), "P-26-00001", "Alpha", "Ops");
-    private static readonly SprintProjectFacts Beta = new(Guid.NewGuid(), "P-26-00002", "Beta", "Dev");
-    private static readonly SprintProjectFacts Gamma = new(Guid.NewGuid(), "P-26-00003", "Gamma", "Ops");
+    private static readonly SprintProjectFacts Alpha = new(Guid.NewGuid(), "P-26-00001", "Alpha", ProjectStatus.Active, "Ops");
+    private static readonly SprintProjectFacts Beta = new(Guid.NewGuid(), "P-26-00002", "Beta", ProjectStatus.OnHold, "Dev");
+    private static readonly SprintProjectFacts Gamma = new(Guid.NewGuid(), "P-26-00003", "Gamma", ProjectStatus.Active, "Ops");
 
     private static readonly IReadOnlyDictionary<Guid, SprintProjectFacts> Projects =
         new[] { Alpha, Beta, Gamma }.ToDictionary(p => p.Id);
@@ -160,11 +160,12 @@ public class SprintReportRulesTests
         var elsewhere = Task(false, OtherSprintId, sprint: 30);
         var quiet = NotPlanned(created: Oct(1));
         var r = Build(sprint, [counted, backlog, elsewhere, quiet]);
-        // The Backlog task worked on (RPT-037) and the other sprint's (RPT-038) are in groups of their own, never the Not Planned one.
-        Assert.Equal([SprintGroupKind.NotPlanned, SprintGroupKind.Backlog, SprintGroupKind.OtherSprint], r.Rows.Select(g => g.Kind));
-        Assert.Equal(counted.Task.Id, Assert.Single(r.Rows[0].TaskRows).TaskId);
-        Assert.Equal(backlog.Task.Id, Assert.Single(r.Rows[1].TaskRows).TaskId);
-        Assert.Equal(elsewhere.Task.Id, Assert.Single(r.Rows[2].TaskRows).TaskId);
+        // The Backlog task worked on (RPT-037) and the other sprint's (RPT-038) are never Not Planned work. All on no project, the
+        // three share the No project row, each as its kind (RPT-043).
+        Assert.Null(Assert.Single(r.Rows).Project);
+        Assert.Equal(
+            [(counted.Task.Id, SprintWorkKind.NotPlanned), (backlog.Task.Id, SprintWorkKind.Backlog), (elsewhere.Task.Id, SprintWorkKind.OtherSprint)],
+            r.Rows[0].TaskRows.Select(x => (x.TaskId, x.Work)));
     }
 
     /// <summary>
@@ -200,19 +201,21 @@ public class SprintReportRulesTests
         var picked = Backlog(sprint: 20);
         var r = Build(Sprint(SprintStatus.Completed, completedAt), [returned, picked],
             completions: [new(SprintId, completedAt, null, [returned.Task.Id])], asAt: completedAt);
-        Assert.Equal([SprintGroupKind.NoProject, SprintGroupKind.Backlog], r.Rows.Select(g => g.Kind));
+        // Both on no project: the task it returned is planned, so first; the one taken from the Backlog follows it (RPT-043).
+        Assert.Null(Assert.Single(r.Rows).Project);
         Assert.Equal((SprintTaskOutcome.LeftOpen, "Backlog"), (Row(r, returned).Outcome, Row(r, returned).LeftOpenTo));
-        Assert.Equal(picked.Task.Id, Assert.Single(r.Rows[1].TaskRows).TaskId);
+        Assert.Equal([(returned.Task.Id, SprintWorkKind.Planned), (picked.Task.Id, SprintWorkKind.Backlog)],
+            r.Rows[0].TaskRows.Select(x => (x.TaskId, x.Work)));
     }
 
     /// <summary>
-    /// RPT-037: the Backlog tasks worked on are a group of their own after the Not Planned work, named "From the Backlog" - a
-    /// task's project naming it without adding a row or a project option, its assignees joining the assignee options, the filters
-    /// picking it - and with the Not Planned work they are the unplanned work: the summary, the people and the days set their
-    /// time apart, and the unplanned share covers both.
+    /// RPT-037: the Backlog tasks worked on join their project's row, marked "From the Backlog" - a project with only Backlog work
+    /// gets a row and a project option, its assignees join the assignee options and the filters pick it - and with the Not Planned
+    /// work they are the unplanned work: the summary, the people and the days set their time apart, and the unplanned share covers
+    /// both.
     /// </summary>
     [Fact]
-    public void Backlog_work_done_in_the_sprint_has_its_own_group()
+    public void Backlog_work_done_in_the_sprint_joins_its_project()
     {
         var planned = Task(project: Alpha, status: TaskItemStatus.Done, assignees: [Alice], estimate: 60, sprint: 60, total: 60, completed: Oct(22));
         var support = NotPlanned(assignees: [Bob], sprint: 30, total: 30);
@@ -231,16 +234,21 @@ public class SprintReportRulesTests
         SprintTaskFacts[] tasks = [planned, support, pulledIn, started];
         var r = Build(Sprint(), tasks, time, days);
 
-        Assert.Equal(
-            [(SprintGroupKind.Project, "Alpha"), (SprintGroupKind.NotPlanned, "Not Planned"), (SprintGroupKind.Backlog, "From the Backlog")],
-            r.Rows.Select(g => (g.Kind, g.Name)).ToList());
-        Assert.Equal("Backlog", r.Rows[2].Key);
-        Assert.Equal([false, true, true], r.Rows.Select(g => g.IsUnplanned));
-        var group = r.Rows[2];
-        Assert.Equal(new SprintTaskCounts(2, 1, 1, 0, 0, 0, 1), group.Tasks);
-        Assert.Equal((110, 170), (group.SprintMinutes, group.ToDateMinutes));
-        Assert.Equal("P-26-00003 Gamma", Row(r, pulledIn).ProjectLabel);
-        Assert.Equal([Alpha], r.ProjectOptions); // a Backlog task's project is not one of the sprint's
+        // Beta and Gamma have only Backlog work, and a row each; the Not Planned task, on no project, is on the last row.
+        Assert.Equal([Beta, Alpha, Gamma, null], r.Rows.Select(g => g.Project));
+        Assert.Equal(["Beta", "Alpha", "Gamma", "No project"], r.Rows.Select(g => g.Name));
+        Assert.Equal(support.Task.Id, Assert.Single(r.Rows[3].TaskRows).TaskId);
+        var gamma = r.Rows[2];
+        Assert.Equal(Gamma.Id.ToString(), gamma.Key);
+        Assert.Equal(new SprintTaskCounts(1, 1, 0, 0, 0, 0, 0), gamma.Tasks);
+        Assert.Equal(gamma.Tasks, gamma.UnplannedTasks);
+        Assert.Equal((90, 150, 90), (gamma.SprintMinutes, gamma.ToDateMinutes, gamma.UnplannedSprintMinutes));
+        Assert.Equal(SprintTaskCounts.None, r.Rows[1].UnplannedTasks); // Alpha has only planned work
+        var pulledInRow = Row(r, pulledIn);
+        Assert.Equal(SprintWorkKind.Backlog, pulledInRow.Work);
+        Assert.Equal("From the Backlog", ReportText.Note(pulledInRow, withOver: false));
+        Assert.Equal("From the Backlog · No estimate", ReportText.Note(Row(r, started)));
+        Assert.Equal([Beta, Alpha, Gamma], r.ProjectOptions); // the projects with a row
         Assert.Equal(["Alice", "Bob", "Carol"], r.AssigneeOptions.Select(p => p.Name));
 
         var s = r.Summary;
@@ -271,12 +279,12 @@ public class SprintReportRulesTests
         var byProject = Build(Sprint(), tasks, time, days, projectId: Gamma.Id);
         Assert.Equal([pulledIn.Task.Id], byProject.Rows.SelectMany(g => g.TaskRows).Select(x => x.TaskId));
         var byPerson = Build(Sprint(), tasks, time, days, assigneeId: Alice);
-        Assert.Equal([planned.Task.Id, started.Task.Id], byPerson.Rows.SelectMany(g => g.TaskRows).Select(x => x.TaskId));
+        Assert.Equal([started.Task.Id, planned.Task.Id], byPerson.Rows.SelectMany(g => g.TaskRows).Select(x => x.TaskId)); // Beta, Alpha
         Assert.Equal((Start, new SprintKindCounts(60, 0, 0, 0)), (byPerson.Days[0].Date, byPerson.Days[0].Minutes));
 
         var none = Build(Sprint(), [planned, support], time, days);
         Assert.False(none.Summary.HasBacklog);
-        Assert.DoesNotContain(none.Rows, g => g.Kind == SprintGroupKind.Backlog);
+        Assert.DoesNotContain(none.Rows.SelectMany(g => g.TaskRows), x => x.Work == SprintWorkKind.Backlog);
     }
 
     /// <summary>
@@ -324,7 +332,9 @@ public class SprintReportRulesTests
         var earlier = Task(false, PreviousSprintId, status: TaskItemStatus.Done, sprint: 15, completed: Oct(10));
         var r = Build(Sprint(SprintStatus.Completed, completedAt), [handedOn, ahead, earlier],
             completions: [new(SprintId, completedAt, NextSprintId, [handedOn.Task.Id])], asAt: completedAt, laterSprintIds: [NextSprintId]);
-        Assert.Equal([SprintGroupKind.NoProject, SprintGroupKind.OtherSprint], r.Rows.Select(g => g.Kind));
+        // All on no project: the task it handed on is planned, so first; the other sprints' follow it (RPT-043).
+        Assert.Null(Assert.Single(r.Rows).Project);
+        Assert.Equal((handedOn.Task.Id, SprintWorkKind.Planned), (r.Rows[0].TaskRows.First().TaskId, r.Rows[0].TaskRows.First().Work));
         Assert.Equal((SprintTaskOutcome.LeftOpen, "Sprint 15", (string?)null),
             (Row(r, handedOn).Outcome, Row(r, handedOn).LeftOpenTo, Row(r, handedOn).OtherSprint));
         Assert.Equal(("Sprint 15", true), (Row(r, ahead).OtherSprint, Row(r, ahead).OtherSprintIsLater));
@@ -335,13 +345,13 @@ public class SprintReportRulesTests
     }
 
     /// <summary>
-    /// RPT-038: other sprints' tasks worked on are a group of their own after the Backlog work, named "From another sprint", each
-    /// naming its sprint - a task's project naming it without adding a row or a project option, its assignees joining the assignee
-    /// options, the filters picking it - and they are unplanned work: the summary, the people and the days set their time apart, and
-    /// the unplanned share covers Not Planned, Backlog and other-sprint work.
+    /// RPT-038: other sprints' tasks worked on join their project's row, or the No project row, each naming its sprint - a project
+    /// with only such work gets a row and a project option, its assignees join the assignee options and the filters pick it - and
+    /// they are unplanned work: the summary, the people and the days set their time apart, and the unplanned share covers Not
+    /// Planned, Backlog and other-sprint work.
     /// </summary>
     [Fact]
-    public void Other_sprint_work_done_in_the_sprint_has_its_own_group()
+    public void Other_sprint_work_done_in_the_sprint_joins_its_project()
     {
         var planned = Task(project: Alpha, assignees: [Alice], sprint: 60, total: 60);
         var support = NotPlanned(assignees: [Bob], sprint: 30, total: 30);
@@ -362,22 +372,22 @@ public class SprintReportRulesTests
         Guid[] later = [NextSprintId];
         var r = Build(Sprint(), tasks, time, days, laterSprintIds: later);
 
-        Assert.Equal(
-            [
-                (SprintGroupKind.Project, "Alpha"), (SprintGroupKind.NotPlanned, "Not Planned"), (SprintGroupKind.Backlog, "From the Backlog"),
-                (SprintGroupKind.OtherSprint, "From another sprint")
-            ],
-            r.Rows.Select(g => (g.Kind, g.Name)).ToList());
-        Assert.Equal("OtherSprint", r.Rows[3].Key);
-        Assert.Equal([false, true, true, true], r.Rows.Select(g => g.IsUnplanned));
-        var group = r.Rows[3];
-        Assert.Equal(new SprintTaskCounts(2, 1, 1, 0, 0, 0, 1), group.Tasks);
-        Assert.Equal((75, 95), (group.SprintMinutes, group.ToDateMinutes));
-        Assert.Equal(("Sprint 15", "P-26-00003 Gamma"), (Row(r, ahead).OtherSprint, Row(r, ahead).ProjectLabel));
-        Assert.Equal("Planned for Sprint 15", ReportText.Note(Row(r, ahead)));
+        Assert.Equal([Beta, Alpha, Gamma, null], r.Rows.Select(g => g.Project));
+        Assert.Equal(["Beta", "Alpha", "Gamma", "No project"], r.Rows.Select(g => g.Name));
+        Assert.Equal("NoProject", r.Rows[3].Key);
+        // On no project, the later sprint's task shares the last row with the Not Planned one.
+        var standalone = r.Rows[3];
+        Assert.Equal([(support.Task.Id, SprintWorkKind.NotPlanned), (started.Task.Id, SprintWorkKind.OtherSprint)],
+            standalone.TaskRows.Select(x => (x.TaskId, x.Work)));
+        Assert.Equal(new SprintTaskCounts(2, 0, 2, 0, 0, 0, 2), standalone.Tasks);
+        Assert.Equal(standalone.Tasks, standalone.UnplannedTasks);
+        Assert.Equal((60, 80, 60), (standalone.SprintMinutes, standalone.ToDateMinutes, standalone.UnplannedSprintMinutes));
+        var aheadRow = Row(r, ahead);
+        Assert.Equal(("Sprint 15", SprintWorkKind.OtherSprint), (aheadRow.OtherSprint, aheadRow.Work));
+        Assert.Equal("Planned for Sprint 15", ReportText.Note(aheadRow));
         Assert.Equal("Planned for Sprint 15 · No estimate", ReportText.Note(Row(r, started)));
         Assert.Null(Row(r, pulledIn).OtherSprint);
-        Assert.Equal([Alpha], r.ProjectOptions);
+        Assert.Equal([Beta, Alpha, Gamma], r.ProjectOptions); // the projects with a row
         Assert.Equal(["Alice", "Bob", "Carol"], r.AssigneeOptions.Select(p => p.Name));
 
         var s = r.Summary;
@@ -417,7 +427,7 @@ public class SprintReportRulesTests
 
         var none = Build(Sprint(), [planned, support, pulledIn], time, days);
         Assert.False(none.Summary.HasOtherSprint);
-        Assert.DoesNotContain(none.Rows, g => g.Kind == SprintGroupKind.OtherSprint);
+        Assert.DoesNotContain(none.Rows.SelectMany(g => g.TaskRows), x => x.Work == SprintWorkKind.OtherSprint);
         Assert.Equal([SprintWorkKind.NotPlanned, SprintWorkKind.Backlog], none.Summary.Unplanned);
     }
 
@@ -594,11 +604,12 @@ public class SprintReportRulesTests
         var earlier = Task(false, PreviousSprintId, status: TaskItemStatus.Done, completed: Oct(10), sprint: 30); // reopened? logged against
         var redoneEarlier = Task(false, PreviousSprintId, status: TaskItemStatus.Done, completed: Oct(27)); // done again, no time
         var sameStart = Task(false, OtherSprintId, sprint: 30); // not a later sprint
-        (SprintTaskFacts Task, SprintGroupKind Kind)[] worked =
+        // Each once, as its kind of work - all on no project, so all on the No project row.
+        (SprintTaskFacts Task, SprintWorkKind Work)[] worked =
         [
-            (inSprint, SprintGroupKind.NoProject), (handedOn, SprintGroupKind.NoProject), (notPlanned, SprintGroupKind.NotPlanned),
-            (backlog, SprintGroupKind.Backlog), (later, SprintGroupKind.OtherSprint), (earlier, SprintGroupKind.OtherSprint),
-            (redoneEarlier, SprintGroupKind.OtherSprint), (sameStart, SprintGroupKind.OtherSprint)
+            (inSprint, SprintWorkKind.Planned), (handedOn, SprintWorkKind.Planned), (notPlanned, SprintWorkKind.NotPlanned),
+            (backlog, SprintWorkKind.Backlog), (later, SprintWorkKind.OtherSprint), (earlier, SprintWorkKind.OtherSprint),
+            (redoneEarlier, SprintWorkKind.OtherSprint), (sameStart, SprintWorkKind.OtherSprint)
         ];
         SprintTaskFacts[] quiet =
         [
@@ -609,9 +620,10 @@ public class SprintReportRulesTests
         var r = Build(Sprint(SprintStatus.Completed, completedAt), [.. worked.Select(w => w.Task), .. quiet], time,
             completions: [new(SprintId, completedAt, NextSprintId, [handedOn.Task.Id])], asAt: completedAt, laterSprintIds: [NextSprintId]);
 
-        var rows = r.Rows.SelectMany(g => g.TaskRows.Select(x => (x.TaskId, g.Kind))).ToList();
-        foreach (var (task, kind) in worked)
-            Assert.Equal(kind, Assert.Single(rows, x => x.TaskId == task.Task.Id).Kind);
+        Assert.Null(Assert.Single(r.Rows).Project);
+        var rows = r.Rows.SelectMany(g => g.TaskRows).ToList();
+        foreach (var (task, work) in worked)
+            Assert.Equal(work, Assert.Single(rows, x => x.TaskId == task.Task.Id).Work);
         foreach (var task in quiet)
             Assert.DoesNotContain(rows, x => x.TaskId == task.Task.Id);
         Assert.Equal(time.Sum(t => t.SprintMinutes), r.Summary.SprintMinutes); // all the time logged in the window
@@ -814,11 +826,12 @@ public class SprintReportRulesTests
     }
 
     /// <summary>
-    /// RPT-026: one row per project with planned work, by department then name, then the planned tasks on no project, then the Not
-    /// Planned work; a Not Planned task's project neither adds a row nor joins the project options.
+    /// RPT-026: one row per project, by department then name, then the tasks on no project; a project's row carries its status now,
+    /// for the chip beside its name (decision 131); a Not Planned task counts on its own project, giving it a row and a project
+    /// option, and is marked Not Planned.
     /// </summary>
     [Fact]
-    public void Rows_are_the_sprint_projects_then_no_project_then_not_planned()
+    public void Rows_are_the_projects_then_no_project()
     {
         var onAlpha = Task(project: Alpha);
         var onBeta = Task(project: Beta);
@@ -826,21 +839,93 @@ public class SprintReportRulesTests
         var support = NotPlanned(project: Gamma);
         var r = Build(Sprint(), [support, standalone, onAlpha, onBeta]);
 
-        Assert.Equal(
-            [(SprintGroupKind.Project, "Beta"), (SprintGroupKind.Project, "Alpha"), (SprintGroupKind.NoProject, "No project"),
-             (SprintGroupKind.NotPlanned, "Not Planned")],
-            r.Rows.Select(g => (g.Kind, g.Name)).ToList());
-        Assert.Equal([Beta, Alpha], r.ProjectOptions);
-        Assert.Equal("P-26-00003 Gamma", Row(r, support).ProjectLabel);
-        Assert.Null(Row(r, onAlpha).ProjectLabel);
+        Assert.Equal([Beta, Alpha, Gamma, null], r.Rows.Select(g => g.Project));
+        Assert.Equal(["Beta", "Alpha", "Gamma", "No project"], r.Rows.Select(g => g.Name));
+        Assert.Equal([ProjectStatus.OnHold, ProjectStatus.Active, ProjectStatus.Active], r.Rows.Take(3).Select(g => g.Project!.Status));
+        Assert.Equal([Beta, Alpha, Gamma], r.ProjectOptions);
+        var supportRow = Assert.Single(r.Rows[2].TaskRows);
+        Assert.Equal((support.Task.Id, SprintWorkKind.NotPlanned, "Not Planned · No estimate"),
+            (supportRow.TaskId, supportRow.Work, ReportText.Note(supportRow)));
         Assert.Equal(Alpha.Id.ToString(), r.Rows[1].Key);
-        Assert.Equal("NotPlanned", r.Rows[3].Key);
+        Assert.Equal("NoProject", r.Rows[3].Key);
     }
 
     /// <summary>
-    /// RPT-042: the projects charts' work counts every kind of work on its own project - a project's planned tasks with its Not
-    /// Planned, Backlog and other sprints' ones, by outcome, and its time on each kind - so a project with only unplanned work has a
-    /// bar, though no By project row. In the projects' order, the tasks on no project last; only the tasks the filters pick.
+    /// RPT-043: a project's row holds its planned tasks, then the Not Planned, Backlog and other sprints' tasks worked on on it, each
+    /// part by outcome; its figures cover them all and its unplanned part is set apart, so the rows add up to all the work. A project
+    /// with only unplanned work has a row and a project option, and unplanned work on no project is on the No project row, last. The
+    /// summary still splits the work by kind.
+    /// </summary>
+    [Fact]
+    public void A_project_row_holds_its_planned_tasks_then_its_unplanned_ones()
+    {
+        var plannedDone = Task(project: Alpha, status: TaskItemStatus.Done, estimate: 60, sprint: 60, total: 60, completed: Oct(21));
+        var plannedOpen = Task(project: Alpha, estimate: 120, sprint: 30, total: 30);
+        var fromBacklog = Backlog(TaskItemStatus.Done, project: Alpha, sprint: 45, total: 45, completed: Oct(24));
+        var ahead = Ahead(project: Alpha, estimate: 90, sprint: 15, total: 15);
+        var support = NotPlanned(project: Alpha, sprint: 20, total: 20);
+        var gammaOnly = Backlog(project: Gamma, sprint: 10, total: 10);
+        var standaloneAhead = Ahead(sprint: 5, total: 5);
+        SprintTaskFacts[] tasks = [support, ahead, gammaOnly, fromBacklog, plannedOpen, standaloneAhead, plannedDone];
+        Guid[] later = [NextSprintId];
+        var r = Build(Sprint(), tasks, laterSprintIds: later);
+
+        Assert.Equal([Alpha, Gamma, null], r.Rows.Select(g => g.Project));
+        Assert.Equal(["Alpha", "Gamma", "No project"], r.Rows.Select(g => g.Name));
+        Assert.Equal([Alpha, Gamma], r.ProjectOptions);
+
+        // Alpha: its planned tasks by outcome, then its Not Planned, Backlog and other-sprint ones by outcome.
+        var alpha = r.Rows[0];
+        Assert.Equal(
+            [
+                (plannedDone.Task.Id, SprintWorkKind.Planned), (plannedOpen.Task.Id, SprintWorkKind.Planned),
+                (fromBacklog.Task.Id, SprintWorkKind.Backlog), (ahead.Task.Id, SprintWorkKind.OtherSprint),
+                (support.Task.Id, SprintWorkKind.NotPlanned)
+            ],
+            alpha.TaskRows.Select(x => (x.TaskId, x.Work)));
+        Assert.Equal(new SprintTaskCounts(5, 2, 3, 0, 0, 90 + 75, 1), alpha.Tasks);
+        Assert.Equal(new SprintTaskCounts(2, 1, 1, 0, 0, 90, 0), alpha.PlannedTasks);
+        Assert.Equal(new SprintTaskCounts(3, 1, 2, 0, 0, 75, 1), alpha.UnplannedTasks);
+        Assert.Equal([plannedDone.Task.Id, plannedOpen.Task.Id], alpha.PlannedTaskRows.Select(x => x.TaskId));
+        Assert.Equal([fromBacklog.Task.Id, ahead.Task.Id, support.Task.Id], alpha.UnplannedTaskRows.Select(x => x.TaskId));
+        Assert.Equal(new SprintKindCounts(90, 20, 45, 15), alpha.Minutes);
+        Assert.Equal((170, 170, 80), (alpha.SprintMinutes, alpha.ToDateMinutes, alpha.UnplannedSprintMinutes));
+        Assert.Equal(new EstimateComparison(3, 270, 105, 0), alpha.Estimate);
+        Assert.Equal("Planned 1/2 · unplanned 1/3", ReportText.PlannedSplit(alpha));
+        // Of its 3 left open, 2 weren't planned (decision 130): the other sprint's, 75m of its estimate left, and the unestimated
+        // Not Planned one.
+        Assert.Equal("2 unplanned (1h 15m left)", ReportText.UnplannedLeftOpen(alpha));
+        Assert.Equal("From the Backlog · No estimate", ReportText.Note(Row(r, fromBacklog)));
+        Assert.Equal("Not Planned · No estimate", ReportText.Note(Row(r, support)));
+
+        // Gamma has only Backlog work: a row of its own, all of it unplanned.
+        var gamma = r.Rows[1];
+        Assert.Equal(gamma.Tasks, gamma.UnplannedTasks);
+        Assert.Equal("No planned tasks · unplanned 0/1", ReportText.PlannedSplit(gamma));
+        Assert.Equal("1 unplanned", ReportText.UnplannedLeftOpen(gamma)); // unestimated
+
+        // Another sprint's task on no project is on the No project row, last.
+        var standaloneRow = Assert.Single(r.Rows[2].TaskRows);
+        Assert.Equal((standaloneAhead.Task.Id, SprintWorkKind.OtherSprint, "Planned for Sprint 15 · No estimate"),
+            (standaloneRow.TaskId, standaloneRow.Work, ReportText.Note(standaloneRow)));
+
+        // The summary splits the work by kind as before, and the rows add up to all of it.
+        var s = r.Summary;
+        Assert.Equal((2, 1, 2, 2), (s.Planned.Tasks.Total, s.NotPlanned.Tasks.Total, s.Backlog.Tasks.Total, s.OtherSprint.Tasks.Total));
+        Assert.Equal(s.All, r.Rows.Aggregate(SprintTaskCounts.None, (sum, g) => sum.Plus(g.Tasks)));
+        Assert.Equal(s.SprintMinutes, r.Rows.Sum(g => g.SprintMinutes));
+        Assert.Equal(s.UnplannedSprintMinutes, r.Rows.Sum(g => g.UnplannedSprintMinutes));
+
+        // Picking Alpha picks every kind of task on it, all on its one row.
+        var picked = Build(Sprint(), tasks, projectId: Alpha.Id, laterSprintIds: later);
+        Assert.Equal(5, Assert.Single(picked.Rows).TaskRows.Count());
+    }
+
+    /// <summary>
+    /// RPT-042: the projects charts draw the By project rows (decision 130), which count every kind of work on its own project - a
+    /// project's planned tasks with its Not Planned, Backlog and other sprints' ones, by outcome, and its time on each kind - so a
+    /// project with only unplanned work has a bar. In the projects' order, the tasks on no project last; only the tasks the filters
+    /// pick.
     /// </summary>
     [Fact]
     public void Project_work_counts_every_kind_of_work_on_its_project()
@@ -855,20 +940,19 @@ public class SprintReportRulesTests
         SprintTaskFacts[] tasks = [support, gammaBacklog, alphaSupport, standalone, betaAhead, alphaPlanned, betaPlanned];
         var r = Build(Sprint(), tasks);
 
-        Assert.Equal([Beta, Alpha, Gamma, null], r.ProjectWork.Select(p => p.Project));
+        Assert.Equal([Beta, Alpha, Gamma, null], r.Rows.Select(g => g.Project));
         Assert.Equal(
             [new SprintKindCounts(0, 0, 0, 15), new SprintKindCounts(60, 30, 0, 0), new SprintKindCounts(0, 0, 45, 0),
              new SprintKindCounts(20, 10, 0, 0)],
-            r.ProjectWork.Select(p => p.Minutes));
+            r.Rows.Select(g => g.Minutes));
         Assert.Equal(
             [(2, 0, 1, 1), (2, 1, 1, 0), (1, 0, 1, 0), (2, 0, 2, 0)],
-            r.ProjectWork.Select(p => (p.Tasks.Total, p.Tasks.Done, p.Tasks.LeftOpen, p.Tasks.Cancelled)));
-        Assert.Equal(r.Summary.SprintMinutes, r.ProjectWork.Sum(p => p.Minutes.Total)); // every minute on one bar
-        // The By project rows are as they were: Gamma has no planned work, so no row of its own (RPT-026).
-        Assert.DoesNotContain(r.Rows, g => g.Project == Gamma);
+            r.Rows.Select(g => (g.Tasks.Total, g.Tasks.Done, g.Tasks.LeftOpen, g.Tasks.Cancelled)));
+        Assert.Equal(r.Summary.SprintMinutes, r.Rows.Sum(g => g.SprintMinutes)); // every minute on one bar
+        // Alpha's Not Planned task is on Alpha's row (RPT-043).
+        Assert.Contains(r.Rows.Single(g => g.Project == Alpha).TaskRows, x => x.TaskId == alphaSupport.Task.Id);
 
-        Assert.Equal([Alpha], Build(Sprint(), tasks, projectId: Alpha.Id).ProjectWork.Select(p => p.Project));
-        Assert.Empty(SprintStatusReport.Empty(AsAt).ProjectWork);
+        Assert.Equal([Alpha], Build(Sprint(), tasks, projectId: Alpha.Id).Rows.Select(g => g.Project));
     }
 
     /// <summary>
