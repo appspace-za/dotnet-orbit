@@ -586,7 +586,9 @@ And one about sprints, for the sprint review at sprint planning:
     change a completed sprint's figures. A task closed then and open now is marked *Reopened since*.
   - The summary has tiles and seven charts: planned work outcome across the top, then tasks and time by project, by
     person and per day side by side (tasks per day counts the tasks finished each day). The time charts are split
-    between planned, Not Planned and (when there is any) Backlog and other-sprint work. Past twelve projects or people,
+    between planned, Not Planned and (when there is any) Backlog and other-sprint work. The projects charts count every
+    task on its own project, unplanned ones too, so each project's time bar shows how much of its time was planned and
+    how much wasn't. Past twelve projects or people,
     a chart keeps the ones with the most time and groups the rest into one bar, and the tasks and time charts side by
     side show the same ones. The tiles give the estimate left on the left-open tasks and how
     much of the sprint's time went on unplanned work (Not Planned, Backlog and other-sprint work).

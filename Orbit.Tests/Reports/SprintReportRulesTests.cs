@@ -838,6 +838,40 @@ public class SprintReportRulesTests
     }
 
     /// <summary>
+    /// RPT-042: the projects charts' work counts every kind of work on its own project - a project's planned tasks with its Not
+    /// Planned, Backlog and other sprints' ones, by outcome, and its time on each kind - so a project with only unplanned work has a
+    /// bar, though no By project row. In the projects' order, the tasks on no project last; only the tasks the filters pick.
+    /// </summary>
+    [Fact]
+    public void Project_work_counts_every_kind_of_work_on_its_project()
+    {
+        var alphaPlanned = Task(project: Alpha, status: TaskItemStatus.Done, sprint: 60, completed: Oct(21));
+        var alphaSupport = NotPlanned(project: Alpha, sprint: 30);
+        var gammaBacklog = Backlog(project: Gamma, sprint: 45);
+        var betaPlanned = Task(project: Beta, status: TaskItemStatus.Cancelled);
+        var betaAhead = Ahead(project: Beta, sprint: 15);
+        var standalone = Task(sprint: 20);
+        var support = NotPlanned(sprint: 10);
+        SprintTaskFacts[] tasks = [support, gammaBacklog, alphaSupport, standalone, betaAhead, alphaPlanned, betaPlanned];
+        var r = Build(Sprint(), tasks);
+
+        Assert.Equal([Beta, Alpha, Gamma, null], r.ProjectWork.Select(p => p.Project));
+        Assert.Equal(
+            [new SprintKindCounts(0, 0, 0, 15), new SprintKindCounts(60, 30, 0, 0), new SprintKindCounts(0, 0, 45, 0),
+             new SprintKindCounts(20, 10, 0, 0)],
+            r.ProjectWork.Select(p => p.Minutes));
+        Assert.Equal(
+            [(2, 0, 1, 1), (2, 1, 1, 0), (1, 0, 1, 0), (2, 0, 2, 0)],
+            r.ProjectWork.Select(p => (p.Tasks.Total, p.Tasks.Done, p.Tasks.LeftOpen, p.Tasks.Cancelled)));
+        Assert.Equal(r.Summary.SprintMinutes, r.ProjectWork.Sum(p => p.Minutes.Total)); // every minute on one bar
+        // The By project rows are as they were: Gamma has no planned work, so no row of its own (RPT-026).
+        Assert.DoesNotContain(r.Rows, g => g.Project == Gamma);
+
+        Assert.Equal([Alpha], Build(Sprint(), tasks, projectId: Alpha.Id).ProjectWork.Select(p => p.Project));
+        Assert.Empty(SprintStatusReport.Empty(AsAt).ProjectWork);
+    }
+
+    /// <summary>
     /// RPT-027: the summary counts each task once, splits time in the sprint and to date between planned and Not Planned work, and
     /// compares estimates over the estimated tasks that aren't Cancelled.
     /// </summary>

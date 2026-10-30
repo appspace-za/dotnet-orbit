@@ -239,11 +239,8 @@ public static class SprintReportRules
         var work = Kinds.ToDictionary(k => k, k => k == SprintWorkKind.Planned ? planned : unplanned[k].ToList());
 
         // The options, before the filters apply: only the projects with planned work are the sprint's.
-        var projectOptions = planned.Select(t => t.ProjectId).OfType<Guid>().Distinct()
-            .Select(id => ProjectOf(projects, id))
-            .OrderBy(p => p.DepartmentName, StringComparer.CurrentCultureIgnoreCase)
-            .ThenBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase)
-            .ThenBy(p => p.Number, StringComparer.Ordinal)
+        var projectOptions = InProjectOrder(
+                planned.Select(t => t.ProjectId).OfType<Guid>().Distinct().Select(id => ProjectOf(projects, id)), p => p)
             .ToList();
         var assigneeOptions = Kinds.SelectMany(k => work[k]).SelectMany(t => t.Task.AssigneeIds).Distinct()
             .Where(people.ContainsKey).Select(id => people[id])
@@ -292,12 +289,11 @@ public static class SprintReportRules
                 TimeReportRules.Compare(facts.Select(t => t.Task)), People(rows, facts, timeByTask, Name), rows);
         }
 
-        var groups = planned.Where(t => t.ProjectId is not null)
-            .GroupBy(t => t.ProjectId!.Value)
-            .Select(g => (Project: ProjectOf(projects, g.Key), Tasks: g.ToList()))
-            .OrderBy(g => g.Project.DepartmentName, StringComparer.CurrentCultureIgnoreCase)
-            .ThenBy(g => g.Project.Name, StringComparer.CurrentCultureIgnoreCase)
-            .ThenBy(g => g.Project.Number, StringComparer.Ordinal)
+        var groups = InProjectOrder(
+                planned.Where(t => t.ProjectId is not null)
+                    .GroupBy(t => t.ProjectId!.Value)
+                    .Select(g => (Project: ProjectOf(projects, g.Key), Tasks: g.ToList())),
+                g => g.Project)
             .Select(g => Group(SprintGroupKind.Project, g.Project, g.Tasks, true))
             .ToList();
         var standalone = planned.Where(t => t.ProjectId is null).ToList();
@@ -316,7 +312,8 @@ public static class SprintReportRules
             Totals(SprintWorkKind.Planned), Totals(SprintWorkKind.NotPlanned), Totals(SprintWorkKind.Backlog),
             Totals(SprintWorkKind.OtherSprint), TimeReportRules.Compare(Kinds.SelectMany(k => work[k]).Select(t => t.Task)));
 
-        var outcomes = groups.SelectMany(g => g.TaskRows).ToDictionary(r => r.TaskId, r => r.Outcome);
+        var taskRows = groups.SelectMany(g => g.TaskRows).ToDictionary(r => r.TaskId);
+        var outcomes = taskRows.ToDictionary(r => r.Key, r => r.Value.Outcome);
         var impact = Impact(work, outcomes, timeByTask, Name);
 
         var ids = Kinds.ToDictionary(k => k, k => work[k].Select(t => t.Task.Id).ToHashSet());
@@ -338,8 +335,41 @@ public static class SprintReportRules
 
         return new SprintStatusReport(sprint, asAt, summary, impact, groups, dayRows, leftOpenTo, projectOptions, assigneeOptions)
         {
-            PersonTasks = PersonTasks(Kinds.SelectMany(k => work[k]), outcomes, impact, Name)
+            PersonTasks = PersonTasks(Kinds.SelectMany(k => work[k]), outcomes, impact, Name),
+            ProjectWork = ProjectWork(work, taskRows, projects)
         };
+    }
+
+    /// <summary>Projects in the report's order: by department, then name, then number.</summary>
+    private static IOrderedEnumerable<T> InProjectOrder<T>(IEnumerable<T> items, Func<T, SprintProjectFacts> project) =>
+        items.OrderBy(x => project(x).DepartmentName, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(x => project(x).Name, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(x => project(x).Number, StringComparer.Ordinal);
+
+    /// <summary>
+    /// Each project's work of every kind - Tasks by project and Time by project: its tasks by outcome, as their rows have them
+    /// (<paramref name="rows"/>), and its time in the sprint on each kind of work. An unplanned task counts on its own project, so a
+    /// project with only unplanned work has a row here, though not among the By project rows. In the projects' order (by department,
+    /// then name), the tasks on no project last.
+    /// </summary>
+    private static IReadOnlyList<SprintProjectWork> ProjectWork(
+        IReadOnlyDictionary<SprintWorkKind, List<SprintTaskFacts>> work, IReadOnlyDictionary<Guid, SprintTaskRow> rows,
+        IReadOnlyDictionary<Guid, SprintProjectFacts> projects)
+    {
+        var byProject = work.SelectMany(w => w.Value.Select(t => (Kind: w.Key, Facts: t))).ToLookup(x => x.Facts.ProjectId);
+
+        SprintProjectWork Work(SprintProjectFacts? project, IEnumerable<(SprintWorkKind Kind, SprintTaskFacts Facts)> tasks)
+        {
+            var mine = tasks.ToList();
+            return new SprintProjectWork(project, Count(mine.Select(x => rows[x.Facts.Task.Id]).ToList()),
+                SprintKindCounts.From(k => mine.Where(x => x.Kind == k).Sum(x => x.Facts.SprintMinutes)));
+        }
+
+        var result = InProjectOrder(
+                byProject.Where(g => g.Key is not null).Select(g => Work(ProjectOf(projects, g.Key!.Value), g)), p => p.Project!)
+            .ToList();
+        if (byProject[null].Any()) result.Add(Work(null, byProject[null]));
+        return result;
     }
 
     /// <summary>The kinds of work, in the report's order: planned, then the unplanned kinds.</summary>

@@ -20,8 +20,7 @@ public static class SprintCharts
 {
     /// <summary>
     /// The most bars the projects and people charts give their projects and people: beyond it, the ones with the most time in the
-    /// sprint keep a bar each and the rest share one. Sixteen bars at most in all (with No project, Not Planned, Backlog and Other
-    /// sprint) stay well within a landscape page.
+    /// sprint keep a bar each and the rest share one. Thirteen bars at most in all (with No project) stay well within a landscape page.
     /// </summary>
     public const int MaxBars = 12;
 
@@ -43,9 +42,6 @@ public static class SprintCharts
     public static readonly SvgCharts.Series OtherSprint = new(OtherSprintLabel, "oc-other-sprint", "#a16207");
 
     private static readonly SvgCharts.Series[] Outcomes = [Done, LeftOpen, Cancelled];
-
-    /// <summary>A group's name on the charts: a project's or No project, or an unplanned group's chart name.</summary>
-    public static string ChartName(SprintGroupRow g) => g.IsUnplanned ? SprintWorkLook.Of(g.Work).ChartName : g.Name;
 
     /// <summary>
     /// The kinds of work the time charts show, each a series: planned and the unplanned kinds the report shows
@@ -101,62 +97,52 @@ public static class SprintCharts
     }
 
     /// <summary>
-    /// Each project's planned tasks by outcome, then the planned tasks on no project, then the unplanned groups, set apart. The
-    /// projects are Time by project's (<see cref="GroupBars"/>).
+    /// Each project's tasks by outcome, every kind of work - an unplanned task on its own project - then the tasks on no project. The
+    /// projects are Time by project's (<see cref="ProjectBars"/>).
     /// </summary>
     public static Chart Projects(SprintStatusReport r)
     {
         const string title = "Tasks by project";
-        var items = GroupBars(r, g => Counts(g.Tasks), g => Total(g.Tasks), rest =>
-        {
-            var sum = rest.Aggregate(SprintTaskCounts.None, (all, g) => all.Plus(g.Tasks));
-            return (Counts(sum), Total(sum));
-        });
+        var items = ProjectBars(r, p => (Counts(p.Tasks), Total(p.Tasks)));
         return new(title, SvgCharts.HorizontalBars(items, Outcomes, v => Tasks((int)v), "No tasks in this sprint.", title));
     }
 
     /// <summary>
-    /// Each row's time in the sprint, in its kind of work's colour - the projects and No project planned, each unplanned group its
-    /// own - with the rows as Tasks by project has them (<see cref="GroupBars"/>).
+    /// Each project's time in the sprint on each kind of work (<see cref="WorkKinds"/>), as Time by person has each person's - an
+    /// unplanned task's time on its own project - then the time on no project, with the rows as Tasks by project has them
+    /// (<see cref="ProjectBars"/>).
     /// </summary>
     public static Chart ProjectTime(SprintStatusReport r)
     {
         const string title = "Time by project";
         var kinds = WorkKinds(r);
-        IReadOnlyList<double> Values(SprintWorkKind kind, int minutes) => kinds.Select(k => k == kind ? minutes : 0d).ToList();
-        var items = GroupBars(r, g => Values(g.Work, g.SprintMinutes), g => TimeFormat.Minutes(g.SprintMinutes), rest =>
-        {
-            var minutes = rest.Sum(g => g.SprintMinutes);
-            return (Values(SprintWorkKind.Planned, minutes), TimeFormat.Minutes(minutes));
-        });
+        var items = ProjectBars(r, p => (kinds.Select(k => (double)p.Minutes.Of(k)).ToList(), TimeTip(p.Minutes)));
         return new(title, SvgCharts.HorizontalBars(items, SeriesOf(kinds), v => TimeFormat.Minutes((int)Math.Round(v)),
             "No time logged in this sprint.", title));
     }
 
     /// <summary>
-    /// The rows' bars as both projects charts draw them, so the two keep the same rows: each project's - the <see cref="MaxBars"/>
-    /// with the most time in the sprint, in their order, the rest together (<paramref name="others"/>) - then No project and the
-    /// unplanned groups, muted, with a gap before the first unplanned one.
+    /// The bars both projects charts draw (<see cref="SprintStatusReport.ProjectWork"/>), so the two keep the same rows: each
+    /// project's - the <see cref="MaxBars"/> with the most time in the sprint, in their order, the rest together - then No project,
+    /// muted. <paramref name="bar"/> gives a bar's values and the text at its tip.
     /// </summary>
-    private static List<SvgCharts.Item> GroupBars(
-        SprintStatusReport r, Func<SprintGroupRow, IReadOnlyList<double>> values, Func<SprintGroupRow, string> tip,
-        Func<IReadOnlyList<SprintGroupRow>, (IReadOnlyList<double> Values, string Tip)> others)
+    private static List<SvgCharts.Item> ProjectBars(
+        SprintStatusReport r, Func<SprintProjectWork, (IReadOnlyList<double> Values, string Tip)> bar)
     {
-        var firstUnplanned = r.Rows.FirstOrDefault(g => g.IsUnplanned);
-        SvgCharts.Item Bar(SprintGroupRow g)
+        SvgCharts.Item Bar(string name, SprintProjectWork p, string? title = null, bool muted = false)
         {
-            var name = ChartName(g);
-            return new(name, values(g), tip(g), Title: g.Project is { } p ? $"{p.Number} {p.Name}".Trim() : name,
-                Muted: g.Kind != SprintGroupKind.Project, GapBefore: ReferenceEquals(g, firstUnplanned));
+            var (values, tip) = bar(p);
+            return new(name, values, tip, Title: title, Muted: muted);
         }
-        var (shown, rest) = Fold(r.Rows.Where(g => g.Kind == SprintGroupKind.Project).ToList(), g => g.SprintMinutes);
-        var items = shown.Select(Bar).ToList();
+        var (shown, rest) = Fold(r.ProjectWork.Where(p => p.Project is not null).ToList(), p => p.Minutes.Total);
+        var items = shown.Select(p => Bar(p.Project!.Name, p, $"{p.Project.Number} {p.Project.Name}".Trim())).ToList();
         if (rest.Count > 0)
         {
-            var (restValues, restTip) = others(rest);
-            items.Add(new SvgCharts.Item($"{rest.Count} other projects", restValues, restTip, Muted: true));
+            var together = new SprintProjectWork(null, rest.Aggregate(SprintTaskCounts.None, (all, p) => all.Plus(p.Tasks)),
+                SprintKindCounts.From(k => rest.Sum(p => p.Minutes.Of(k))));
+            items.Add(Bar($"{rest.Count} other projects", together, muted: true));
         }
-        items.AddRange(r.Rows.Where(g => g.Kind != SprintGroupKind.Project).Select(Bar));
+        items.AddRange(r.ProjectWork.Where(p => p.Project is null).Select(p => Bar(SprintGroupRow.NoProjectName, p, muted: true)));
         return items;
     }
 
@@ -186,12 +172,8 @@ public static class SprintCharts
     {
         const string title = "Time by person";
         var kinds = WorkKinds(r);
-        SvgCharts.Item Bar(string name, SprintKindCounts minutes, bool muted = false)
-        {
-            var share = SprintReportShare.Percent(minutes.Unplanned, minutes.Total) ?? 0;
-            return new(name, kinds.Select(k => (double)minutes.Of(k)).ToList(),
-                TimeFormat.Minutes(minutes.Total) + (share > 0 ? $" · {share}% unplanned" : ""), Muted: muted);
-        }
+        SvgCharts.Item Bar(string name, SprintKindCounts minutes, bool muted = false) =>
+            new(name, kinds.Select(k => (double)minutes.Of(k)).ToList(), TimeTip(minutes), Muted: muted);
         var (shown, rest) = PeopleRows(r);
         var items = shown.Select(p => Bar(p.Name, p.Minutes)).ToList();
         if (rest.Count > 0)
@@ -272,6 +254,13 @@ public static class SprintCharts
             .Select(x => x.Index)
             .ToHashSet();
         return (items.Where((_, i) => kept.Contains(i)).ToList(), items.Where((_, i) => !kept.Contains(i)).ToList());
+    }
+
+    /// <summary>The text at a time bar's tip: its total, and the unplanned share when there is any (<c>5h · 40% unplanned</c>).</summary>
+    private static string TimeTip(SprintKindCounts minutes)
+    {
+        var share = SprintReportShare.Percent(minutes.Unplanned, minutes.Total) ?? 0;
+        return TimeFormat.Minutes(minutes.Total) + (share > 0 ? $" · {share}% unplanned" : "");
     }
 
     private static double[] Counts(SprintTaskCounts c) => [c.Done, c.LeftOpen, c.Cancelled];

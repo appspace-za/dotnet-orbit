@@ -129,7 +129,8 @@ public class SvgChartsTests
 
     /// <summary>
     /// RPT-037: with Backlog tasks worked on, the charts are still well-formed and call them plain "Backlog" - a bar on the outcome
-    /// and projects charts, a third series on the time charts, cyan - and a sprint without any shows no Backlog series at all.
+    /// chart, a third series on the time charts, cyan - and a sprint without any shows no Backlog series at all. The projects charts
+    /// count a Backlog task on its own project (RPT-042), so they have no Backlog bar.
     /// </summary>
     [Fact]
     public void Sprint_charts_show_backlog_work_as_backlog()
@@ -152,8 +153,8 @@ public class SvgChartsTests
         var outcome = XDocument.Parse(SprintCharts.Outcome(withBacklog).Svg);
         Assert.Contains("Backlog", Texts(outcome));
         Assert.DoesNotContain("From the Backlog", Texts(outcome));
-        Assert.Contains("Backlog", Texts(XDocument.Parse(SprintCharts.Projects(withBacklog).Svg)));
-        foreach (var chart in new[] { SprintCharts.People(withBacklog), SprintCharts.Days(withBacklog) })
+        Assert.DoesNotContain("Backlog", Texts(XDocument.Parse(SprintCharts.Projects(withBacklog).Svg)));
+        foreach (var chart in new[] { SprintCharts.ProjectTime(withBacklog), SprintCharts.People(withBacklog), SprintCharts.Days(withBacklog) })
         {
             var doc = XDocument.Parse(chart.Svg);
             Assert.Contains("Backlog", Texts(doc)); // the legend
@@ -161,6 +162,7 @@ public class SvgChartsTests
             Assert.Equal("#0891b2", mark.Attribute("fill")!.Value);
         }
         Assert.Contains("33% unplanned", SprintCharts.People(withBacklog).Svg); // 30 of 90
+        Assert.Contains("33% unplanned", SprintCharts.ProjectTime(withBacklog).Svg); // both tasks on no project
 
         var without = Build(planned);
         foreach (var chart in SprintCharts.All(without))
@@ -169,7 +171,8 @@ public class SvgChartsTests
 
     /// <summary>
     /// RPT-038: with other sprints' tasks worked on, the charts are still well-formed and call them "Other sprint" - a bar on the
-    /// outcome and projects charts, a fourth series on the time charts, brown-gold - and a sprint without any shows no such series.
+    /// outcome chart, a fourth series on the time charts, brown-gold - and a sprint without any shows no such series. The projects
+    /// charts count such a task on its own project (RPT-042), so they have no Other sprint bar.
     /// </summary>
     [Fact]
     public void Sprint_charts_show_other_sprint_work_as_other_sprint()
@@ -195,8 +198,8 @@ public class SvgChartsTests
         var outcome = XDocument.Parse(SprintCharts.Outcome(withLater).Svg);
         Assert.Contains("Other sprint", Texts(outcome));
         Assert.DoesNotContain("From another sprint", Texts(outcome));
-        Assert.Contains("Other sprint", Texts(XDocument.Parse(SprintCharts.Projects(withLater).Svg)));
-        foreach (var chart in new[] { SprintCharts.People(withLater), SprintCharts.Days(withLater) })
+        Assert.DoesNotContain("Other sprint", Texts(XDocument.Parse(SprintCharts.Projects(withLater).Svg)));
+        foreach (var chart in new[] { SprintCharts.ProjectTime(withLater), SprintCharts.People(withLater), SprintCharts.Days(withLater) })
         {
             var doc = XDocument.Parse(chart.Svg);
             Assert.Contains("Other sprint", Texts(doc)); // the legend, beside Planned, Not Planned and Backlog
@@ -211,9 +214,10 @@ public class SvgChartsTests
     }
 
     /// <summary>
-    /// RPT-040: Time by project draws each row's time in its kind of work's colour - projects and No project planned, each unplanned
-    /// group its own; Tasks by person each person's tasks by outcome, Unassigned last; Tasks per day each day's finished tasks by kind
-    /// of work on whole-task ticks, and a message when nothing was finished.
+    /// RPT-040: Time by project stacks each project's time by kind of work, as Time by person does each person's - a Backlog task's
+    /// time on its own project (RPT-042) - and Tasks by project has the same rows; Tasks by person each person's tasks by outcome,
+    /// Unassigned last; Tasks per day each day's finished tasks by kind of work on whole-task ticks, and a message when nothing was
+    /// finished.
     /// </summary>
     [Fact]
     public void The_new_charts_draw_time_by_project_tasks_by_person_and_tasks_per_day()
@@ -230,7 +234,7 @@ public class SvgChartsTests
             projectId, sprintId, inBacklog, created, completed, minutes);
         var planned = Facts("T-26-00001", project.Id, sprint.Id, false, TaskItemStatus.Done, [alice], 60, done);
         var nobodys = Facts("T-26-00002", null, sprint.Id, false, TaskItemStatus.InProgress, [], 0);
-        var pulledIn = Facts("T-26-00003", null, null, true, TaskItemStatus.Done, [alice], 30, done);
+        var pulledIn = Facts("T-26-00003", project.Id, null, true, TaskItemStatus.Done, [alice], 30, done);
         SprintTaskFacts[] tasks = [planned, nobodys, pulledIn];
         var report = SprintReportRules.Build(sprint, tasks,
             tasks.Where(t => t.SprintMinutes > 0).Select(t => new SprintPersonTime(t.Task.Id, alice, t.SprintMinutes, t.SprintMinutes)).ToList(),
@@ -240,10 +244,16 @@ public class SvgChartsTests
 
         var projectTime = XDocument.Parse(SprintCharts.ProjectTime(report).Svg);
         var marks = Marks(projectTime).Select(m => (Class: m.Attribute("class")!.Value, Title: m.Element(Svg + "title")!.Value)).ToList();
+        // Alpha's bar holds its planned time and its Backlog task's; No project logged nothing, so has no mark.
+        Assert.Equal(2, marks.Count);
         Assert.Contains(marks, m => m.Class.Contains("oc-planned") && m.Title.StartsWith("P-26-00001 Alpha"));
-        Assert.Contains(marks, m => m.Class.Contains("oc-backlog") && m.Title.StartsWith("Backlog"));
-        Assert.Equal(2, marks.Count); // No project logged nothing, so has no mark
+        Assert.Contains(marks, m => m.Class.Contains("oc-backlog") && m.Title.StartsWith("P-26-00001 Alpha"));
         Assert.Contains("Backlog", Texts(projectTime)); // the legend: planned and Backlog work
+        Assert.Contains("33% unplanned", SprintCharts.ProjectTime(report).Svg); // 30 of Alpha's 90
+
+        var projectTasks = XDocument.Parse(SprintCharts.Projects(report).Svg);
+        Assert.Equal(["P-26-00001 Alpha · Done: 2 tasks", "No project · Left open: 1 task"],
+            Marks(projectTasks).Select(m => m.Element(Svg + "title")!.Value));
 
         var personTasks = XDocument.Parse(SprintCharts.PeopleTasks(report).Svg);
         var labels = Texts(personTasks);
@@ -286,8 +296,8 @@ public class SvgChartsTests
         var tasks = projects.Select((p, i) => new SprintTaskFacts(
             new TaskTimeFacts(Guid.NewGuid(), $"T-26-{i:00000}", "Task", TaskItemStatus.InProgress, [people[i].Id], null, 0),
             p.Id, sprint.Id, false, created, null, 0)).ToList();
-        // The fullest the projects chart gets: its folded projects, then No project, Not Planned, Backlog (RPT-037) and Other sprint
-        // (RPT-038) - sixteen bars.
+        // The fullest the projects charts get: eleven projects, the other projects and No project - thirteen bars - with No project
+        // holding a planned task and Not Planned, Backlog (RPT-037) and other-sprint (RPT-038) work, each kind on its project (RPT-042).
         var nextSprint = Guid.NewGuid();
         SprintTaskFacts Other(int n, Guid? sprintId, bool inBacklog) => new(
             new TaskTimeFacts(Guid.NewGuid(), $"T-26-{n:00000}", "Task", TaskItemStatus.InProgress, [people[0].Id], null, 0),
@@ -312,7 +322,7 @@ public class SvgChartsTests
         var personTasks = XDocument.Parse(SprintCharts.PeopleTasks(report).Svg);
         Assert.Contains("29 others", Texts(personTasks)); // Time by person's people: the ten with time and no task too
         Assert.Contains("Person 40", Texts(personTasks));
-        // Sixteen bars, a legend and the gap before the unplanned ones are 461px: well short of the ~27 rows that overflowed a page.
+        // Thirteen bars and a legend: well short of the ~27 rows that overflowed a page.
         foreach (var chart in new[] { byProject, byPerson, projectTime, personTasks })
             Assert.True(double.Parse(chart.Root!.Attribute("height")!.Value, CultureInfo.InvariantCulture) <= 480);
 

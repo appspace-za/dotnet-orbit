@@ -588,6 +588,13 @@ public sealed record SprintPersonTasks(Guid? UserId, string Name, int Done, int 
 }
 
 /// <summary>
+/// A project's work in the sprint, every kind together - Tasks by project and Time by project: its tasks of every kind by outcome,
+/// cancelled ones included, and its time in the sprint on each kind of work. <see cref="Project"/> null is the tasks on no project.
+/// Unlike the By project rows, an unplanned task counts on its own project, not in a group of its kind.
+/// </summary>
+public sealed record SprintProjectWork(SprintProjectFacts? Project, SprintTaskCounts Tasks, SprintKindCounts Minutes);
+
+/// <summary>
 /// Sprint status (§12): one sprint's planned work, and the unplanned work done in its window - the Not Planned work, and the Backlog
 /// and other sprints' tasks worked on anyway. <see cref="Sprint"/> null is no sprint to report on. <see cref="AsAt"/> is when the
 /// outcomes are read: the sprint's completion, or now. <see cref="LeftOpenTo"/> is where the open tasks went when it ended ("Backlog"
@@ -595,7 +602,8 @@ public sealed record SprintPersonTasks(Guid? UserId, string Name, int Done, int 
 /// another sprint; <see cref="Days"/> one row for each day of the sprint. The options are the filters', worked out before they apply:
 /// the projects of the planned tasks, and the assignees of all the tasks. <see cref="Sprints"/> are the sprints the Sprint filter
 /// offers (<c>SprintReportRules.Offered</c>), the first of them the default. <see cref="PersonTasks"/> are each person's tasks by
-/// outcome, in <see cref="People"/>' order, Unassigned last.
+/// outcome, in <see cref="People"/>' order, Unassigned last. <see cref="ProjectWork"/> is each project's work of every kind, in the
+/// projects' order, No project last.
 /// </summary>
 public sealed record SprintStatusReport(
     SprintFacts? Sprint, DateTime AsAt, SprintStatusSummary Summary, IReadOnlyList<SprintImpactRow> People,
@@ -604,6 +612,7 @@ public sealed record SprintStatusReport(
 {
     public IReadOnlyList<SprintFacts> Sprints { get; init; } = [];
     public IReadOnlyList<SprintPersonTasks> PersonTasks { get; init; } = [];
+    public IReadOnlyList<SprintProjectWork> ProjectWork { get; init; } = [];
 
     public static SprintStatusReport Empty(DateTime asAt) => new(null, asAt, SprintStatusSummary.None, [], [], [], null, [], []);
 }
