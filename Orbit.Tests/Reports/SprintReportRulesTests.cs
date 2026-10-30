@@ -59,11 +59,24 @@ public class SprintReportRulesTests
         int? estimate = null, int total = 0, int sprint = 0, DateTime? created = null, DateTime? completed = null) =>
         Task(false, null, false, status, project, assignees, estimate, total, sprint, created ?? Oct(20), completed);
 
+    /// <summary>A task on the Backlog, created long before the sprint by default.</summary>
+    private static SprintTaskFacts Backlog(
+        TaskItemStatus status = TaskItemStatus.InProgress, SprintProjectFacts? project = null, Guid[]? assignees = null,
+        int? estimate = null, int total = 0, int sprint = 0, DateTime? created = null, DateTime? completed = null) =>
+        Task(false, null, true, status, project, assignees, estimate, total, sprint, created ?? Oct(1), completed);
+
+    /// <summary>A task of the next sprint, Sprint 15, created long before this one by default: work done on it now is done ahead.</summary>
+    private static SprintTaskFacts Ahead(
+        TaskItemStatus status = TaskItemStatus.InProgress, SprintProjectFacts? project = null, Guid[]? assignees = null,
+        int? estimate = null, int total = 0, int sprint = 0, DateTime? created = null, DateTime? completed = null) =>
+        Task(false, NextSprintId, false, status, project, assignees, estimate, total, sprint, created ?? Oct(1), completed);
+
     private static SprintStatusReport Build(
         SprintFacts sprint, SprintTaskFacts[] tasks, SprintPersonTime[]? time = null, SprintDayTime[]? days = null,
         SprintCompletion[]? completions = null, Guid? projectId = null, Guid? assigneeId = null, DateTime? asAt = null,
-        SprintStatusChange[]? changes = null) =>
-        SprintReportRules.Build(sprint, tasks, time ?? [], days ?? [], changes ?? [], Projects, completions ?? [], SprintNames, People,
+        SprintStatusChange[]? changes = null, Guid[]? laterSprintIds = null) =>
+        SprintReportRules.Build(sprint, tasks, time ?? [], days ?? [], changes ?? [], Projects, completions ?? [], SprintNames,
+            (laterSprintIds ?? []).ToHashSet(), People,
             projectId, assigneeId, asAt ?? AsAt);
 
     /// <summary>A change to <paramref name="t"/>'s status, as its audit row records it.</summary>
@@ -117,39 +130,492 @@ public class SprintReportRulesTests
     public void Not_planned_work_is_matched_to_the_sprint_by_date()
     {
         var sprint = Sprint();
-        Assert.True(SprintReportRules.CountsAsNotPlanned(NotPlanned(created: Oct(19, 0)), sprint));
-        Assert.True(SprintReportRules.CountsAsNotPlanned(NotPlanned(created: new DateTime(2026, 10, 30, 23, 59, 0, DateTimeKind.Utc)), sprint));
-        Assert.True(SprintReportRules.CountsAsNotPlanned(
+        Assert.Equal(SprintWorkKind.NotPlanned, SprintReportRules.UnplannedKind(NotPlanned(created: Oct(19, 0)), sprint));
+        Assert.Equal(SprintWorkKind.NotPlanned, SprintReportRules.UnplannedKind(NotPlanned(created: new DateTime(2026, 10, 30, 23, 59, 0, DateTimeKind.Utc)), sprint));
+        Assert.Equal(SprintWorkKind.NotPlanned, SprintReportRules.UnplannedKind(
             NotPlanned(TaskItemStatus.Done, created: Oct(1), completed: Oct(25)), sprint));
-        Assert.True(SprintReportRules.CountsAsNotPlanned(NotPlanned(created: Oct(1), sprint: 30), sprint));
+        Assert.Equal(SprintWorkKind.NotPlanned, SprintReportRules.UnplannedKind(NotPlanned(created: Oct(1), sprint: 30), sprint));
 
-        Assert.False(SprintReportRules.CountsAsNotPlanned(NotPlanned(created: Oct(1)), sprint)); // nothing in the window
-        Assert.False(SprintReportRules.CountsAsNotPlanned(NotPlanned(created: Oct(31, 0)), sprint)); // the day after it
-        Assert.False(SprintReportRules.CountsAsNotPlanned(NotPlanned(created: Oct(18, 23)), sprint)); // the day before it
-        Assert.False(SprintReportRules.CountsAsNotPlanned(
+        Assert.Null(SprintReportRules.UnplannedKind(NotPlanned(created: Oct(1)), sprint)); // nothing in the window
+        Assert.Null(SprintReportRules.UnplannedKind(NotPlanned(created: Oct(31, 0)), sprint)); // the day after it
+        Assert.Null(SprintReportRules.UnplannedKind(NotPlanned(created: Oct(18, 23)), sprint)); // the day before it
+        Assert.Null(SprintReportRules.UnplannedKind(
             NotPlanned(TaskItemStatus.Done, created: Oct(1), completed: Oct(31)), sprint)); // done after it
-        Assert.False(SprintReportRules.CountsAsNotPlanned(
+        Assert.Null(SprintReportRules.UnplannedKind(
             NotPlanned(TaskItemStatus.Cancelled, created: Oct(1), completed: null), sprint));
         // Set to Done in the window and reopened since: CompletedAt is cleared, the change to Done still says so.
         var reopened = NotPlanned(created: Oct(1));
-        Assert.True(SprintReportRules.CountsAsNotPlanned(reopened, sprint,
+        Assert.Equal(SprintWorkKind.NotPlanned, SprintReportRules.UnplannedKind(reopened, sprint,
             [Change(reopened, Oct(24), TaskItemStatus.Todo, TaskItemStatus.Done), Change(reopened, Oct(31), TaskItemStatus.Done, TaskItemStatus.Todo)]));
-        Assert.False(SprintReportRules.CountsAsNotPlanned(reopened, sprint,
+        Assert.Null(SprintReportRules.UnplannedKind(reopened, sprint,
             [Change(reopened, Oct(31), TaskItemStatus.Todo, TaskItemStatus.Done), Change(reopened, Oct(31, 12), TaskItemStatus.Done, TaskItemStatus.Todo)]));
-        Assert.False(SprintReportRules.CountsAsNotPlanned(reopened, sprint,
+        Assert.Null(SprintReportRules.UnplannedKind(reopened, sprint,
             [Change(reopened, Oct(24), TaskItemStatus.Todo, TaskItemStatus.Cancelled)])); // closed, but not Done
         // On the Backlog, or in another sprint, work is never Not Planned, whatever happened to it in the window.
-        Assert.False(SprintReportRules.CountsAsNotPlanned(Task(false, inBacklog: true, created: Oct(20), sprint: 60), sprint));
-        Assert.False(SprintReportRules.CountsAsNotPlanned(Task(false, OtherSprintId, created: Oct(20), sprint: 60), sprint));
+        Assert.Equal(SprintWorkKind.Backlog, SprintReportRules.UnplannedKind(Task(false, inBacklog: true, created: Oct(20), sprint: 60), sprint));
+        Assert.Equal(SprintWorkKind.OtherSprint, SprintReportRules.UnplannedKind(Task(false, OtherSprintId, created: Oct(20), sprint: 60), sprint));
 
         var counted = NotPlanned(created: Oct(22));
         var backlog = Task(false, inBacklog: true, created: Oct(22), sprint: 30);
         var elsewhere = Task(false, OtherSprintId, sprint: 30);
         var quiet = NotPlanned(created: Oct(1));
         var r = Build(sprint, [counted, backlog, elsewhere, quiet]);
-        var group = Assert.Single(r.Rows);
-        Assert.Equal(SprintGroupKind.NotPlanned, group.Kind);
-        Assert.Equal(counted.Task.Id, Assert.Single(group.TaskRows).TaskId);
+        // The Backlog task worked on (RPT-037) and the other sprint's (RPT-038) are in groups of their own, never the Not Planned one.
+        Assert.Equal([SprintGroupKind.NotPlanned, SprintGroupKind.Backlog, SprintGroupKind.OtherSprint], r.Rows.Select(g => g.Kind));
+        Assert.Equal(counted.Task.Id, Assert.Single(r.Rows[0].TaskRows).TaskId);
+        Assert.Equal(backlog.Task.Id, Assert.Single(r.Rows[1].TaskRows).TaskId);
+        Assert.Equal(elsewhere.Task.Id, Assert.Single(r.Rows[2].TaskRows).TaskId);
+    }
+
+    /// <summary>
+    /// RPT-037: a Backlog task counts as Backlog work when it is on the Backlog now and was set to Done or logged against in the
+    /// window, its first and last days included - done in it and reopened since too - but not when it was only created in it, or
+    /// cancelled, and a task the sprint itself returned to the Backlog stays one of its planned tasks.
+    /// </summary>
+    [Fact]
+    public void Backlog_work_is_matched_to_the_sprint_by_work_done()
+    {
+        var sprint = Sprint();
+        Assert.Equal(SprintWorkKind.Backlog, SprintReportRules.UnplannedKind(Backlog(sprint: 30), sprint));
+        Assert.Equal(SprintWorkKind.Backlog, SprintReportRules.UnplannedKind(Backlog(TaskItemStatus.Done, completed: Oct(19, 0)), sprint));
+        Assert.Equal(SprintWorkKind.Backlog, SprintReportRules.UnplannedKind(
+            Backlog(TaskItemStatus.Done, completed: new DateTime(2026, 10, 30, 23, 59, 0, DateTimeKind.Utc)), sprint));
+        var reopened = Backlog();
+        Assert.Equal(SprintWorkKind.Backlog, SprintReportRules.UnplannedKind(reopened, sprint,
+            [Change(reopened, Oct(24), TaskItemStatus.Todo, TaskItemStatus.Done), Change(reopened, Oct(31), TaskItemStatus.Done, TaskItemStatus.Todo)]));
+
+        Assert.Null(SprintReportRules.UnplannedKind(Backlog(created: Oct(22)), sprint)); // only created in it
+        Assert.Null(SprintReportRules.UnplannedKind(Backlog(), sprint)); // nothing in the window
+        Assert.Null(SprintReportRules.UnplannedKind(Backlog(TaskItemStatus.Done, completed: Oct(31, 0)), sprint)); // the day after
+        Assert.Null(SprintReportRules.UnplannedKind(Backlog(TaskItemStatus.Done, completed: Oct(18, 23)), sprint)); // the day before
+        Assert.Null(SprintReportRules.UnplannedKind(reopened, sprint,
+            [Change(reopened, Oct(24), TaskItemStatus.Todo, TaskItemStatus.Cancelled)])); // closed, but not Done
+        // Not Planned work, and work in a sprint, is never Backlog work.
+        Assert.Equal(SprintWorkKind.NotPlanned, SprintReportRules.UnplannedKind(NotPlanned(sprint: 30), sprint));
+        Assert.Equal(SprintWorkKind.OtherSprint, SprintReportRules.UnplannedKind(Task(false, OtherSprintId, sprint: 30), sprint));
+
+        // Once the sprint has ended, a task it returned to the Backlog is still its own planned work, Left open → Backlog.
+        var completedAt = new DateTime(2026, 10, 31, 8, 0, 0, DateTimeKind.Utc);
+        var returned = Backlog(sprint: 45);
+        var picked = Backlog(sprint: 20);
+        var r = Build(Sprint(SprintStatus.Completed, completedAt), [returned, picked],
+            completions: [new(SprintId, completedAt, null, [returned.Task.Id])], asAt: completedAt);
+        Assert.Equal([SprintGroupKind.NoProject, SprintGroupKind.Backlog], r.Rows.Select(g => g.Kind));
+        Assert.Equal((SprintTaskOutcome.LeftOpen, "Backlog"), (Row(r, returned).Outcome, Row(r, returned).LeftOpenTo));
+        Assert.Equal(picked.Task.Id, Assert.Single(r.Rows[1].TaskRows).TaskId);
+    }
+
+    /// <summary>
+    /// RPT-037: the Backlog tasks worked on are a group of their own after the Not Planned work, named "From the Backlog" - a
+    /// task's project naming it without adding a row or a project option, its assignees joining the assignee options, the filters
+    /// picking it - and with the Not Planned work they are the unplanned work: the summary, the people and the days set their
+    /// time apart, and the unplanned share covers both.
+    /// </summary>
+    [Fact]
+    public void Backlog_work_done_in_the_sprint_has_its_own_group()
+    {
+        var planned = Task(project: Alpha, status: TaskItemStatus.Done, assignees: [Alice], estimate: 60, sprint: 60, total: 60, completed: Oct(22));
+        var support = NotPlanned(assignees: [Bob], sprint: 30, total: 30);
+        var pulledIn = Backlog(TaskItemStatus.Done, project: Gamma, assignees: [Carol], estimate: 120, sprint: 90, total: 150, completed: Oct(27));
+        var started = Backlog(project: Beta, assignees: [Alice], sprint: 20, total: 20);
+        SprintPersonTime[] time =
+        [
+            new(planned.Task.Id, Alice, 60, 60), new(support.Task.Id, Bob, 30, 30), new(pulledIn.Task.Id, Carol, 90, 150),
+            new(started.Task.Id, Alice, 20, 20)
+        ];
+        SprintDayTime[] days =
+        [
+            new(planned.Task.Id, Start, 60), new(support.Task.Id, Start, 30), new(pulledIn.Task.Id, Start, 90),
+            new(started.Task.Id, End, 20)
+        ];
+        SprintTaskFacts[] tasks = [planned, support, pulledIn, started];
+        var r = Build(Sprint(), tasks, time, days);
+
+        Assert.Equal(
+            [(SprintGroupKind.Project, "Alpha"), (SprintGroupKind.NotPlanned, "Not Planned"), (SprintGroupKind.Backlog, "From the Backlog")],
+            r.Rows.Select(g => (g.Kind, g.Name)).ToList());
+        Assert.Equal("Backlog", r.Rows[2].Key);
+        Assert.Equal([false, true, true], r.Rows.Select(g => g.IsUnplanned));
+        var group = r.Rows[2];
+        Assert.Equal(new SprintTaskCounts(2, 1, 1, 0, 0, 0, 1), group.Tasks);
+        Assert.Equal((110, 170), (group.SprintMinutes, group.ToDateMinutes));
+        Assert.Equal("P-26-00003 Gamma", Row(r, pulledIn).ProjectLabel);
+        Assert.Equal([Alpha], r.ProjectOptions); // a Backlog task's project is not one of the sprint's
+        Assert.Equal(["Alice", "Bob", "Carol"], r.AssigneeOptions.Select(p => p.Name));
+
+        var s = r.Summary;
+        Assert.True(s.HasBacklog);
+        Assert.Equal(new SprintTaskCounts(2, 1, 1, 0, 0, 0, 1), s.Backlog.Tasks);
+        Assert.Equal(4, s.All.Total);
+        Assert.Equal((60, 30, 90 + 20), (s.Planned.SprintMinutes, s.NotPlanned.SprintMinutes, s.Backlog.SprintMinutes));
+        Assert.Equal(200, s.SprintMinutes);
+        Assert.Equal(260, s.ToDateMinutes);
+        Assert.Equal(140, s.UnplannedSprintMinutes);
+        Assert.Equal(70, s.UnplannedPercent); // 140 of 200
+        Assert.Equal(new EstimateComparison(1, 120, 150, 1), s.Backlog.Estimate);
+        Assert.Equal(new EstimateComparison(2, 180, 210, 1), s.AllEstimate);
+
+        Assert.Equal(
+            [
+                new SprintImpactRow(Carol, "Carol", 0, 0, new(0, 0, 1, 0), new(0, 0, 90, 0)),
+                new SprintImpactRow(Alice, "Alice", 1, 0, new(1, 0, 1, 0), new(60, 0, 20, 0)),
+                new SprintImpactRow(Bob, "Bob", 0, 0, new(0, 1, 0, 0), new(0, 30, 0, 0))
+            ],
+            r.People);
+        Assert.Equal(100, r.People[0].UnplannedPercent);
+        Assert.Equal(25, r.People[1].UnplannedPercent); // 20 of 80
+        Assert.Equal((Start, new SprintKindCounts(60, 30, 90, 0)), (r.Days[0].Date, r.Days[0].Minutes));
+        Assert.Equal((End, new SprintKindCounts(0, 0, 20, 0)), (r.Days[^1].Date, r.Days[^1].Minutes));
+        Assert.Equal(180, r.Days[0].Minutes.Total);
+
+        var byProject = Build(Sprint(), tasks, time, days, projectId: Gamma.Id);
+        Assert.Equal([pulledIn.Task.Id], byProject.Rows.SelectMany(g => g.TaskRows).Select(x => x.TaskId));
+        var byPerson = Build(Sprint(), tasks, time, days, assigneeId: Alice);
+        Assert.Equal([planned.Task.Id, started.Task.Id], byPerson.Rows.SelectMany(g => g.TaskRows).Select(x => x.TaskId));
+        Assert.Equal((Start, new SprintKindCounts(60, 0, 0, 0)), (byPerson.Days[0].Date, byPerson.Days[0].Minutes));
+
+        var none = Build(Sprint(), [planned, support], time, days);
+        Assert.False(none.Summary.HasBacklog);
+        Assert.DoesNotContain(none.Rows, g => g.Kind == SprintGroupKind.Backlog);
+    }
+
+    /// <summary>
+    /// RPT-038: another sprint's task counts as other-sprint work when it was set to Done or logged against in the window, its first and
+    /// last days included - done in it and reopened since too - whichever sprint it is in: a later one, worked on ahead, or an earlier
+    /// one, a finished task reopened or logged against. Not when it was only created in it, or cancelled; never a task of this sprint,
+    /// Not Planned or Backlog work; and a task this sprint handed on to the next stays one of its planned tasks. The later sprints are
+    /// those that start after this one, whatever they are now: a task in one is Planned for it, in any other From it.
+    /// </summary>
+    [Fact]
+    public void Other_sprint_work_is_matched_to_the_sprint_by_work_done()
+    {
+        var sprint = Sprint();
+        static SprintFacts S(Guid id, DateOnly start, SprintStatus status) => new(id, "S", null, start, start.AddDays(11), status, null);
+        Assert.Equal([NextSprintId], SprintReportRules.LaterSprints(
+            [sprint, S(PreviousSprintId, Start.AddDays(-14), SprintStatus.Completed), S(NextSprintId, End.AddDays(1), SprintStatus.Planned),
+             S(OtherSprintId, Start.AddDays(-60), SprintStatus.Completed)], sprint));
+
+        Assert.Equal(SprintWorkKind.OtherSprint, SprintReportRules.UnplannedKind(Ahead(sprint: 30), sprint));
+        Assert.Equal(SprintWorkKind.OtherSprint, SprintReportRules.UnplannedKind(Ahead(TaskItemStatus.Done, completed: Oct(19, 0)), sprint));
+        Assert.Equal(SprintWorkKind.OtherSprint, SprintReportRules.UnplannedKind(
+            Ahead(TaskItemStatus.Done, completed: new DateTime(2026, 10, 30, 23, 59, 0, DateTimeKind.Utc)), sprint));
+        var reopened = Ahead();
+        Assert.Equal(SprintWorkKind.OtherSprint, SprintReportRules.UnplannedKind(reopened, sprint,
+            [Change(reopened, Oct(24), TaskItemStatus.Todo, TaskItemStatus.Done), Change(reopened, Oct(31), TaskItemStatus.Done, TaskItemStatus.Todo)]));
+        // An earlier sprint's finished task, logged against now - or reopened and done again in the window.
+        Assert.Equal(SprintWorkKind.OtherSprint, SprintReportRules.UnplannedKind(Task(false, PreviousSprintId, status: TaskItemStatus.Done, sprint: 30, completed: Oct(10)), sprint));
+        var redone = Task(false, PreviousSprintId, status: TaskItemStatus.Done, completed: Oct(25));
+        Assert.Equal(SprintWorkKind.OtherSprint, SprintReportRules.UnplannedKind(redone, sprint));
+
+        Assert.Null(SprintReportRules.UnplannedKind(Ahead(created: Oct(22)), sprint)); // only created in it
+        Assert.Null(SprintReportRules.UnplannedKind(Ahead(), sprint)); // nothing in the window
+        Assert.Null(SprintReportRules.UnplannedKind(Task(false, PreviousSprintId, status: TaskItemStatus.Done, completed: Oct(10)), sprint));
+        Assert.Null(SprintReportRules.UnplannedKind(Ahead(TaskItemStatus.Done, completed: Oct(31, 0)), sprint));
+        Assert.Null(SprintReportRules.UnplannedKind(reopened, sprint,
+            [Change(reopened, Oct(24), TaskItemStatus.Todo, TaskItemStatus.Cancelled)])); // closed, but not Done
+        Assert.Null(SprintReportRules.UnplannedKind(Task(sprint: 30), sprint)); // this sprint's own
+        Assert.Equal(SprintWorkKind.NotPlanned, SprintReportRules.UnplannedKind(NotPlanned(sprint: 30), sprint));
+        Assert.Equal(SprintWorkKind.Backlog, SprintReportRules.UnplannedKind(Backlog(sprint: 30), sprint));
+
+        // Once the sprint has ended, the open tasks it rolled forward to Sprint 15 are still its own; other sprints' work is apart.
+        var completedAt = new DateTime(2026, 10, 31, 8, 0, 0, DateTimeKind.Utc);
+        var handedOn = Ahead(sprint: 45);
+        var ahead = Ahead(sprint: 20);
+        var earlier = Task(false, PreviousSprintId, status: TaskItemStatus.Done, sprint: 15, completed: Oct(10));
+        var r = Build(Sprint(SprintStatus.Completed, completedAt), [handedOn, ahead, earlier],
+            completions: [new(SprintId, completedAt, NextSprintId, [handedOn.Task.Id])], asAt: completedAt, laterSprintIds: [NextSprintId]);
+        Assert.Equal([SprintGroupKind.NoProject, SprintGroupKind.OtherSprint], r.Rows.Select(g => g.Kind));
+        Assert.Equal((SprintTaskOutcome.LeftOpen, "Sprint 15", (string?)null),
+            (Row(r, handedOn).Outcome, Row(r, handedOn).LeftOpenTo, Row(r, handedOn).OtherSprint));
+        Assert.Equal(("Sprint 15", true), (Row(r, ahead).OtherSprint, Row(r, ahead).OtherSprintIsLater));
+        Assert.Equal(("Sprint 13", false), (Row(r, earlier).OtherSprint, Row(r, earlier).OtherSprintIsLater));
+        Assert.Equal("Planned for Sprint 15 · No estimate", ReportText.Note(Row(r, ahead)));
+        // Finished in Sprint 13 and only logged against in this one (RPT-039).
+        Assert.Equal("From Sprint 13 · Done before the sprint · No estimate", ReportText.Note(Row(r, earlier)));
+    }
+
+    /// <summary>
+    /// RPT-038: other sprints' tasks worked on are a group of their own after the Backlog work, named "From another sprint", each
+    /// naming its sprint - a task's project naming it without adding a row or a project option, its assignees joining the assignee
+    /// options, the filters picking it - and they are unplanned work: the summary, the people and the days set their time apart, and
+    /// the unplanned share covers Not Planned, Backlog and other-sprint work.
+    /// </summary>
+    [Fact]
+    public void Other_sprint_work_done_in_the_sprint_has_its_own_group()
+    {
+        var planned = Task(project: Alpha, assignees: [Alice], sprint: 60, total: 60);
+        var support = NotPlanned(assignees: [Bob], sprint: 30, total: 30);
+        var pulledIn = Backlog(project: Beta, assignees: [Bob], sprint: 15, total: 15);
+        var ahead = Ahead(TaskItemStatus.Done, project: Gamma, assignees: [Carol], estimate: 60, sprint: 45, total: 45, completed: Oct(28));
+        var started = Ahead(assignees: [Alice], sprint: 30, total: 50);
+        SprintPersonTime[] time =
+        [
+            new(planned.Task.Id, Alice, 60, 60), new(support.Task.Id, Bob, 30, 30), new(pulledIn.Task.Id, Bob, 15, 15),
+            new(ahead.Task.Id, Carol, 45, 45), new(started.Task.Id, Alice, 30, 50)
+        ];
+        SprintDayTime[] days =
+        [
+            new(planned.Task.Id, Start, 60), new(support.Task.Id, Start, 30), new(pulledIn.Task.Id, Start, 15),
+            new(started.Task.Id, Start, 30), new(ahead.Task.Id, End, 45)
+        ];
+        SprintTaskFacts[] tasks = [planned, support, pulledIn, ahead, started];
+        Guid[] later = [NextSprintId];
+        var r = Build(Sprint(), tasks, time, days, laterSprintIds: later);
+
+        Assert.Equal(
+            [
+                (SprintGroupKind.Project, "Alpha"), (SprintGroupKind.NotPlanned, "Not Planned"), (SprintGroupKind.Backlog, "From the Backlog"),
+                (SprintGroupKind.OtherSprint, "From another sprint")
+            ],
+            r.Rows.Select(g => (g.Kind, g.Name)).ToList());
+        Assert.Equal("OtherSprint", r.Rows[3].Key);
+        Assert.Equal([false, true, true, true], r.Rows.Select(g => g.IsUnplanned));
+        var group = r.Rows[3];
+        Assert.Equal(new SprintTaskCounts(2, 1, 1, 0, 0, 0, 1), group.Tasks);
+        Assert.Equal((75, 95), (group.SprintMinutes, group.ToDateMinutes));
+        Assert.Equal(("Sprint 15", "P-26-00003 Gamma"), (Row(r, ahead).OtherSprint, Row(r, ahead).ProjectLabel));
+        Assert.Equal("Planned for Sprint 15", ReportText.Note(Row(r, ahead)));
+        Assert.Equal("Planned for Sprint 15 · No estimate", ReportText.Note(Row(r, started)));
+        Assert.Null(Row(r, pulledIn).OtherSprint);
+        Assert.Equal([Alpha], r.ProjectOptions);
+        Assert.Equal(["Alice", "Bob", "Carol"], r.AssigneeOptions.Select(p => p.Name));
+
+        var s = r.Summary;
+        Assert.True(s.HasOtherSprint);
+        Assert.Equal(new SprintTaskCounts(2, 1, 1, 0, 0, 0, 1), s.OtherSprint.Tasks);
+        Assert.Equal((60, 30, 15, 75), (s.Planned.SprintMinutes, s.NotPlanned.SprintMinutes, s.Backlog.SprintMinutes, s.OtherSprint.SprintMinutes));
+        Assert.Equal(180, s.SprintMinutes);
+        Assert.Equal(200, s.ToDateMinutes);
+        Assert.Equal(120, s.UnplannedSprintMinutes);
+        Assert.Equal(67, s.UnplannedPercent); // 120 of 180
+        Assert.Equal(new EstimateComparison(1, 60, 45, 0), s.OtherSprint.Estimate);
+        Assert.Equal(5, s.All.Total);
+        Assert.Equal([SprintWorkKind.NotPlanned, SprintWorkKind.Backlog, SprintWorkKind.OtherSprint], s.Unplanned);
+
+        Assert.Equal(
+            [
+                new SprintImpactRow(Alice, "Alice", 0, 1, new(1, 0, 0, 1), new(60, 0, 0, 30)),
+                new SprintImpactRow(Bob, "Bob", 0, 0, new(0, 1, 1, 0), new(0, 30, 15, 0)),
+                new SprintImpactRow(Carol, "Carol", 0, 0, new(0, 0, 0, 1), new(0, 0, 0, 45))
+            ],
+            r.People);
+        Assert.Equal(33, r.People[0].UnplannedPercent); // 30 of 90
+        Assert.Equal((1, 30), (r.People[0].Tasks.OtherSprint, r.People[0].Minutes.OtherSprint));
+        Assert.Equal((Start, new SprintKindCounts(60, 30, 15, 30)), (r.Days[0].Date, r.Days[0].Minutes));
+        Assert.Equal((End, new SprintKindCounts(0, 0, 0, 45)), (r.Days[^1].Date, r.Days[^1].Minutes));
+        Assert.Equal(30, r.Days[0].Minutes.Of(SprintWorkKind.OtherSprint));
+
+        var byProject = Build(Sprint(), tasks, time, days, projectId: Gamma.Id, laterSprintIds: later);
+        Assert.Equal([ahead.Task.Id], byProject.Rows.SelectMany(g => g.TaskRows).Select(x => x.TaskId));
+        var byPerson = Build(Sprint(), tasks, time, days, assigneeId: Alice, laterSprintIds: later);
+        Assert.Equal([planned.Task.Id, started.Task.Id], byPerson.Rows.SelectMany(g => g.TaskRows).Select(x => x.TaskId));
+
+        // Whether a sprint is later only words the note: not among the later sprints, the same tasks are From it.
+        var notLater = Build(Sprint(), tasks, time, days);
+        Assert.True(notLater.Summary.HasOtherSprint);
+        Assert.Equal("From Sprint 15", ReportText.Note(Row(notLater, ahead)));
+
+        var none = Build(Sprint(), [planned, support, pulledIn], time, days);
+        Assert.False(none.Summary.HasOtherSprint);
+        Assert.DoesNotContain(none.Rows, g => g.Kind == SprintGroupKind.OtherSprint);
+        Assert.Equal([SprintWorkKind.NotPlanned, SprintWorkKind.Backlog], none.Summary.Unplanned);
+    }
+
+    /// <summary>
+    /// RPT-039: a planned task that was already Done when the sprint started, and hasn't changed since, is marked Done before the
+    /// sprint, its counts as they are; not one done in the window, one reopened and done again in it, or one the sprint handed on.
+    /// A change after a completed sprint's end doesn't undo the mark.
+    /// </summary>
+    [Fact]
+    public void A_planned_task_done_before_the_sprint_is_marked_and_keeps_its_counts()
+    {
+        var sprint = Sprint();
+        Assert.True(SprintReportRules.DoneBeforeSprint(TaskItemStatus.Done, [], sprint, AsAt));
+        Assert.True(SprintReportRules.DoneBeforeSprint(TaskItemStatus.Done, [], sprint, AsAt, Oct(10)));
+        Assert.False(SprintReportRules.DoneBeforeSprint(TaskItemStatus.InProgress, [], sprint, AsAt));
+        // Completed in the window with no change to show it: finished in the sprint (RPT-040's FinishedOn), not before it.
+        Assert.False(SprintReportRules.DoneBeforeSprint(TaskItemStatus.Done, [], sprint, AsAt, Oct(22)));
+        var completedInSprint = Task(status: TaskItemStatus.Done, completed: Oct(22));
+        Assert.False(Row(Build(sprint, [completedInSprint]), completedInSprint).DoneBeforeSprint);
+
+        var early = Task(status: TaskItemStatus.Done, completed: Oct(10));
+        var inSprint = Task(status: TaskItemStatus.Done, completed: Oct(22));
+        var redone = Task(status: TaskItemStatus.Done, completed: Oct(24));
+        var open = Task();
+        SprintStatusChange[] changes =
+        [
+            Change(inSprint, Oct(22), TaskItemStatus.InProgress, TaskItemStatus.Done),
+            Change(redone, Oct(20), TaskItemStatus.Done, TaskItemStatus.InProgress), Change(redone, Oct(24), TaskItemStatus.InProgress, TaskItemStatus.Done)
+        ];
+        Assert.False(SprintReportRules.DoneBeforeSprint(TaskItemStatus.Done, changes.Where(c => c.TaskId == inSprint.Task.Id), sprint, AsAt));
+        Assert.False(SprintReportRules.DoneBeforeSprint(TaskItemStatus.Done, changes.Where(c => c.TaskId == redone.Task.Id), sprint, AsAt));
+
+        var r = Build(sprint, [early, inSprint, redone, open], changes: changes);
+        Assert.True(Row(r, early).DoneBeforeSprint);
+        Assert.StartsWith("Done before the sprint", ReportText.Note(Row(r, early)));
+        Assert.False(Row(r, inSprint).DoneBeforeSprint);
+        Assert.False(Row(r, redone).DoneBeforeSprint);
+        Assert.False(Row(r, open).DoneBeforeSprint);
+        Assert.Equal(new SprintTaskCounts(4, 3, 1, 0, 0, 0, 1, DoneBeforeSprint: 1), r.Summary.Planned.Tasks); // the counts are as they were
+
+        // A completed sprint: reopened after it ended still reads Done before the sprint; one it handed on never does.
+        var completedAt = new DateTime(2026, 10, 31, 8, 0, 0, DateTimeKind.Utc);
+        var reopenedSince = Task(status: TaskItemStatus.Todo);
+        var handedOn = Task(status: TaskItemStatus.Done, completed: Oct(10));
+        var ended = Build(Sprint(SprintStatus.Completed, completedAt), [reopenedSince, handedOn],
+            completions: [new(SprintId, completedAt, NextSprintId, [handedOn.Task.Id])], asAt: completedAt,
+            changes: [Change(reopenedSince, new DateTime(2026, 11, 2, 9, 0, 0, DateTimeKind.Utc), TaskItemStatus.Done, TaskItemStatus.Todo)]);
+        Assert.True(Row(ended, reopenedSince).DoneBeforeSprint);
+        Assert.True(Row(ended, reopenedSince).ReopenedSince);
+        Assert.False(Row(ended, handedOn).DoneBeforeSprint);
+    }
+
+    /// <summary>
+    /// RPT-039: an unplanned task already Done when the sprint started, and only logged against in it - an earlier sprint's, a
+    /// Backlog task or Not Planned work - is marked Done before the sprint too, its outcome Done and its counts as they are, and it
+    /// isn't counted as finished on any day; one reopened in the window and done again isn't marked.
+    /// </summary>
+    [Fact]
+    public void An_unplanned_task_done_before_the_sprint_is_marked()
+    {
+        var sprint = Sprint();
+        var earlier = Task(false, PreviousSprintId, status: TaskItemStatus.Done, sprint: 40, completed: Oct(10));
+        var backlog = Backlog(TaskItemStatus.Done, sprint: 20, completed: Oct(12));
+        var notPlanned = NotPlanned(TaskItemStatus.Done, sprint: 15, created: Oct(5), completed: Oct(14));
+        var redone = Task(false, PreviousSprintId, status: TaskItemStatus.Done, sprint: 10, completed: Oct(23));
+        SprintStatusChange[] changes =
+        [
+            Change(redone, Oct(21), TaskItemStatus.Done, TaskItemStatus.InProgress), Change(redone, Oct(23), TaskItemStatus.InProgress, TaskItemStatus.Done)
+        ];
+        var r = Build(sprint, [earlier, backlog, notPlanned, redone], changes: changes);
+
+        foreach (var t in new[] { earlier, backlog, notPlanned })
+        {
+            Assert.True(Row(r, t).DoneBeforeSprint);
+            Assert.Equal(SprintTaskOutcome.Done, Row(r, t).Outcome);
+        }
+        Assert.StartsWith("From Sprint 13 · Done before the sprint", ReportText.Note(Row(r, earlier)));
+        Assert.False(Row(r, redone).DoneBeforeSprint);
+
+        var s = r.Summary;
+        Assert.Equal(new SprintTaskCounts(2, 2, 0, 0, 0, 0, 0, DoneBeforeSprint: 1), s.OtherSprint.Tasks);
+        Assert.Equal(new SprintTaskCounts(1, 1, 0, 0, 0, 0, 0, DoneBeforeSprint: 1), s.Backlog.Tasks);
+        Assert.Equal(new SprintTaskCounts(1, 1, 0, 0, 0, 0, 0, DoneBeforeSprint: 1), s.NotPlanned.Tasks);
+        Assert.Equal(0, s.Planned.Tasks.DoneBeforeSprint);
+        // Only the task done again in the window was finished in it: on the 23rd.
+        Assert.Equal(new SprintKindCounts(0, 0, 0, 1), Assert.Single(r.Days, d => d.Finished.Total > 0).Finished);
+        Assert.Equal(new DateOnly(2026, 10, 23), Assert.Single(r.Days, d => d.Finished.Total > 0).Date);
+    }
+
+    /// <summary>
+    /// RPT-040: a task is finished on the last day in the window, up to the as-at time, that it was set to Done - done twice, the later
+    /// day; done and reopened since, still its day; failing a change, its completion time - and not at all when that was before the
+    /// window or only after it. The day rows count each kind's finished tasks.
+    /// </summary>
+    [Fact]
+    public void Tasks_per_day_count_each_task_once_on_the_day_it_was_finished()
+    {
+        var sprint = Sprint();
+        var twice = Task(status: TaskItemStatus.Done, completed: Oct(27));
+        SprintStatusChange[] twiceChanges =
+        [
+            Change(twice, Oct(21), TaskItemStatus.InProgress, TaskItemStatus.Done), Change(twice, Oct(22), TaskItemStatus.Done, TaskItemStatus.InProgress),
+            Change(twice, Oct(27), TaskItemStatus.InProgress, TaskItemStatus.Done)
+        ];
+        Assert.Equal(new DateOnly(2026, 10, 27), SprintReportRules.FinishedOn(twice, twiceChanges, sprint, AsAt));
+        Assert.Equal(new DateOnly(2026, 10, 21), SprintReportRules.FinishedOn(twice, twiceChanges, sprint, Oct(24))); // as at the 24th
+
+        var reopened = Task(status: TaskItemStatus.InProgress);
+        Assert.Equal(new DateOnly(2026, 10, 23), SprintReportRules.FinishedOn(reopened,
+            [Change(reopened, Oct(23), TaskItemStatus.InProgress, TaskItemStatus.Done), Change(reopened, Oct(25), TaskItemStatus.Done, TaskItemStatus.Todo)],
+            sprint, AsAt));
+        Assert.Equal(new DateOnly(2026, 10, 20), SprintReportRules.FinishedOn(Task(status: TaskItemStatus.Done, completed: Oct(20)), [], sprint, AsAt));
+        Assert.Null(SprintReportRules.FinishedOn(Task(status: TaskItemStatus.Done, completed: Oct(10)), [], sprint, AsAt)); // before it
+        Assert.Null(SprintReportRules.FinishedOn(Task(status: TaskItemStatus.Done, completed: Oct(31, 1)), [], sprint, AsAt)); // after it
+        Assert.Null(SprintReportRules.FinishedOn(Task(), [], sprint, AsAt));
+        var cancelled = Task(status: TaskItemStatus.Cancelled);
+        Assert.Null(SprintReportRules.FinishedOn(cancelled, [Change(cancelled, Oct(24), TaskItemStatus.InProgress, TaskItemStatus.Cancelled)], sprint, AsAt));
+
+        var plannedDone = Task(status: TaskItemStatus.Done, completed: Oct(20));
+        var support = NotPlanned(TaskItemStatus.Done, completed: Oct(20, 15));
+        var pulledIn = Backlog(TaskItemStatus.Done, completed: Oct(22));
+        var ahead = Ahead(TaskItemStatus.Done, completed: Oct(22));
+        var early = Task(status: TaskItemStatus.Done, completed: Oct(10));
+        var r = Build(sprint, [plannedDone, support, pulledIn, ahead, early, twice], changes: twiceChanges, laterSprintIds: [NextSprintId]);
+        Assert.Equal(new SprintKindCounts(1, 1, 0, 0), r.Days[1].Finished); // the 20th
+        Assert.Equal(new SprintKindCounts(0, 0, 1, 1), r.Days[3].Finished); // the 22nd
+        Assert.Equal(new SprintKindCounts(1, 0, 0, 0), r.Days[8].Finished); // the 27th: done twice, counted once
+        Assert.Equal(5, r.Days.Sum(d => d.Finished.Total)); // the one done before the sprint isn't counted
+        Assert.Equal(SprintKindCounts.None, r.Days[2].Finished); // the 21st: done then, but done again later
+    }
+
+    /// <summary>
+    /// RPT-040: each person's tasks by outcome take every kind of work and cancelled tasks too, a shared task for each assignee, in the
+    /// people rows' order - by time in the sprint - with someone assigned only to cancelled tasks after them and Unassigned last.
+    /// </summary>
+    [Fact]
+    public void Tasks_by_person_count_every_task_each_assignee_has()
+    {
+        var shared = Task(project: Alpha, status: TaskItemStatus.Done, assignees: [Alice, Bob], completed: Oct(22));
+        var bobs = Task(assignees: [Bob], sprint: 120);
+        var dropped = Task(status: TaskItemStatus.Cancelled, assignees: [Carol]);
+        var support = NotPlanned(assignees: [Alice], sprint: 30);
+        var nobodys = Task();
+        SprintPersonTime[] time = [new(bobs.Task.Id, Bob, 120, 120), new(support.Task.Id, Alice, 30, 30)];
+        var r = Build(Sprint(), [shared, bobs, dropped, support, nobodys], time);
+
+        Assert.Equal(["Bob", "Alice", "Unassigned"], r.People.Select(p => p.Name)); // Carol has only a cancelled task
+        Assert.Equal(
+            [
+                new SprintPersonTasks(Bob, "Bob", 1, 1, 0),
+                new SprintPersonTasks(Alice, "Alice", 1, 1, 0),
+                new SprintPersonTasks(Carol, "Carol", 0, 0, 1),
+                new SprintPersonTasks(null, "Unassigned", 0, 1, 0)
+            ],
+            r.PersonTasks);
+        Assert.Equal(2, r.PersonTasks[0].Total);
+        Assert.Empty(SprintStatusReport.Empty(AsAt).PersonTasks);
+    }
+
+    /// <summary>
+    /// RPT-041: every task logged against or set to Done in the window is in exactly one row, wherever it is - in the sprint, handed on
+    /// by it, Not Planned, on the Backlog, in a later sprint, in an earlier one or in one starting the same day - so the report's time in
+    /// the sprint is all the time logged in its window; a task with nothing in the window (or only created on the Backlog) is in none.
+    /// </summary>
+    [Fact]
+    public void Every_task_worked_on_in_the_window_is_in_exactly_one_row()
+    {
+        var completedAt = new DateTime(2026, 10, 31, 8, 0, 0, DateTimeKind.Utc);
+        var inSprint = Task(sprint: 30);
+        var handedOn = Ahead(sprint: 30);
+        var notPlanned = NotPlanned(created: Oct(1), sprint: 30);
+        var backlog = Backlog(sprint: 30);
+        var later = Ahead(sprint: 30);
+        var earlier = Task(false, PreviousSprintId, status: TaskItemStatus.Done, completed: Oct(10), sprint: 30); // reopened? logged against
+        var redoneEarlier = Task(false, PreviousSprintId, status: TaskItemStatus.Done, completed: Oct(27)); // done again, no time
+        var sameStart = Task(false, OtherSprintId, sprint: 30); // not a later sprint
+        (SprintTaskFacts Task, SprintGroupKind Kind)[] worked =
+        [
+            (inSprint, SprintGroupKind.NoProject), (handedOn, SprintGroupKind.NoProject), (notPlanned, SprintGroupKind.NotPlanned),
+            (backlog, SprintGroupKind.Backlog), (later, SprintGroupKind.OtherSprint), (earlier, SprintGroupKind.OtherSprint),
+            (redoneEarlier, SprintGroupKind.OtherSprint), (sameStart, SprintGroupKind.OtherSprint)
+        ];
+        SprintTaskFacts[] quiet =
+        [
+            Backlog(created: Oct(22)), NotPlanned(created: Oct(1)), Ahead(), Task(false, PreviousSprintId, status: TaskItemStatus.Done, completed: Oct(10))
+        ];
+        var time = worked.Where(w => w.Task.SprintMinutes > 0).Select(w => new SprintPersonTime(w.Task.Task.Id, Alice, 30, 30)).ToArray();
+
+        var r = Build(Sprint(SprintStatus.Completed, completedAt), [.. worked.Select(w => w.Task), .. quiet], time,
+            completions: [new(SprintId, completedAt, NextSprintId, [handedOn.Task.Id])], asAt: completedAt, laterSprintIds: [NextSprintId]);
+
+        var rows = r.Rows.SelectMany(g => g.TaskRows.Select(x => (x.TaskId, g.Kind))).ToList();
+        foreach (var (task, kind) in worked)
+            Assert.Equal(kind, Assert.Single(rows, x => x.TaskId == task.Task.Id).Kind);
+        foreach (var task in quiet)
+            Assert.DoesNotContain(rows, x => x.TaskId == task.Task.Id);
+        Assert.Equal(time.Sum(t => t.SprintMinutes), r.Summary.SprintMinutes); // all the time logged in the window
+        Assert.Equal(r.Summary.SprintMinutes, r.People.Sum(p => p.SprintMinutes));
     }
 
     /// <summary>RPT-024: while the sprint runs, outcomes are the tasks' status as at the as-at time; nothing has gone anywhere yet.</summary>
@@ -172,8 +638,8 @@ public class SprintReportRulesTests
         Assert.Null(r.LeftOpenTo);
         Assert.All(r.Rows.SelectMany(g => g.TaskRows), x => Assert.Null(x.LeftOpenTo));
         Assert.All(r.Rows.SelectMany(g => g.TaskRows), x => Assert.False(x.ReopenedSince));
-        Assert.Equal(new SprintTaskCounts(3, 1, 1, 1, 0, 0, 1), r.Summary.Planned);
-        Assert.Equal(new SprintTaskCounts(2, 1, 1, 0, 0, 0, 1), r.Summary.NotPlanned);
+        Assert.Equal(new SprintTaskCounts(3, 1, 1, 1, 0, 0, 1), r.Summary.Planned.Tasks);
+        Assert.Equal(new SprintTaskCounts(2, 1, 1, 0, 0, 0, 1), r.Summary.NotPlanned.Tasks);
     }
 
     /// <summary>
@@ -212,7 +678,7 @@ public class SprintReportRulesTests
         Assert.True(reopenedRow.ReopenedSince);
         Assert.Equal("Sprint 13", Row(r, carriedIn).CarriedInFrom);
         Assert.DoesNotContain(r.Rows.SelectMany(g => g.TaskRows), x => x.TaskId == unrelated.Task.Id);
-        Assert.Equal(new SprintTaskCounts(4, 2, 2, 0, 1, 0, 2), r.Summary.Planned);
+        Assert.Equal(new SprintTaskCounts(4, 2, 2, 0, 1, 0, 2), r.Summary.Planned.Tasks);
 
         // Completed without a successor: the open tasks went back to the Backlog.
         var returned = Task(planned: false, inBacklog: true);
@@ -262,8 +728,8 @@ public class SprintReportRulesTests
         var reopened = Row(r, supportReopened);
         Assert.Equal(SprintTaskOutcome.Done, reopened.Outcome);
         Assert.True(reopened.ReopenedSince);
-        Assert.Equal(new SprintTaskCounts(2, 1, 0, 1, 0, 0, 0), r.Summary.Planned);
-        Assert.Equal(new SprintTaskCounts(2, 1, 1, 0, 0, 0, 1), r.Summary.NotPlanned);
+        Assert.Equal(new SprintTaskCounts(2, 1, 0, 1, 0, 0, 0), r.Summary.Planned.Tasks);
+        Assert.Equal(new SprintTaskCounts(2, 1, 1, 0, 0, 0, 1), r.Summary.NotPlanned.Tasks);
     }
 
     /// <summary>
@@ -287,10 +753,10 @@ public class SprintReportRulesTests
         var alpha = Assert.Single(r.Rows);
         Assert.Equal(new SprintTaskCounts(2, 1, 1, 0, 0, 180, 0), alpha.Tasks);
         Assert.Equal(new SprintPersonRow(Alice, "Alice", 2, 1, 1, 2, 300, 0, 0), Assert.Single(alpha.People));
-        Assert.Equal(new SprintImpactRow(Alice, "Alice", 2, 1, 1, 0, 0, 0), Assert.Single(r.People));
-        Assert.Equal(new EstimateComparison(2, 300, 120, 0), r.Summary.PlannedEstimate);
-        Assert.Equal(r.Summary.Planned.Total - r.Summary.Planned.Cancelled, r.People.Sum(p => p.PlannedTasks));
-        Assert.Equal(r.Summary.Planned.LeftOpen, r.People.Sum(p => p.PlannedLeftOpen));
+        Assert.Equal(new SprintImpactRow(Alice, "Alice", 1, 1, new(2, 0, 0, 0), new(0, 0, 0, 0)), Assert.Single(r.People));
+        Assert.Equal(new EstimateComparison(2, 300, 120, 0), r.Summary.Planned.Estimate);
+        Assert.Equal(r.Summary.Planned.Tasks.Total - r.Summary.Planned.Tasks.Cancelled, r.People.Sum(p => p.PlannedTasks));
+        Assert.Equal(r.Summary.Planned.Tasks.LeftOpen, r.People.Sum(p => p.PlannedLeftOpen));
     }
 
     /// <summary>
@@ -385,20 +851,41 @@ public class SprintReportRulesTests
         var r = Build(Sprint(), [shared, open, cancelled, support]);
         var s = r.Summary;
 
-        Assert.Equal(new SprintTaskCounts(3, 1, 1, 1, 0, 0, 0), s.Planned);
-        Assert.Equal(new SprintTaskCounts(1, 1, 0, 0, 0, 0, 0), s.NotPlanned);
+        Assert.Equal(new SprintTaskCounts(3, 1, 1, 1, 0, 0, 0), s.Planned.Tasks);
+        Assert.Equal(new SprintTaskCounts(1, 1, 0, 0, 0, 0, 0), s.NotPlanned.Tasks);
         Assert.Equal(4, s.All.Total);
-        Assert.Equal(130, s.PlannedSprintMinutes);
-        Assert.Equal(60, s.NotPlannedSprintMinutes);
-        Assert.Equal(250, s.PlannedToDateMinutes);
-        Assert.Equal(60, s.NotPlannedToDateMinutes);
-        Assert.Equal(32, s.NotPlannedPercent); // 60 of 190
-        Assert.Equal(new EstimateComparison(2, 180, 240, 2), s.PlannedEstimate);
-        Assert.Equal(EstimateComparison.None, s.NotPlannedEstimate);
+        Assert.Equal(130, s.Planned.SprintMinutes);
+        Assert.Equal(60, s.NotPlanned.SprintMinutes);
+        Assert.Equal(250, s.Planned.ToDateMinutes);
+        Assert.Equal(60, s.NotPlanned.ToDateMinutes);
+        Assert.Equal(32, s.UnplannedPercent); // 60 of 190
+        Assert.Equal(new EstimateComparison(2, 180, 240, 2), s.Planned.Estimate);
+        Assert.Equal(EstimateComparison.None, s.NotPlanned.Estimate);
         Assert.Equal(new EstimateComparison(2, 180, 240, 2), s.AllEstimate);
-        Assert.Equal(33, s.Planned.PercentDone);
+        Assert.Equal(33, s.Planned.Tasks.PercentDone);
 
-        Assert.Null(Build(Sprint(), [Task()]).Summary.NotPlannedPercent); // nothing logged
+        Assert.Null(Build(Sprint(), [Task()]).Summary.UnplannedPercent); // nothing logged
+    }
+
+    /// <summary>
+    /// RPT-027: the PDF's share row splits the unplanned share over its kinds so they add up to it, and planned takes what is left:
+    /// the row adds up to 100%, where rounding each kind on its own needn't.
+    /// </summary>
+    [Fact]
+    public void The_unplanned_share_is_split_over_its_kinds_without_losing_a_point()
+    {
+        // 300 minutes, a third on each unplanned kind: 33% each would make 99%.
+        Assert.Equal(100, SprintReportShare.Percent(300, 300));
+        Assert.Equal([34, 33, 33], SprintReportShare.Apportion(100, [100, 100, 100]));
+        // 15 of 1000 minutes, 5 on each: 2% unplanned, which 0% each would lose.
+        Assert.Equal(2, SprintReportShare.Percent(15, 1000));
+        Assert.Equal([1, 1, 0], SprintReportShare.Apportion(2, [5, 5, 5]));
+        // In proportion, largest remainder first: 70% over 50/30/20 minutes is 35/21/14.
+        Assert.Equal([35, 21, 14], SprintReportShare.Apportion(70, [50, 30, 20]));
+        Assert.Equal([0, 3, 0], SprintReportShare.Apportion(3, [0, 7, 0]));
+        Assert.Equal([0, 0], SprintReportShare.Apportion(0, [0, 0]));
+        Assert.Equal([0, 0], SprintReportShare.Apportion(5, [0, 0]));
+        Assert.Empty(SprintReportShare.Apportion(0, []));
     }
 
     /// <summary>
@@ -431,15 +918,15 @@ public class SprintReportRulesTests
 
         Assert.Equal(
             [
-                new SprintImpactRow(Bob, "Bob", 1, 1, 0, 1, 0, 120),
-                new SprintImpactRow(Alice, "Alice", 2, 1, 1, 0, 80, 0),
-                new SprintImpactRow(Carol, "Carol", 0, 0, 0, 0, 30, 0),
-                new SprintImpactRow(null, "Unassigned", 1, 0, 1, 0, 0, 0)
+                new SprintImpactRow(Bob, "Bob", 1, 0, new(1, 1, 0, 0), new(0, 120, 0, 0)),
+                new SprintImpactRow(Alice, "Alice", 1, 1, new(2, 0, 0, 0), new(80, 0, 0, 0)),
+                new SprintImpactRow(Carol, "Carol", 0, 0, new(0, 0, 0, 0), new(30, 0, 0, 0)),
+                new SprintImpactRow(null, "Unassigned", 0, 1, new(1, 0, 0, 0), new(0, 0, 0, 0))
             ],
             r.People);
-        Assert.Equal(100, r.People[0].NotPlannedPercent);
-        Assert.Equal(0, r.People[1].NotPlannedPercent);
-        Assert.Null(r.People[3].NotPlannedPercent);
+        Assert.Equal(100, r.People[0].UnplannedPercent);
+        Assert.Equal(0, r.People[1].UnplannedPercent);
+        Assert.Null(r.People[3].UnplannedPercent);
     }
 
     /// <summary>RPT-029: the project and assignee filters pick tasks, planned and Not Planned alike, after the options are worked out.</summary>
@@ -476,9 +963,9 @@ public class SprintReportRulesTests
             Task(estimate: 120, total: 30), Task(estimate: 60, total: 90), Task(), Task(),
             Task(status: TaskItemStatus.Done, estimate: 500, completed: Oct(20))
         ]);
-        Assert.Equal(90, r.Summary.Planned.LeftOpenRemainingMinutes);
-        Assert.Equal(2, r.Summary.Planned.LeftOpenUnestimated);
-        Assert.Equal(4, r.Summary.Planned.LeftOpen);
+        Assert.Equal(90, r.Summary.Planned.Tasks.LeftOpenRemainingMinutes);
+        Assert.Equal(2, r.Summary.Planned.Tasks.LeftOpenUnestimated);
+        Assert.Equal(4, r.Summary.Planned.Tasks.LeftOpen);
     }
 
     /// <summary>RPT-031: one day row for every day of the sprint, empty ones too, planned and Not Planned apart, for the tasks picked.</summary>
@@ -498,12 +985,12 @@ public class SprintReportRulesTests
         Assert.Equal(12, r.Days.Count);
         Assert.Equal(Start, r.Days[0].Date);
         Assert.Equal(End, r.Days[^1].Date);
-        Assert.Equal(new SprintDayRow(Start, 90, 45), r.Days[0]);
-        Assert.Equal(new SprintDayRow(Start.AddDays(1), 120, 0), r.Days[1]);
-        Assert.Equal(new SprintDayRow(End, 0, 15), r.Days[^1]);
-        Assert.Equal(0, r.Days[5].Minutes);
+        Assert.Equal((Start, new SprintKindCounts(90, 45, 0, 0)), (r.Days[0].Date, r.Days[0].Minutes));
+        Assert.Equal((Start.AddDays(1), new SprintKindCounts(120, 0, 0, 0)), (r.Days[1].Date, r.Days[1].Minutes));
+        Assert.Equal((End, new SprintKindCounts(0, 15, 0, 0)), (r.Days[^1].Date, r.Days[^1].Minutes));
+        Assert.Equal(0, r.Days[5].Minutes.Total);
 
         var alices = Build(Sprint(), [planned, other, support], days: days, assigneeId: Alice);
-        Assert.Equal(new SprintDayRow(Start.AddDays(1), 0, 0), alices.Days[1]);
+        Assert.Equal((Start.AddDays(1), new SprintKindCounts(0, 0, 0, 0)), (alices.Days[1].Date, alices.Days[1].Minutes));
     }
 }

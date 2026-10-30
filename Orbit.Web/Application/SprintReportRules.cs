@@ -9,8 +9,14 @@ namespace Orbit.Application;
 /// <list type="bullet">
 /// <item>The planned tasks are those in the sprint now, and - once it has ended - the open ones it handed on, which its Completed
 /// audit row lists (<see cref="TryReadCompletion"/>): starting the next sprint moves them without a row of their own.</item>
-/// <item>Not Planned tasks have no sprint, so they are matched by date: Not Planned now, and created, set to Done or logged against
-/// in the sprint's window (<see cref="CountsAsNotPlanned"/>).</item>
+/// <item>The rest are sorted by where they are now, into the three kinds of unplanned work (<see cref="UnplannedKind"/>), each a
+/// group of its own. Not Planned tasks have no sprint, so they are matched by date: created, set to Done or logged against in the
+/// sprint's window. Backlog tasks worked on anyway are matched only by work: set to Done or logged against in the window. So are
+/// the tasks of another sprint - a later one, worked on ahead, or an earlier one, a finished task reopened or logged against. So
+/// every task logged against or set to Done in the window is in one group or another, the department and the filters aside.</item>
+/// <item>A task that was already Done when the sprint started and hasn't changed since is marked, its counts as they are
+/// (<see cref="DoneBeforeSprint"/>): a planned one stayed in the sprint it was planned for, as only open tasks roll forward; an
+/// unplanned one only had time logged in the window.</item>
 /// <item>A task's status is read as at the sprint's completion, or now while it runs, from its recorded status changes
 /// (<see cref="StatusAt"/>), and every figure reads that one status - the outcomes, the people's tasks and the estimates - so later
 /// changes to a task don't rewrite a completed sprint (<see cref="Outcome"/>).</item>
@@ -99,12 +105,66 @@ public static class SprintReportRules
     }
 
     /// <summary>
-    /// A Not Planned task counts in a sprint when it is Not Planned now (in no sprint and not on the Backlog) and was created, set to
-    /// Done or logged against in the sprint's window, first and last days included. <c>ReportingService</c> reads the same in SQL.
+    /// The kind of unplanned work a task is in a sprint, by where it is now, or null when it is none. Each kind counts a task set to
+    /// Done or logged against in the sprint's window, first and last days included:
+    /// <list type="bullet">
+    /// <item><b>Not Planned</b> - in no sprint and not on the Backlog - also counts one created in the window.</item>
+    /// <item><b>Backlog</b> - on the Backlog, in no sprint. Being created in the window isn't enough: a new Backlog item is work to
+    /// plan, not work done.</item>
+    /// <item><b>Other sprint</b> - in any sprint but this one: a later sprint's task worked on ahead, or an earlier one's - a
+    /// finished task stays in the sprint it was finished in, so one reopened or logged against later is still there.</item>
+    /// </list>
+    /// A task in this sprint is none: it is planned. So is one the sprint handed on to the next sprint or returned to the Backlog, so
+    /// <see cref="Build"/> asks only of the tasks that aren't planned. <c>ReportingService</c> reads the same in SQL.
     /// </summary>
-    public static bool CountsAsNotPlanned(SprintTaskFacts t, SprintFacts sprint, IEnumerable<SprintStatusChange>? changes = null) =>
-        t.SprintId is null && !t.InBacklog
-        && ((t.CreatedAt >= sprint.FromUtc && t.CreatedAt < sprint.ToUtc) || DoneInWindow(t, changes ?? [], sprint) || t.SprintMinutes > 0);
+    public static SprintWorkKind? UnplannedKind(SprintTaskFacts t, SprintFacts sprint, IEnumerable<SprintStatusChange>? changes = null)
+    {
+        var worked = DoneInWindow(t, changes ?? [], sprint) || t.SprintMinutes > 0;
+        return t.SprintId switch
+        {
+            Guid s when s == sprint.Id => null,
+            Guid => worked ? SprintWorkKind.OtherSprint : null,
+            null when t.InBacklog => worked ? SprintWorkKind.Backlog : null,
+            null => worked || (t.CreatedAt >= sprint.FromUtc && t.CreatedAt < sprint.ToUtc) ? SprintWorkKind.NotPlanned : null
+        };
+    }
+
+    /// <summary>
+    /// The sprints after <paramref name="sprint"/>: those that start later, whatever they are now (planned, active or completed). An
+    /// other-sprint task in one is *Planned for* it; in any other, *From* it.
+    /// </summary>
+    public static IReadOnlySet<Guid> LaterSprints(IEnumerable<SprintFacts> all, SprintFacts sprint) =>
+        all.Where(s => s.Id != sprint.Id && s.StartDate > sprint.StartDate).Select(s => s.Id).ToHashSet();
+
+    /// <summary>
+    /// A task was already Done when the sprint started and hasn't changed since, up to <paramref name="asAt"/>: work finished before
+    /// the sprint - a planned task that stayed in it because only open tasks roll forward, or an unplanned one only logged against in
+    /// it. <paramref name="changes"/> need only run from the
+    /// sprint's start on, as <c>ReportingService</c> reads them: the status at the start is what the first change after it changed
+    /// from (<see cref="StatusAt"/>). A <paramref name="completedAt"/> in the window, up to the as-at time, says it was finished in the
+    /// sprint even without a change to show it, as <see cref="FinishedOn"/> reads it, so the two never disagree.
+    /// </summary>
+    public static bool DoneBeforeSprint(
+        TaskItemStatus current, IEnumerable<SprintStatusChange> changes, SprintFacts sprint, DateTime asAt, DateTime? completedAt = null)
+    {
+        var list = changes as IReadOnlyCollection<SprintStatusChange> ?? changes.ToList();
+        return StatusAt(current, list, sprint.FromUtc) == TaskItemStatus.Done
+               && !list.Any(c => c.At >= sprint.FromUtc && c.At <= asAt)
+               && !(completedAt is DateTime done && done >= sprint.FromUtc && done < sprint.ToUtc && done <= asAt);
+    }
+
+    /// <summary>
+    /// The day a task was finished in the sprint - Tasks per day: the UTC day of the last change that set it to Done in the window,
+    /// no later than <paramref name="asAt"/>; failing one, its <c>CompletedAt</c> when that is in the window and no later. Each task
+    /// counts once, on its last such day; null when it wasn't finished in the window (before the sprint, say, or only after it).
+    /// </summary>
+    public static DateOnly? FinishedOn(SprintTaskFacts t, IEnumerable<SprintStatusChange> changes, SprintFacts sprint, DateTime asAt)
+    {
+        bool InWindow(DateTime at) => at >= sprint.FromUtc && at < sprint.ToUtc && at <= asAt;
+        var last = changes.Where(c => c.To == TaskItemStatus.Done && InWindow(c.At)).MaxBy(c => c.At)?.At
+                   ?? (t.CompletedAt is DateTime done && InWindow(done) ? done : null);
+        return last is DateTime at ? DateOnly.FromDateTime(at) : null;
+    }
 
     /// <summary>
     /// The task was set to Done in the sprint's window: it was completed in it and is still Done (<c>CompletedAt</c> is kept only
@@ -128,11 +188,14 @@ public static class SprintReportRules
     public static int Remaining(int estimate, int loggedMinutes) => Math.Max(estimate - loggedMinutes, 0);
 
     /// <summary>
-    /// The report. <paramref name="tasks"/> are the sprint's tasks and the Not Planned candidates as read in SQL (department applied),
-    /// with their status now; <paramref name="time"/> and <paramref name="days"/> their time (<see cref="WithTime"/>);
-    /// <paramref name="changes"/> their status changes from the sprint's start on; <paramref name="completions"/> every sprint's
-    /// Completed audit row, and <paramref name="sprintNames"/> every sprint's name. The filter options are worked out first, then
-    /// <paramref name="projectId"/> and <paramref name="assigneeId"/> pick the tasks.
+    /// The report. <paramref name="tasks"/> are the sprint's tasks and the Not Planned, Backlog and other-sprint candidates as read in
+    /// SQL (department applied), with their status now; <paramref name="time"/> and <paramref name="days"/> their time
+    /// (<see cref="WithTime"/>); <paramref name="changes"/> their status changes from the sprint's start on;
+    /// <paramref name="completions"/> every sprint's Completed audit row, <paramref name="sprintNames"/> every sprint's name, and
+    /// <paramref name="laterSprintIds"/> the sprints after this one (<see cref="LaterSprints"/>), which word an other-sprint task's
+    /// note. The filter options are worked out first, then <paramref name="projectId"/> and <paramref name="assigneeId"/> pick the
+    /// tasks. A completed sprint whose Completed row can't be read has no tasks handed on: <c>SprintService</c> writes the row in the
+    /// same save as the completion, so that only happens to hand-edited data.
     /// </summary>
     public static SprintStatusReport Build(
         SprintFacts sprint,
@@ -143,6 +206,7 @@ public static class SprintReportRules
         IReadOnlyDictionary<Guid, SprintProjectFacts> projects,
         IEnumerable<SprintCompletion> completions,
         IReadOnlyDictionary<Guid, string> sprintNames,
+        IReadOnlySet<Guid> laterSprintIds,
         IReadOnlyDictionary<Guid, ReportPerson> people,
         Guid? projectId, Guid? assigneeId, DateTime asAt)
     {
@@ -166,8 +230,13 @@ public static class SprintReportRules
             .ToList();
         var planned = all.Where(t => t.SprintId == sprint.Id || handedOn.Contains(t.Task.Id)).ToList();
         var plannedIds = planned.Select(t => t.Task.Id).ToHashSet();
-        var notPlanned = all.Where(t => !plannedIds.Contains(t.Task.Id) && CountsAsNotPlanned(t, sprint, changesByTask[t.Task.Id]))
-            .ToList();
+        // Every other task in one pass, by its kind of unplanned work; one that is none isn't in the report.
+        var unplanned = all.Where(t => !plannedIds.Contains(t.Task.Id))
+            .Select(t => (Facts: t, Kind: UnplannedKind(t, sprint, changesByTask[t.Task.Id])))
+            .Where(x => x.Kind is not null)
+            .ToLookup(x => x.Kind!.Value, x => x.Facts);
+        // The work by kind, so every figure below goes by kind rather than by position.
+        var work = Kinds.ToDictionary(k => k, k => k == SprintWorkKind.Planned ? planned : unplanned[k].ToList());
 
         // The options, before the filters apply: only the projects with planned work are the sprint's.
         var projectOptions = planned.Select(t => t.ProjectId).OfType<Guid>().Distinct()
@@ -176,15 +245,15 @@ public static class SprintReportRules
             .ThenBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase)
             .ThenBy(p => p.Number, StringComparer.Ordinal)
             .ToList();
-        var assigneeOptions = planned.Concat(notPlanned).SelectMany(t => t.Task.AssigneeIds).Distinct()
+        var assigneeOptions = Kinds.SelectMany(k => work[k]).SelectMany(t => t.Task.AssigneeIds).Distinct()
             .Where(people.ContainsKey).Select(id => people[id])
             .OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
 
         bool Picked(SprintTaskFacts t) =>
             (projectId is null || t.ProjectId == projectId) && (assigneeId is not Guid a || t.Task.AssigneeIds.Contains(a));
-        planned = planned.Where(Picked).ToList();
-        notPlanned = notPlanned.Where(Picked).ToList();
+        foreach (var kind in Kinds) work[kind] = work[kind].Where(Picked).ToList();
+        planned = work[SprintWorkKind.Planned];
 
         string Name(Guid? id) => id is Guid g && people.TryGetValue(g, out var p) ? p.Name : id is null ? "Unassigned" : "Unknown";
         var timeByTask = time.ToLookup(t => t.TaskId);
@@ -202,10 +271,14 @@ public static class SprintReportRules
                 var project = ProjectOf(projects, p);
                 label = $"{project.Number} {project.Name}".Trim();
             }
+            var otherSprint = !isPlanned && t.SprintId is Guid s ? s : (Guid?)null;
+            // Planned or not: a task handed on was Left open, so never done before the sprint.
+            var doneBefore = !isHandedOn && DoneBeforeSprint(now, changesByTask[t.Task.Id], sprint, asAt, t.CompletedAt);
             return new SprintTaskRow(t.Task.Id, t.Task.Number, t.Task.Title, now, outcome,
                 TimeReportRules.AssigneeNames(t.Task.AssigneeIds, Name), label, t.Task.EstimateMinutes, t.SprintMinutes,
                 t.Task.TotalMinutes, isPlanned && carriedIn.TryGetValue(t.Task.Id, out var from) ? from : null,
-                isHandedOn ? leftOpenTo : null, reopened);
+                isHandedOn ? leftOpenTo : null, reopened, otherSprint is Guid o ? SprintName(o) : null,
+                otherSprint is Guid l && laterSprintIds.Contains(l), doneBefore);
         }
 
         SprintGroupRow Group(SprintGroupKind kind, SprintProjectFacts? project, IReadOnlyList<SprintTaskFacts> facts, bool isPlanned)
@@ -229,31 +302,72 @@ public static class SprintReportRules
             .ToList();
         var standalone = planned.Where(t => t.ProjectId is null).ToList();
         if (standalone.Count > 0) groups.Add(Group(SprintGroupKind.NoProject, null, standalone, true));
-        if (notPlanned.Count > 0) groups.Add(Group(SprintGroupKind.NotPlanned, null, notPlanned, false));
+        foreach (var kind in UnplannedKinds)
+            if (work[kind].Count > 0) groups.Add(Group(SprintGroupRow.GroupOf(kind), null, work[kind], false));
 
-        var plannedRows = groups.Where(g => g.Kind != SprintGroupKind.NotPlanned).ToList();
-        var notPlannedRow = groups.FirstOrDefault(g => g.Kind == SprintGroupKind.NotPlanned);
+        SprintWorkTotals Totals(SprintWorkKind kind)
+        {
+            var facts = work[kind];
+            var counts = groups.Where(g => g.Work == kind).Aggregate(SprintTaskCounts.None, (sum, g) => sum.Plus(g.Tasks));
+            return new(counts, facts.Sum(t => t.SprintMinutes), facts.Sum(t => t.Task.TotalMinutes),
+                TimeReportRules.Compare(facts.Select(t => t.Task)));
+        }
         var summary = new SprintStatusSummary(
-            plannedRows.Aggregate(SprintTaskCounts.None, (sum, g) => sum.Plus(g.Tasks)),
-            notPlannedRow?.Tasks ?? SprintTaskCounts.None,
-            planned.Sum(t => t.SprintMinutes), notPlanned.Sum(t => t.SprintMinutes),
-            planned.Sum(t => t.Task.TotalMinutes), notPlanned.Sum(t => t.Task.TotalMinutes),
-            TimeReportRules.Compare(planned.Select(t => t.Task)), TimeReportRules.Compare(notPlanned.Select(t => t.Task)),
-            TimeReportRules.Compare(planned.Concat(notPlanned).Select(t => t.Task)));
+            Totals(SprintWorkKind.Planned), Totals(SprintWorkKind.NotPlanned), Totals(SprintWorkKind.Backlog),
+            Totals(SprintWorkKind.OtherSprint), TimeReportRules.Compare(Kinds.SelectMany(k => work[k]).Select(t => t.Task)));
 
         var outcomes = groups.SelectMany(g => g.TaskRows).ToDictionary(r => r.TaskId, r => r.Outcome);
-        var impact = Impact(planned, notPlanned, outcomes, timeByTask, Name);
+        var impact = Impact(work, outcomes, timeByTask, Name);
 
-        var plannedSet = planned.Select(t => t.Task.Id).ToHashSet();
-        var notPlannedSet = notPlanned.Select(t => t.Task.Id).ToHashSet();
+        var ids = Kinds.ToDictionary(k => k, k => work[k].Select(t => t.Task.Id).ToHashSet());
         var byDay = days.Where(d => d.Date >= sprint.StartDate && d.Date <= sprint.EndDate).ToLookup(d => d.Date);
+        // Tasks per day: each task once, on the last day it was set to Done in the window.
+        var finished = Kinds.ToDictionary(k => k, k => work[k]
+            .Select(t => (t.Task.Id, Day: FinishedOn(t, changesByTask[t.Task.Id], sprint, asAt)))
+            .Where(x => x.Day is not null)
+            .ToLookup(x => x.Day!.Value, x => x.Id));
         var dayRows = new List<SprintDayRow>();
         for (var day = sprint.StartDate; day <= sprint.EndDate; day = day.AddDays(1))
+        {
+            var logged = byDay[day].ToList();
+            var finishedOn = day;
             dayRows.Add(new SprintDayRow(day,
-                byDay[day].Where(d => plannedSet.Contains(d.TaskId)).Sum(d => d.Minutes),
-                byDay[day].Where(d => notPlannedSet.Contains(d.TaskId)).Sum(d => d.Minutes)));
+                SprintKindCounts.From(k => logged.Where(d => ids[k].Contains(d.TaskId)).Sum(d => d.Minutes)),
+                SprintKindCounts.From(k => finished[k][finishedOn].Count())));
+        }
 
-        return new SprintStatusReport(sprint, asAt, summary, impact, groups, dayRows, leftOpenTo, projectOptions, assigneeOptions);
+        return new SprintStatusReport(sprint, asAt, summary, impact, groups, dayRows, leftOpenTo, projectOptions, assigneeOptions)
+        {
+            PersonTasks = PersonTasks(Kinds.SelectMany(k => work[k]), outcomes, impact, Name)
+        };
+    }
+
+    /// <summary>The kinds of work, in the report's order: planned, then the unplanned kinds.</summary>
+    private static readonly SprintWorkKind[] Kinds = Enum.GetValues<SprintWorkKind>();
+
+    private static readonly SprintWorkKind[] UnplannedKinds = Kinds.Where(k => k != SprintWorkKind.Planned).ToArray();
+
+    /// <summary>
+    /// Each person's tasks by outcome - Tasks by person: every kind of work, cancelled ones included, a shared task for each of its
+    /// assignees. In the people rows' order (<paramref name="impact"/>, by time in the sprint); anyone not among them - assigned only
+    /// to cancelled tasks - after them by name; Unassigned last.
+    /// </summary>
+    private static IReadOnlyList<SprintPersonTasks> PersonTasks(
+        IEnumerable<SprintTaskFacts> tasks, IReadOnlyDictionary<Guid, SprintTaskOutcome> outcomes, IReadOnlyList<SprintImpactRow> impact,
+        Func<Guid?, string> name)
+    {
+        var order = impact.Select((p, i) => (p.UserId, i)).Where(x => x.UserId is not null).ToDictionary(x => x.UserId!.Value, x => x.i);
+        return tasks
+            .SelectMany(t => TimeReportRules.AssigneesOrNone(t.Task.AssigneeIds).Select(id => (UserId: id, Outcome: outcomes[t.Task.Id])))
+            .GroupBy(x => x.UserId)
+            .Select(g => new SprintPersonTasks(g.Key, name(g.Key),
+                g.Count(x => x.Outcome == SprintTaskOutcome.Done),
+                g.Count(x => x.Outcome == SprintTaskOutcome.LeftOpen),
+                g.Count(x => x.Outcome == SprintTaskOutcome.Cancelled)))
+            .OrderBy(p => p.UserId is null)
+            .ThenBy(p => p.UserId is Guid id && order.TryGetValue(id, out var i) ? i : int.MaxValue)
+            .ThenBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
     }
 
     private static SprintProjectFacts ProjectOf(IReadOnlyDictionary<Guid, SprintProjectFacts> projects, Guid id) =>
@@ -269,7 +383,8 @@ public static class SprintReportRules
             rows.Count(r => r.Outcome == SprintTaskOutcome.Cancelled),
             rows.Count(r => r.CarriedInFrom is not null),
             leftOpen.Where(r => r.EstimateMinutes is not null).Sum(r => Remaining(r.EstimateMinutes!.Value, r.TotalMinutes)),
-            leftOpen.Count(r => r.EstimateMinutes is null));
+            leftOpen.Count(r => r.EstimateMinutes is null),
+            rows.Count(r => r.DoneBeforeSprint));
     }
 
     /// <summary>
@@ -310,45 +425,40 @@ public static class SprintReportRules
     }
 
     /// <summary>
-    /// Each person's sprint, planned against Not Planned: their assigned tasks that weren't Cancelled, and their own time in the sprint
-    /// on each. Ordered by time in the sprint, then name; Unassigned (tasks and no time) last.
+    /// Each person's sprint, planned against unplanned work - Not Planned, from the Backlog and from another sprint: their assigned
+    /// tasks that weren't Cancelled, and their own time in the sprint on each. Ordered by time in the sprint, then name; Unassigned
+    /// (tasks and no time) last.
     /// </summary>
     private static IReadOnlyList<SprintImpactRow> Impact(
-        IReadOnlyList<SprintTaskFacts> planned, IReadOnlyList<SprintTaskFacts> notPlanned,
-        IReadOnlyDictionary<Guid, SprintTaskOutcome> outcomes, ILookup<Guid, SprintPersonTime> timeByTask, Func<Guid?, string> name)
+        IReadOnlyDictionary<SprintWorkKind, List<SprintTaskFacts>> work, IReadOnlyDictionary<Guid, SprintTaskOutcome> outcomes,
+        ILookup<Guid, SprintPersonTime> timeByTask, Func<Guid?, string> name)
     {
-        static Dictionary<Guid, int> Minutes(IEnumerable<SprintTaskFacts> tasks, ILookup<Guid, SprintPersonTime> timeByTask) =>
-            tasks.SelectMany(t => timeByTask[t.Task.Id]).GroupBy(t => t.UserId).ToDictionary(g => g.Key, g => g.Sum(t => t.SprintMinutes));
-        ILookup<Guid?, SprintTaskFacts> Assigned(IEnumerable<SprintTaskFacts> tasks) =>
-            tasks.Where(t => outcomes[t.Task.Id] != SprintTaskOutcome.Cancelled)
-                .SelectMany(t => TimeReportRules.AssigneesOrNone(t.Task.AssigneeIds).Select(id => (UserId: id, Task: t)))
-                .ToLookup(x => x.UserId, x => x.Task);
-
-        var plannedMinutes = Minutes(planned, timeByTask);
-        var notPlannedMinutes = Minutes(notPlanned, timeByTask);
-        var plannedAssigned = Assigned(planned);
-        var notPlannedAssigned = Assigned(notPlanned);
+        var minutes = work.ToDictionary(w => w.Key, w => w.Value.SelectMany(t => timeByTask[t.Task.Id])
+            .GroupBy(t => t.UserId)
+            .ToDictionary(g => g.Key, g => g.Sum(t => t.SprintMinutes)));
+        var assigned = work.ToDictionary(w => w.Key, w => w.Value.Where(t => outcomes[t.Task.Id] != SprintTaskOutcome.Cancelled)
+            .SelectMany(t => TimeReportRules.AssigneesOrNone(t.Task.AssigneeIds).Select(id => (UserId: id, Task: t)))
+            .ToLookup(x => x.UserId, x => x.Task));
 
         SprintImpactRow Row(Guid? id)
         {
-            var mine = plannedAssigned[id].ToList();
-            return new SprintImpactRow(id, name(id), mine.Count,
+            var mine = assigned[SprintWorkKind.Planned][id].ToList();
+            return new SprintImpactRow(id, name(id),
                 mine.Count(t => outcomes[t.Task.Id] == SprintTaskOutcome.Done),
                 mine.Count(t => outcomes[t.Task.Id] == SprintTaskOutcome.LeftOpen),
-                notPlannedAssigned[id].Count(),
-                id is Guid g ? plannedMinutes.GetValueOrDefault(g) : 0,
-                id is Guid h ? notPlannedMinutes.GetValueOrDefault(h) : 0);
+                SprintKindCounts.From(k => assigned[k][id].Count()),
+                SprintKindCounts.From(k => id is Guid g ? minutes[k].GetValueOrDefault(g) : 0));
         }
 
-        var rows = plannedMinutes.Keys.Concat(notPlannedMinutes.Keys).Select(id => (Guid?)id)
-            .Union(plannedAssigned.Select(g => g.Key)).Union(notPlannedAssigned.Select(g => g.Key))
+        var rows = minutes.Values.SelectMany(m => m.Keys).Select(id => (Guid?)id)
+            .Union(assigned.Values.SelectMany(a => a.Select(g => g.Key)))
             .Where(id => id is not null)
             .Distinct()
             .Select(Row)
             .OrderByDescending(r => r.SprintMinutes)
             .ThenBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
-        if (plannedAssigned[null].Any() || notPlannedAssigned[null].Any()) rows.Add(Row(null));
+        if (assigned.Values.Any(a => a[null].Any())) rows.Add(Row(null));
         return rows;
     }
 }

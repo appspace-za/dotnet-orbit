@@ -574,16 +574,23 @@ And one about sprints, for the sprint review at sprint planning:
 - **Sprint status** - one sprint, picked in place of a date range (the active sprint by default, or open it from the
   sprint page's **Report** button). It shows the tasks planned into the sprint by outcome: done, left open or
   cancelled. Beside them is the Not Planned work done during the sprint: tasks that are Not Planned and were created,
-  completed or logged against between its start and end dates.
+  completed or logged against between its start and end dates. Backlog tasks worked on anyway - completed or logged
+  against in those dates, though never planned into the sprint - show apart, as *From the Backlog*. Tasks of another
+  sprint show apart too, as *From another sprint*, each naming its sprint: a later sprint's worked on ahead, or an
+  earlier one's finished task reopened or logged against. So every task worked on in the sprint shows somewhere.
   - Once the next sprint has started, the open tasks it handed on still show, marked with where they went. Tasks that
     came in from the sprint before are marked too.
+  - A task that was already done when the sprint started is marked *Done before the sprint*: a planned one stayed in
+    the sprint, and an unplanned one only had time logged in it.
   - Outcomes are each task's status when the sprint ended, read from its history, so changing a task later doesn't
     change a completed sprint's figures. A task closed then and open now is marked *Reopened since*.
-  - The summary has tiles and four charts: planned work outcome, tasks by project, time by person and time per day,
-    each split between planned and Not Planned work. Past twelve projects or people, the chart groups the rest into
-    one bar. The tiles give the estimate left on the left-open tasks and how
-    much of the sprint's time went on Not Planned work.
-  - Below the summary come a by-person table and one row per project in the sprint, then No project and Not Planned.
+  - The summary has tiles and seven charts: planned work outcome across the top, then tasks and time by project, by
+    person and per day side by side (tasks per day counts the tasks finished each day). The time charts are split
+    between planned, Not Planned and (when there is any) Backlog and other-sprint work. Past twelve projects or people,
+    a chart keeps the ones with the most time and groups the rest into one bar, and the tasks and time charts side by
+    side show the same ones. The tiles give the estimate left on the left-open tasks and how
+    much of the sprint's time went on unplanned work (Not Planned, Backlog and other-sprint work).
+  - Below the summary come a by-person table and one row per project in the sprint, then No project, Not Planned, From the Backlog and From another sprint.
     Expand a row for its people and tasks.
   - Project and Assignee filters pick tasks, and the Project filter lists only the sprint's projects. The PDF is
     landscape, with the same charts.

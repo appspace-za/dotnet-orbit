@@ -77,12 +77,15 @@ public static class ReportText
     };
 
     /// <summary>
-    /// The note beside a task: where it came in from and went on to, a reopening, and - unless it was cancelled when the sprint ended -
-    /// its estimate's note. The page shows Over estimate as a chip of its own, so it leaves it out here (<paramref name="withOver"/>).
+    /// The note beside a task: the other sprint it is in (Planned for a later one, From an earlier one), work done before the sprint,
+    /// where it came in from and went on to, a reopening, and - unless it was cancelled when the sprint ended - its estimate's note.
+    /// The page shows Over estimate as a chip of its own, so it leaves it out here (<paramref name="withOver"/>).
     /// </summary>
     public static string Note(SprintTaskRow t, bool withOver = true)
     {
         var notes = new List<string>();
+        if (t.OtherSprint is { } sprint) notes.Add(t.OtherSprintIsLater ? $"Planned for {sprint}" : $"From {sprint}");
+        if (t.DoneBeforeSprint) notes.Add("Done before the sprint");
         if (t.CarriedInFrom is { } from) notes.Add($"Carried in from {from}");
         if (t.LeftOpenTo is { } to) notes.Add($"Left open → {to}");
         if (t.ReopenedSince) notes.Add("Reopened since");

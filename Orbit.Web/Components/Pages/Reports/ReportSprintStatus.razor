@@ -1,7 +1,9 @@
-@* Sprint status (spec §12): one sprint's planned work beside the Not Planned work done in its window, for the sprint's review at
-   sprint planning. Summary tiles and four charts (SprintCharts, the same SVG as the PDF's), the people planned against Not Planned,
-   then one row per project with planned work, the planned tasks on no project and the Not Planned work, each opening on its
-   people and tasks. *@
+@* Sprint status (spec §12): one sprint's planned work beside the unplanned work done in its window - the Not Planned work, and the
+   Backlog and other sprints' tasks worked on anyway - for the sprint's review at sprint planning. Summary tiles and seven charts
+   (SprintCharts, the same SVG as the PDF's: Planned work outcome across the top, then by project, by person and per day, tasks on
+   the left and time on the right), the people planned against unplanned, then one row per project with planned work, the
+   planned tasks on no project and each unplanned group, each opening on its people and tasks. The Backlog and other-sprint columns
+   and rows show only when such tasks were worked on (SprintStatusSummary.Unplanned). *@
 
 @if (Report.Sprint is not { } sprint)
 {
@@ -10,6 +12,17 @@
 else
 {
     var s = Report.Summary;
+    var unplanned = s.Unplanned;
+    // The first unplanned row is set apart from the planned ones above it.
+    var firstUnplanned = Report.Rows.FirstOrDefault(r => r.IsUnplanned);
+    var unplannedDoneBefore = unplanned.Sum(k => s.Of(k).Tasks.DoneBeforeSprint);
+    // The time tile's line, joined here rather than set beside @if blocks, which would drop the spaces between its parts.
+    List<string> timeParts =
+    [
+        $"{TimeFormat.Minutes(s.Planned.SprintMinutes)} planned",
+        .. unplanned.Select(k => $"{TimeFormat.Minutes(s.Of(k).SprintMinutes)} {TimeLabel(k)}")
+    ];
+    var plannedLook = SprintWorkLook.Of(SprintWorkKind.Planned);
     <div class="orbit-list-item orbit-small">
         @if (!string.IsNullOrWhiteSpace(sprint.Goal))
         {
@@ -22,43 +35,59 @@ else
         <div class="orbit-stats orbit-stats-6">
             <MudPaper Outlined="true" Class="orbit-stat">
                 <div class="orbit-stat-label">Planned tasks</div>
-                <div class="orbit-stat-value">@s.Planned.Total</div>
-                <div class="orbit-sub">@(s.Planned.CarriedIn > 0 ? $"{s.Planned.CarriedIn} carried in" : "none carried in")</div>
+                <div class="orbit-stat-value">@s.Planned.Tasks.Total</div>
+                <div class="orbit-sub">@(s.Planned.Tasks.CarriedIn > 0 ? $"{s.Planned.Tasks.CarriedIn} carried in" : "none carried in")</div>
             </MudPaper>
             <MudPaper Outlined="true" Class="orbit-stat">
                 <div class="orbit-stat-label">Done</div>
-                <div class="orbit-stat-value">@s.Planned.Done</div>
-                <div class="orbit-sub">@(s.Planned.Total == 0 ? "-" : $"{s.Planned.PercentDone}% of the planned tasks")</div>
-                @if (s.Planned.Total > 0)
+                <div class="orbit-stat-value">@s.Planned.Tasks.Done</div>
+                <div class="orbit-sub">@(s.Planned.Tasks.Total == 0 ? "-" : $"{s.Planned.Tasks.PercentDone}% of the planned tasks")</div>
+                @if (s.Planned.Tasks.DoneBeforeSprint > 0)
                 {
-                    <MudProgressLinear Value="s.Planned.PercentDone" Color="Color.Success" Rounded="true" Class="mt-1" />
+                    <div class="orbit-sub" title="Planned tasks already Done when the sprint started: they stayed in it, as only open tasks roll forward">@s.Planned.Tasks.DoneBeforeSprint done before the sprint</div>
+                }
+                @if (s.Planned.Tasks.Total > 0)
+                {
+                    <MudProgressLinear Value="s.Planned.Tasks.PercentDone" Color="Color.Success" Rounded="true" Class="mt-1" />
                 }
             </MudPaper>
             <MudPaper Outlined="true" Class="orbit-stat">
                 <div class="orbit-stat-label">Left open</div>
-                <div class="orbit-stat-value">@s.Planned.LeftOpen</div>
-                @if (s.Planned.LeftOpen > 0)
+                <div class="orbit-stat-value">@s.Planned.Tasks.LeftOpen</div>
+                @if (s.Planned.Tasks.LeftOpen > 0)
                 {
-                    <div class="orbit-sub" title="Each left-open task's estimate less all time logged on it, never below nothing">Estimate left: @ReportText.Remaining(s.Planned)</div>
+                    <div class="orbit-sub" title="Each left-open task's estimate less all time logged on it, never below nothing">Estimate left: @ReportText.Remaining(s.Planned.Tasks)</div>
                 }
-                @if (Report.LeftOpenTo is { } to && s.Planned.LeftOpen > 0)
+                @if (Report.LeftOpenTo is { } to && s.Planned.Tasks.LeftOpen > 0)
                 {
                     <div class="orbit-sub">went to @to</div>
                 }
             </MudPaper>
             <MudPaper Outlined="true" Class="orbit-stat">
                 <div class="orbit-stat-label">Not Planned tasks</div>
-                <div class="orbit-stat-value">@s.NotPlanned.Total</div>
-                <div class="orbit-sub">@s.NotPlanned.Done done · @s.NotPlanned.LeftOpen open</div>
+                <div class="orbit-stat-value">@s.NotPlanned.Tasks.Total</div>
+                <div class="orbit-sub">@s.NotPlanned.Tasks.Done done · @s.NotPlanned.Tasks.LeftOpen open</div>
+                @if (s.HasBacklog)
+                {
+                    <div class="orbit-sub" title="Backlog tasks logged against or set to Done during the sprint, though not planned into it">+ @s.Backlog.Tasks.Total from the Backlog (@s.Backlog.Tasks.Done done)</div>
+                }
+                @if (s.HasOtherSprint)
+                {
+                    <div class="orbit-sub" title="Tasks of other sprints - later ones worked on ahead, earlier ones reopened or logged against - logged against or set to Done during this one">+ @s.OtherSprint.Tasks.Total from other sprints (@s.OtherSprint.Tasks.Done done)</div>
+                }
+                @if (unplannedDoneBefore > 0)
+                {
+                    <div class="orbit-sub" title="Unplanned tasks already Done when the sprint started, and only logged against during it: their outcome is Done, but they weren't done in this sprint">@unplannedDoneBefore done before the sprint</div>
+                }
             </MudPaper>
             <MudPaper Outlined="true" Class="orbit-stat">
                 <div class="orbit-stat-label">Logged in the sprint</div>
                 <div class="orbit-stat-value">@TimeFormat.Minutes(s.SprintMinutes)</div>
-                <div class="orbit-sub">
-                    @TimeFormat.Minutes(s.PlannedSprintMinutes) planned · @TimeFormat.Minutes(s.NotPlannedSprintMinutes) Not Planned
-                    @if (s.NotPlannedPercent is int share)
+                <div class="orbit-sub orbit-gap-row">
+                    <span>@string.Join(" · ", timeParts)</span>
+                    @if (s.UnplannedPercent is int share)
                     {
-                        <b> (@share%)</b>
+                        <b title="Unplanned work's share: Not Planned, Backlog and other-sprint work">(@share% unplanned)</b>
                     }
                 </div>
             </MudPaper>
@@ -72,9 +101,18 @@ else
         <div class="orbit-chart-grid">
             @foreach (var chart in _charts)
             {
-                <MudPaper Outlined="true" Class="orbit-chart">
+                <MudPaper Outlined="true" Class="@(chart.Wide ? "orbit-chart orbit-chart-wide" : "orbit-chart")">
                     <MudText Typo="Typo.subtitle2" HtmlTag="h2" Class="mb-2">@chart.Title</MudText>
-                    <div class="orbit-chart-body">@((MarkupString)chart.Svg)</div>
+                    @if (chart.NarrowSvg is { } narrow)
+                    {
+                        @* Drawn twice: the wide one beside two columns of charts, the half-width one when they are one to a row. *@
+                        <div class="orbit-chart-body orbit-chart-wide-only">@((MarkupString)chart.Svg)</div>
+                        <div class="orbit-chart-body orbit-chart-narrow-only">@((MarkupString)narrow)</div>
+                    }
+                    else
+                    {
+                        <div class="orbit-chart-body">@((MarkupString)chart.Svg)</div>
+                    }
                 </MudPaper>
             }
         </div>
@@ -92,13 +130,21 @@ else
                 <thead>
                     <tr>
                         <th>Person</th>
-                        <th class="text-right" title="Their planned tasks (cancelled ones aside). A task several people share counts for each of them, and once in the total.">Planned tasks</th>
+                        <th class="text-right" title="@plannedLook.TasksTitle">@plannedLook.TasksColumn</th>
                         <th class="text-right">Done</th>
                         <th class="text-right">Left open</th>
-                        <th class="text-right" title="Their Not Planned tasks (cancelled ones aside)">Not Planned tasks</th>
-                        <th class="text-right" title="Their own time on planned tasks, dated in the sprint">On planned</th>
-                        <th class="text-right" title="Their own time on Not Planned tasks, dated in the sprint">On Not Planned</th>
-                        <th class="text-right" title="Not Planned work's share of the time they logged in the sprint">Not Planned share</th>
+                        @foreach (var k in unplanned)
+                        {
+                            var look = SprintWorkLook.Of(k);
+                            <th class="text-right" title="@look.TasksTitle">@look.TasksColumn</th>
+                        }
+                        <th class="text-right" title="@plannedLook.TimeTitle">@plannedLook.TimeColumn</th>
+                        @foreach (var k in unplanned)
+                        {
+                            var look = SprintWorkLook.Of(k);
+                            <th class="text-right" title="@look.TimeTitle">@look.TimeColumn</th>
+                        }
+                        <th class="text-right" title="Unplanned work's share (Not Planned, Backlog and other-sprint work) of the time they logged in the sprint">Unplanned share</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -118,23 +164,35 @@ else
                             <td class="text-right">@p.PlannedTasks</td>
                             <td class="text-right">@p.PlannedDone</td>
                             <td class="text-right">@p.PlannedLeftOpen</td>
-                            <td class="text-right">@p.NotPlannedTasks</td>
+                            @foreach (var k in unplanned)
+                            {
+                                <td class="text-right">@p.Tasks.Of(k)</td>
+                            }
                             <td class="text-right">@TimeFormat.Minutes(p.PlannedMinutes)</td>
-                            <td class="text-right">@TimeFormat.Minutes(p.NotPlannedMinutes)</td>
-                            <td class="text-right">@ReportText.Percent(p.NotPlannedPercent)</td>
+                            @foreach (var k in unplanned)
+                            {
+                                <td class="text-right">@TimeFormat.Minutes(p.Minutes.Of(k))</td>
+                            }
+                            <td class="text-right">@ReportText.Percent(p.UnplannedPercent)</td>
                         </tr>
                     }
                 </tbody>
                 <tfoot>
                     <tr>
                         <td>Total</td>
-                        <td class="text-right">@(s.Planned.Total - s.Planned.Cancelled)</td>
-                        <td class="text-right">@s.Planned.Done</td>
-                        <td class="text-right">@s.Planned.LeftOpen</td>
-                        <td class="text-right">@(s.NotPlanned.Total - s.NotPlanned.Cancelled)</td>
-                        <td class="text-right">@TimeFormat.Minutes(s.PlannedSprintMinutes)</td>
-                        <td class="text-right">@TimeFormat.Minutes(s.NotPlannedSprintMinutes)</td>
-                        <td class="text-right">@ReportText.Percent(s.NotPlannedPercent)</td>
+                        <td class="text-right">@(s.Planned.Tasks.Total - s.Planned.Tasks.Cancelled)</td>
+                        <td class="text-right">@s.Planned.Tasks.Done</td>
+                        <td class="text-right">@s.Planned.Tasks.LeftOpen</td>
+                        @foreach (var k in unplanned)
+                        {
+                            <td class="text-right">@(s.Of(k).Tasks.Total - s.Of(k).Tasks.Cancelled)</td>
+                        }
+                        <td class="text-right">@TimeFormat.Minutes(s.Planned.SprintMinutes)</td>
+                        @foreach (var k in unplanned)
+                        {
+                            <td class="text-right">@TimeFormat.Minutes(s.Of(k).SprintMinutes)</td>
+                        }
+                        <td class="text-right">@ReportText.Percent(s.UnplannedPercent)</td>
                     </tr>
                 </tfoot>
             </MudSimpleTable>
@@ -168,7 +226,7 @@ else
                         var t = g.Tasks;
                         var key = g.Key;
                         var open = _open.Contains(key);
-                        <tr class="@(g.Kind == SprintGroupKind.NotPlanned ? "orbit-report-section" : null)">
+                        <tr class="@(ReferenceEquals(g, firstUnplanned) ? "orbit-report-section" : null)">
                             <td>
                                 @if (g.Project is { } p)
                                 {
@@ -178,7 +236,7 @@ else
                                 else
                                 {
                                     <b>@g.Name</b>
-                                    <div class="orbit-sub">@(g.Kind == SprintGroupKind.NotPlanned ? "Work that came up during the sprint" : "Planned tasks on no project")</div>
+                                    <div class="orbit-sub">@SprintWorkLook.Of(g.Work).GroupNote</div>
                                 }
                                 <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" OnClick="() => Toggle(key)"
                                            EndIcon="@(open ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
@@ -324,14 +382,23 @@ else
         Planned tasks are those in the sprint and, once it has ended, the open ones it handed on to the next sprint or the Backlog
         (read from the sprint's completion), so a past sprint still shows what was left open. Outcomes are each task's status as at
         the sprint's completion, read from its status history, or now while it runs: Done, Left open or Cancelled. Later changes
-        don't alter them: a task closed when the sprint ended and reopened since keeps its outcome, marked Reopened since. Not
-        Planned work is the tasks that are Not Planned now and were created, set to Done or logged against in the window; a support
-        task since moved to the Backlog or a sprint drops out. Created and completed times count by the UTC day. The estimate left
-        on the left-open tasks is each one's estimate less all time logged on it, never below nothing. Estimated and variance
-        compare the estimated tasks (those cancelled when the sprint ended aside) with all time logged on them to date. The
-        charts show the twelve projects and people with the most, the rest together. The project and assignee filters pick tasks
-        (the project's, the person's, shared ones included); a picked task's figures still cover everyone's time. The department
-        is the task's.
+        don't alter them: a task closed when the sprint ended and reopened since keeps its outcome, marked Reopened since. A task
+        already Done when the sprint started, and unchanged since, is marked Done before the sprint and keeps its outcome: a planned
+        one stayed in the sprint it was planned for, as only open tasks roll forward; an unplanned one only had time logged in it.
+        Tasks are placed by where they are now. Not Planned work is the tasks that are Not Planned now and were created, set to Done
+        or logged against in the window. Backlog work is the tasks on the Backlog now that were logged against or set to Done in the
+        window, though not planned into the sprint. Other-sprint work is the tasks in any other sprint - a later one, worked on
+        ahead, or an earlier one, such as a finished task reopened - that were logged against or set to Done in the window. So a
+        task since moved off Not Planned or the Backlog shows under From the Backlog or From another sprint instead, and drops out
+        only if it was just created in the window. Not Planned, Backlog and other-sprint work together are the unplanned work, so
+        every task logged against or set to Done in the window is in one row or another, the department and the filters aside. The
+        unplanned share is their part of the time logged in the sprint. Created and completed times count by the UTC day. The
+        estimate left on the left-open tasks is each one's estimate less all time logged on it, never below nothing. Estimated and
+        variance compare the estimated tasks (those cancelled when the sprint ended aside) with all time logged on them to date.
+        The projects and people charts show the twelve with the most time in the sprint, the rest together, and the two charts of a
+        pair show the same ones. Tasks per day counts each task once, on the last day in the window it was set to Done; a task
+        finished before the sprint isn't in it. The project and assignee filters pick tasks (the project's, the person's, shared
+        ones included); a picked task's figures still cover everyone's time. The department is the task's.
     </div>
 }
 
@@ -365,10 +432,17 @@ else
         _ => Color.Default
     };
 
+    /// <summary>The totals rows: planned work, each unplanned kind with tasks, then all work.</summary>
     private static IEnumerable<(string Label, SprintTaskCounts Tasks, int SprintMinutes, int ToDate, EstimateComparison Estimate)> Totals(SprintStatusSummary s)
     {
-        yield return ("Planned work", s.Planned, s.PlannedSprintMinutes, s.PlannedToDateMinutes, s.PlannedEstimate);
-        if (s.NotPlanned.Total > 0) yield return (SprintGroupRow.NotPlannedName, s.NotPlanned, s.NotPlannedSprintMinutes, s.NotPlannedToDateMinutes, s.NotPlannedEstimate);
+        foreach (var kind in s.Unplanned.Where(k => s.Of(k).Tasks.Total > 0).Prepend(SprintWorkKind.Planned))
+        {
+            var t = s.Of(kind);
+            yield return (SprintWorkLook.Of(kind).Name, t.Tasks, t.SprintMinutes, t.ToDateMinutes, t.Estimate);
+        }
         yield return ("All work", s.All, s.SprintMinutes, s.ToDateMinutes, s.AllEstimate);
     }
+
+    /// <summary>A kind of work's time on the time tile: "planned", "Not Planned", "Backlog", "other sprint".</summary>
+    private static string TimeLabel(SprintWorkKind kind) => kind == SprintWorkKind.OtherSprint ? "other sprint" : SprintWorkLook.Of(kind).ChartName;
 }

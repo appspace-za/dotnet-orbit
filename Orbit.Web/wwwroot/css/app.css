@@ -195,15 +195,30 @@ a.orbit-plain:hover { background: var(--mud-palette-table-hover); }
    page. Its text names Lato for the PDF (QuestPDF draws SVG text only in the font it ships); on screen it takes the page's font. */
 .orbit-chart-body { overflow-x: auto; }
 .orbit-chart-body svg { display: block; max-width: 100%; height: auto; min-width: 420px; font-family: inherit; }
-/* SvgCharts gives each mark a light-theme fill for the PDF; these take the theme's colours on screen, light and dark. Planned and
-   Not Planned are indigo and magenta, checked for colour-blind separation and contrast on each theme's surface. */
-.orbit-chart { --orbit-chart-planned: #4338ca; --orbit-chart-not-planned: #d55181; }
+/* Planned work outcome runs across both columns. It comes drawn twice: twice as wide, so beside two columns of charts its text
+   matches theirs (it scrolls inside its box rather than shrink past their 420px floor), and at half width, shown instead when the
+   charts are one to a row, where the wide one would shrink its text below theirs. */
+.orbit-chart-wide { grid-column: 1 / -1; }
+.orbit-chart-wide .orbit-chart-body svg { min-width: 840px; }
+.orbit-chart-wide .orbit-chart-narrow-only svg { min-width: 420px; }
+.orbit-chart-wide-only { display: none; }
+@media (min-width: 1280px) {
+    .orbit-chart-wide-only { display: block; }
+    .orbit-chart-narrow-only { display: none; }
+}
+/* SvgCharts gives each mark a light-theme fill for the PDF; these take the theme's colours on screen, light and dark. Planned,
+   Not Planned, Backlog and other sprint are indigo, magenta, cyan and brown-gold, checked for colour-blind separation (every pair),
+   lightness and contrast on each theme's surface; the cyan and the brown-gold pass on both, so they have no dark shade of their
+   own. The brown-gold is close to Left open's amber, but the two are never in the same chart. */
+.orbit-chart { --orbit-chart-planned: #4338ca; --orbit-chart-not-planned: #d55181; --orbit-chart-backlog: #0891b2; --orbit-chart-other-sprint: #a16207; }
 .orbit-dark .orbit-chart { --orbit-chart-planned: #6366f1; }
 .orbit-chart .oc-done { fill: var(--mud-palette-success); }
 .orbit-chart .oc-left-open { fill: var(--mud-palette-warning); }
 .orbit-chart .oc-cancelled { fill: var(--mud-palette-secondary); }
 .orbit-chart .oc-planned { fill: var(--orbit-chart-planned); }
 .orbit-chart .oc-not-planned { fill: var(--orbit-chart-not-planned); }
+.orbit-chart .oc-backlog { fill: var(--orbit-chart-backlog); }
+.orbit-chart .oc-other-sprint { fill: var(--orbit-chart-other-sprint); }
 .orbit-chart .oc-strong { fill: var(--mud-palette-text-primary); }
 .orbit-chart .oc-text { fill: var(--mud-palette-text-secondary); }
 .orbit-chart .oc-muted { fill: var(--mud-palette-text-disabled); }

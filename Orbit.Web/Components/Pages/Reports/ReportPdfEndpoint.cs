@@ -70,8 +70,9 @@ public static class ReportPdfEndpoint
     }
 
     /// <summary>
-    /// Sprint status: the four charts, the summary (planned, Not Planned and all), the people, the groups, and each group's people
-    /// and tasks - the page's tables, in its order.
+    /// Sprint status: the seven charts, the summary (planned, each unplanned kind shown, and all), the people, the groups, and each
+    /// group's people and tasks - the page's tables, in its order. The Backlog and other-sprint columns and rows show only when such
+    /// tasks were worked on (<see cref="SprintStatusSummary.Unplanned"/>), as on the page.
     /// </summary>
     private static IEnumerable<ReportPdfBuilder.Section> SprintStatusSections(SprintStatusReport r)
     {
@@ -81,35 +82,52 @@ public static class ReportPdfEndpoint
             yield break;
         }
         var s = r.Summary;
+        var unplanned = s.Unplanned;
         yield return new ReportPdfBuilder.Table(["Goal", "Where it stands"],
             [[string.IsNullOrWhiteSpace(r.Sprint.Goal) ? "-" : r.Sprint.Goal, AsAt(r)]], Widths: [3, 2]);
-        yield return new ReportPdfBuilder.Charts(SprintCharts.All(r).Select(c => new ReportPdfBuilder.Chart(c.Title, c.Svg)).ToList());
+        // Planned work outcome across the page, then the pairs: tasks on the left, time on the right.
+        foreach (var charts in SprintCharts.PdfSections(r)) yield return charts;
 
-        static IReadOnlyList<string> Counts(string label, SprintTaskCounts p, SprintTaskCounts n, Func<SprintTaskCounts, string> f) =>
-            [label, f(p), f(n), f(p.Plus(n))];
+        // A row of the summary: its label, then planned, each unplanned kind shown, and all work.
+        IReadOnlyList<string> Cells(string label, string planned, Func<SprintWorkKind, string> each, string all) =>
+            [label, planned, .. unplanned.Select(each), all];
+        IReadOnlyList<string> Counts(string label, Func<SprintTaskCounts, string> f) =>
+            Cells(label, f(s.Planned.Tasks), k => f(s.Of(k).Tasks), f(s.All));
         static string Minutes(int m) => TimeFormat.Minutes(m);
+        // Planned's share is what the unplanned share leaves, as the page's figures have it, and the unplanned share is split over
+        // its kinds so they add up to it: the row adds up to 100%.
+        var shareOf = unplanned.Zip(SprintReportShare.Apportion(s.UnplannedPercent ?? 0, unplanned.Select(k => s.Of(k).SprintMinutes).ToList()))
+            .ToDictionary(x => x.First, x => x.Second);
         IReadOnlyList<IReadOnlyList<string>> summary =
         [
-            Counts("Tasks", s.Planned, s.NotPlanned, c => c.Total.ToString()),
-            Counts("Done", s.Planned, s.NotPlanned, c => c.Total == 0 ? "-" : $"{c.Done} ({c.PercentDone}%)"),
-            Counts("Left open", s.Planned, s.NotPlanned, c => c.LeftOpen.ToString()),
-            Counts("Estimate left on them", s.Planned, s.NotPlanned, Remaining),
-            Counts("Cancelled", s.Planned, s.NotPlanned, c => c.Cancelled.ToString()),
-            Counts("Carried in", s.Planned, s.NotPlanned, c => c.CarriedIn.ToString()),
-            ["Logged in sprint", Minutes(s.PlannedSprintMinutes), Minutes(s.NotPlannedSprintMinutes), Minutes(s.SprintMinutes)],
-            ["Share of sprint time", Percent(s.NotPlannedPercent is int np ? 100 - np : null), Percent(s.NotPlannedPercent), s.SprintMinutes == 0 ? "-" : "100%"],
-            ["Logged to date", Minutes(s.PlannedToDateMinutes), Minutes(s.NotPlannedToDateMinutes), Minutes(s.ToDateMinutes)],
-            ["Estimated", Estimated(s.PlannedEstimate), Estimated(s.NotPlannedEstimate), Estimated(s.AllEstimate)],
-            ["Variance", Variance(s.PlannedEstimate), Variance(s.NotPlannedEstimate), Variance(s.AllEstimate)]
+            Counts("Tasks", c => c.Total.ToString()),
+            Counts("Done", c => c.Total == 0 ? "-" : $"{c.Done} ({c.PercentDone}%)"),
+            Counts("Left open", c => c.LeftOpen.ToString()),
+            Counts("Estimate left on them", Remaining),
+            Counts("Cancelled", c => c.Cancelled.ToString()),
+            Counts("Carried in", c => c.CarriedIn.ToString()),
+            Cells("Logged in sprint", Minutes(s.Planned.SprintMinutes), k => Minutes(s.Of(k).SprintMinutes), Minutes(s.SprintMinutes)),
+            Cells("Share of sprint time", Percent(s.UnplannedPercent is int u ? 100 - u : null),
+                k => s.SprintMinutes == 0 ? "-" : Percent(shareOf[k]), s.SprintMinutes == 0 ? "-" : "100%"),
+            Cells("Logged to date", Minutes(s.Planned.ToDateMinutes), k => Minutes(s.Of(k).ToDateMinutes), Minutes(s.ToDateMinutes)),
+            Cells("Estimated", Estimated(s.Planned.Estimate), k => Estimated(s.Of(k).Estimate), Estimated(s.AllEstimate)),
+            Cells("Variance", Variance(s.Planned.Estimate), k => Variance(s.Of(k).Estimate), Variance(s.AllEstimate))
         ];
-        yield return new ReportPdfBuilder.Table(["", "Planned", "Not Planned", "All work"], summary, "Summary", [2.2f, 2, 2, 2]);
+        yield return new ReportPdfBuilder.Table(["", "Planned", .. unplanned.Select(k => SprintWorkLook.Of(k).Name), "All work"],
+            summary, "Summary", [2.2f, 2, .. unplanned.Select(_ => 2f), 2]);
 
+        // A row of the people: the planned tasks, each unplanned kind's tasks, the time on planned work and on each unplanned kind.
+        IReadOnlyList<string> PersonCells(string name, string done, string leftOpen, Func<SprintWorkKind, string> tasks,
+            Func<SprintWorkKind, string> time, string share) =>
+            [name, tasks(SprintWorkKind.Planned), done, leftOpen, .. unplanned.Select(tasks), time(SprintWorkKind.Planned),
+             .. unplanned.Select(time), share];
         yield return new ReportPdfBuilder.Table(
-            ["Person", "Planned tasks", "Done", "Left open", "Not Planned tasks", "On planned", "On Not Planned", "Not Planned share"],
-            r.People.Select(p => (IReadOnlyList<string>)
-                [p.Name, p.PlannedTasks.ToString(), p.PlannedDone.ToString(), p.PlannedLeftOpen.ToString(), p.NotPlannedTasks.ToString(),
-                 Minutes(p.PlannedMinutes), Minutes(p.NotPlannedMinutes), Percent(p.NotPlannedPercent)]).ToList(),
-            "By person (time logged in the sprint)", [3, 1.3f, 1, 1.1f, 1.5f, 1.4f, 1.5f, 1.5f]);
+            PersonCells("Person", "Done", "Left open", k => SprintWorkLook.Of(k).TasksColumn, k => SprintWorkLook.Of(k).TimeColumn,
+                "Unplanned share"),
+            r.People.Select(p => PersonCells(p.Name, p.PlannedDone.ToString(), p.PlannedLeftOpen.ToString(),
+                k => p.Tasks.Of(k).ToString(), k => Minutes(p.Minutes.Of(k)), Percent(p.UnplannedPercent))).ToList(),
+            "By person (time logged in the sprint)",
+            [3, 1.3f, 1, 1.1f, .. unplanned.Select(_ => 1.5f), 1.4f, .. unplanned.Select(_ => 1.5f), 1.5f]);
 
         static IReadOnlyList<string> GroupCells(string name, SprintTaskCounts t, int sprint, int toDate, EstimateComparison e) =>
             [name, Progress(t), t.Done.ToString(), t.LeftOpen.ToString(), t.Cancelled.ToString(), Minutes(sprint), Minutes(toDate),
@@ -117,8 +135,12 @@ public static class ReportPdfEndpoint
         var groups = r.Rows.Select(g => GroupCells(GroupLabel(g), g.Tasks, g.SprintMinutes, g.ToDateMinutes, g.Estimate)).ToList();
         if (groups.Count > 0)
         {
-            groups.Add(GroupCells("Planned work", s.Planned, s.PlannedSprintMinutes, s.PlannedToDateMinutes, s.PlannedEstimate));
-            groups.Add(GroupCells("Not Planned", s.NotPlanned, s.NotPlannedSprintMinutes, s.NotPlannedToDateMinutes, s.NotPlannedEstimate));
+            groups.Add(GroupCells("Planned work", s.Planned.Tasks, s.Planned.SprintMinutes, s.Planned.ToDateMinutes, s.Planned.Estimate));
+            foreach (var kind in unplanned)
+            {
+                var t = s.Of(kind);
+                groups.Add(GroupCells(SprintWorkLook.Of(kind).Name, t.Tasks, t.SprintMinutes, t.ToDateMinutes, t.Estimate));
+            }
             groups.Add(GroupCells("All work", s.All, s.SprintMinutes, s.ToDateMinutes, s.AllEstimate));
         }
         yield return new ReportPdfBuilder.Table(
@@ -134,11 +156,11 @@ public static class ReportPdfEndpoint
             yield return new ReportPdfBuilder.Table(["Person", "Tasks", "Done", "Left open", "Estimated", "Logged in sprint", "Logged to date"],
                 people, $"{name}: people", [3.4f, 1, 1, 1.1f, 1.3f, 1.5f, 1.5f]);
 
-            var notPlanned = g.Kind == SprintGroupKind.NotPlanned;
+            var isUnplanned = g.IsUnplanned;
             yield return new ReportPdfBuilder.Table(
-                ["Task", notPlanned ? "Project" : "Status", "Outcome", "Assignee", "Estimate", "In sprint", "To date", ""],
+                ["Task", isUnplanned ? "Project" : "Status", "Outcome", "Assignee", "Estimate", "In sprint", "To date", ""],
                 g.TaskRows.Select(t => (IReadOnlyList<string>)
-                    [$"{t.Number} {t.Title}", notPlanned ? t.ProjectLabel ?? "-" : t.Status.Label(), Label(t.Outcome), t.Assignee,
+                    [$"{t.Number} {t.Title}", isUnplanned ? t.ProjectLabel ?? "-" : t.Status.Label(), Label(t.Outcome), t.Assignee,
                      Estimate(t.EstimateMinutes), Minutes(t.SprintMinutes), Minutes(t.TotalMinutes), Note(t)]).ToList(),
                 $"{name}: tasks", [4.4f, 1.8f, 1.1f, 1.9f, 1.1f, 1.1f, 1.1f, 2.6f]);
         }

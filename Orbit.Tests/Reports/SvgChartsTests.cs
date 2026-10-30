@@ -93,7 +93,10 @@ public class SvgChartsTests
         Assert.Equal(["Nothing logged"], Texts(XDocument.Parse(SvgCharts.HorizontalBars([], [A], Count, "Nothing logged", "None"))));
     }
 
-    /// <summary>RPT-032: the sprint report's four charts are well-formed whatever the report holds, an empty one included.</summary>
+    /// <summary>
+    /// RPT-032: the sprint report's seven charts are well-formed whatever the report holds, an empty one included: Planned work outcome
+    /// across the top, then by project, by person and per day, tasks on the left and time on the right.
+    /// </summary>
     [Fact]
     public void Sprint_charts_are_well_formed()
     {
@@ -103,16 +106,161 @@ public class SvgChartsTests
         var task = new SprintTaskFacts(new TaskTimeFacts(Guid.NewGuid(), "T-26-00001", "Fix & ship", TaskItemStatus.Done, [alice], 60, 90),
             null, sprint.Id, false, new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc), new DateTime(2026, 10, 20, 0, 0, 0, DateTimeKind.Utc), 90);
         var report = SprintReportRules.Build(sprint, [task], [new(task.Task.Id, alice, 90, 90)], [new(task.Task.Id, sprint.StartDate, 90)], [],
-            new Dictionary<Guid, SprintProjectFacts>(), [], new Dictionary<Guid, string>(),
+            new Dictionary<Guid, SprintProjectFacts>(), [], new Dictionary<Guid, string>(), new HashSet<Guid>(),
             new Dictionary<Guid, ReportPerson> { [alice] = new(alice, "Al & Co", true) }, null, null, DateTime.UtcNow);
 
         foreach (var r in new[] { report, SprintStatusReport.Empty(DateTime.UtcNow) })
         {
             var charts = SprintCharts.All(r);
-            Assert.Equal(["Planned work outcome", "Tasks by project", "Time by person", "Time per day"], charts.Select(c => c.Title));
+            Assert.Equal(
+                ["Planned work outcome", "Tasks by project", "Time by project", "Tasks by person", "Time by person", "Tasks per day", "Time per day"],
+                charts.Select(c => c.Title));
+            Assert.Equal([true, false, false, false, false, false, false], charts.Select(c => c.Wide));
             Assert.All(charts, c => XDocument.Parse(c.Svg));
+            Assert.Equal([1, 2], SprintCharts.PdfSections(r).Select(s => s.PerRow)); // the outcome across the page, then pairs
+            Assert.Equal([1, 6], SprintCharts.PdfSections(r).Select(s => s.Items.Count));
+            // The wide chart comes at half width too, for the page's one-column layout; the others don't need to.
+            static string Width(string svg) => XDocument.Parse(svg).Root!.Attribute("width")!.Value;
+            Assert.Equal(("1280", "640"), (Width(charts[0].Svg), Width(charts[0].NarrowSvg!)));
+            Assert.All(charts.Skip(1), c => Assert.Null(c.NarrowSvg));
         }
         Assert.Contains("Al & Co", Texts(XDocument.Parse(SprintCharts.People(report).Svg)));
+    }
+
+    /// <summary>
+    /// RPT-037: with Backlog tasks worked on, the charts are still well-formed and call them plain "Backlog" - a bar on the outcome
+    /// and projects charts, a third series on the time charts, cyan - and a sprint without any shows no Backlog series at all.
+    /// </summary>
+    [Fact]
+    public void Sprint_charts_show_backlog_work_as_backlog()
+    {
+        var sprint = new SprintFacts(Guid.NewGuid(), "Sprint 14", null, new DateOnly(2026, 10, 19), new DateOnly(2026, 10, 30),
+            SprintStatus.Active, null);
+        var alice = Guid.NewGuid();
+        var created = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
+        var planned = new SprintTaskFacts(new TaskTimeFacts(Guid.NewGuid(), "T-26-00001", "Planned", TaskItemStatus.InProgress, [alice], null, 60),
+            null, sprint.Id, false, created, null, 60);
+        var backlog = new SprintTaskFacts(new TaskTimeFacts(Guid.NewGuid(), "T-26-00002", "Pulled in", TaskItemStatus.InProgress, [alice], null, 30),
+            null, null, true, created, null, 30);
+        SprintStatusReport Build(params SprintTaskFacts[] tasks) => SprintReportRules.Build(sprint, tasks,
+            tasks.Select(t => new SprintPersonTime(t.Task.Id, alice, t.SprintMinutes, t.SprintMinutes)).ToList(),
+            tasks.Select(t => new SprintDayTime(t.Task.Id, sprint.StartDate, t.SprintMinutes)).ToList(), [],
+            new Dictionary<Guid, SprintProjectFacts>(), [], new Dictionary<Guid, string>(), new HashSet<Guid>(),
+            new Dictionary<Guid, ReportPerson> { [alice] = new(alice, "Alice", true) }, null, null, DateTime.UtcNow);
+
+        var withBacklog = Build(planned, backlog);
+        var outcome = XDocument.Parse(SprintCharts.Outcome(withBacklog).Svg);
+        Assert.Contains("Backlog", Texts(outcome));
+        Assert.DoesNotContain("From the Backlog", Texts(outcome));
+        Assert.Contains("Backlog", Texts(XDocument.Parse(SprintCharts.Projects(withBacklog).Svg)));
+        foreach (var chart in new[] { SprintCharts.People(withBacklog), SprintCharts.Days(withBacklog) })
+        {
+            var doc = XDocument.Parse(chart.Svg);
+            Assert.Contains("Backlog", Texts(doc)); // the legend
+            var mark = Assert.Single(Marks(doc), m => m.Attribute("class")!.Value.Contains("oc-backlog"));
+            Assert.Equal("#0891b2", mark.Attribute("fill")!.Value);
+        }
+        Assert.Contains("33% unplanned", SprintCharts.People(withBacklog).Svg); // 30 of 90
+
+        var without = Build(planned);
+        foreach (var chart in SprintCharts.All(without))
+            Assert.DoesNotContain("Backlog", Texts(XDocument.Parse(chart.Svg)));
+    }
+
+    /// <summary>
+    /// RPT-038: with other sprints' tasks worked on, the charts are still well-formed and call them "Other sprint" - a bar on the
+    /// outcome and projects charts, a fourth series on the time charts, brown-gold - and a sprint without any shows no such series.
+    /// </summary>
+    [Fact]
+    public void Sprint_charts_show_other_sprint_work_as_other_sprint()
+    {
+        var sprint = new SprintFacts(Guid.NewGuid(), "Sprint 14", null, new DateOnly(2026, 10, 19), new DateOnly(2026, 10, 30),
+            SprintStatus.Active, null);
+        var nextSprint = Guid.NewGuid();
+        var alice = Guid.NewGuid();
+        var created = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
+        SprintTaskFacts Facts(string number, Guid? sprintId, bool inBacklog, int minutes) => new(
+            new TaskTimeFacts(Guid.NewGuid(), number, "Task", TaskItemStatus.InProgress, [alice], null, minutes),
+            null, sprintId, inBacklog, created, null, minutes);
+        var planned = Facts("T-26-00001", sprint.Id, false, 60);
+        var backlog = Facts("T-26-00002", null, true, 30);
+        var ahead = Facts("T-26-00003", nextSprint, false, 30);
+        SprintStatusReport Build(params SprintTaskFacts[] tasks) => SprintReportRules.Build(sprint, tasks,
+            tasks.Select(t => new SprintPersonTime(t.Task.Id, alice, t.SprintMinutes, t.SprintMinutes)).ToList(),
+            tasks.Select(t => new SprintDayTime(t.Task.Id, sprint.StartDate, t.SprintMinutes)).ToList(), [],
+            new Dictionary<Guid, SprintProjectFacts>(), [], new Dictionary<Guid, string> { [nextSprint] = "Sprint 15" }, new HashSet<Guid> { nextSprint },
+            new Dictionary<Guid, ReportPerson> { [alice] = new(alice, "Alice", true) }, null, null, DateTime.UtcNow);
+
+        var withLater = Build(planned, backlog, ahead);
+        var outcome = XDocument.Parse(SprintCharts.Outcome(withLater).Svg);
+        Assert.Contains("Other sprint", Texts(outcome));
+        Assert.DoesNotContain("From another sprint", Texts(outcome));
+        Assert.Contains("Other sprint", Texts(XDocument.Parse(SprintCharts.Projects(withLater).Svg)));
+        foreach (var chart in new[] { SprintCharts.People(withLater), SprintCharts.Days(withLater) })
+        {
+            var doc = XDocument.Parse(chart.Svg);
+            Assert.Contains("Other sprint", Texts(doc)); // the legend, beside Planned, Not Planned and Backlog
+            Assert.Contains("Backlog", Texts(doc));
+            var mark = Assert.Single(Marks(doc), m => m.Attribute("class")!.Value.Contains("oc-other-sprint"));
+            Assert.Equal("#a16207", mark.Attribute("fill")!.Value);
+        }
+        Assert.Contains("50% unplanned", SprintCharts.People(withLater).Svg); // 60 of 120
+
+        foreach (var chart in SprintCharts.All(Build(planned, backlog)))
+            Assert.DoesNotContain("Other sprint", Texts(XDocument.Parse(chart.Svg)));
+    }
+
+    /// <summary>
+    /// RPT-040: Time by project draws each row's time in its kind of work's colour - projects and No project planned, each unplanned
+    /// group its own; Tasks by person each person's tasks by outcome, Unassigned last; Tasks per day each day's finished tasks by kind
+    /// of work on whole-task ticks, and a message when nothing was finished.
+    /// </summary>
+    [Fact]
+    public void The_new_charts_draw_time_by_project_tasks_by_person_and_tasks_per_day()
+    {
+        var sprint = new SprintFacts(Guid.NewGuid(), "Sprint 14", null, new DateOnly(2026, 10, 19), new DateOnly(2026, 10, 30),
+            SprintStatus.Active, null);
+        var alice = Guid.NewGuid();
+        var project = new SprintProjectFacts(Guid.NewGuid(), "P-26-00001", "Alpha", "Ops");
+        var created = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
+        var done = new DateTime(2026, 10, 21, 9, 0, 0, DateTimeKind.Utc);
+        SprintTaskFacts Facts(string number, Guid? projectId, Guid? sprintId, bool inBacklog, TaskItemStatus status, Guid[] assignees,
+            int minutes, DateTime? completed = null) => new(
+            new TaskTimeFacts(Guid.NewGuid(), number, "Task", status, assignees, null, minutes),
+            projectId, sprintId, inBacklog, created, completed, minutes);
+        var planned = Facts("T-26-00001", project.Id, sprint.Id, false, TaskItemStatus.Done, [alice], 60, done);
+        var nobodys = Facts("T-26-00002", null, sprint.Id, false, TaskItemStatus.InProgress, [], 0);
+        var pulledIn = Facts("T-26-00003", null, null, true, TaskItemStatus.Done, [alice], 30, done);
+        SprintTaskFacts[] tasks = [planned, nobodys, pulledIn];
+        var report = SprintReportRules.Build(sprint, tasks,
+            tasks.Where(t => t.SprintMinutes > 0).Select(t => new SprintPersonTime(t.Task.Id, alice, t.SprintMinutes, t.SprintMinutes)).ToList(),
+            tasks.Where(t => t.SprintMinutes > 0).Select(t => new SprintDayTime(t.Task.Id, sprint.StartDate, t.SprintMinutes)).ToList(), [],
+            new Dictionary<Guid, SprintProjectFacts> { [project.Id] = project }, [], new Dictionary<Guid, string>(), new HashSet<Guid>(),
+            new Dictionary<Guid, ReportPerson> { [alice] = new(alice, "Alice", true) }, null, null, DateTime.UtcNow);
+
+        var projectTime = XDocument.Parse(SprintCharts.ProjectTime(report).Svg);
+        var marks = Marks(projectTime).Select(m => (Class: m.Attribute("class")!.Value, Title: m.Element(Svg + "title")!.Value)).ToList();
+        Assert.Contains(marks, m => m.Class.Contains("oc-planned") && m.Title.StartsWith("P-26-00001 Alpha"));
+        Assert.Contains(marks, m => m.Class.Contains("oc-backlog") && m.Title.StartsWith("Backlog"));
+        Assert.Equal(2, marks.Count); // No project logged nothing, so has no mark
+        Assert.Contains("Backlog", Texts(projectTime)); // the legend: planned and Backlog work
+
+        var personTasks = XDocument.Parse(SprintCharts.PeopleTasks(report).Svg);
+        var labels = Texts(personTasks);
+        Assert.True(labels.IndexOf("Alice") < labels.IndexOf("Unassigned"));
+        Assert.Equal(["Alice · Done: 2 tasks", "Unassigned · Left open: 1 task"], Marks(personTasks).Select(m => m.Element(Svg + "title")!.Value));
+
+        var tasksPerDay = XDocument.Parse(SprintCharts.DaysTasks(report).Svg);
+        var dayMarks = Marks(tasksPerDay);
+        Assert.Equal(2, dayMarks.Count); // the planned task and the Backlog one, both finished on the 21st
+        Assert.Contains(dayMarks, m => m.Attribute("class")!.Value.Contains("oc-planned"));
+        Assert.Contains(dayMarks, m => m.Attribute("class")!.Value.Contains("oc-backlog"));
+        Assert.Equal(new SprintKindCounts(1, 0, 1, 0), report.Days[2].Finished);
+        Assert.DoesNotContain(Texts(tasksPerDay), t => t.Contains('.')); // whole-task ticks
+
+        var nothingFinished = SprintReportRules.Build(sprint, [nobodys], [], [], [], new Dictionary<Guid, SprintProjectFacts>(), [],
+            new Dictionary<Guid, string>(), new HashSet<Guid>(), new Dictionary<Guid, ReportPerson>(), null, null, DateTime.UtcNow);
+        Assert.Equal(["No tasks finished in this sprint."], Texts(XDocument.Parse(SprintCharts.DaysTasks(nothingFinished).Svg)));
     }
 
     /// <summary>
@@ -138,10 +286,19 @@ public class SvgChartsTests
         var tasks = projects.Select((p, i) => new SprintTaskFacts(
             new TaskTimeFacts(Guid.NewGuid(), $"T-26-{i:00000}", "Task", TaskItemStatus.InProgress, [people[i].Id], null, 0),
             p.Id, sprint.Id, false, created, null, 0)).ToList();
+        // The fullest the projects chart gets: its folded projects, then No project, Not Planned, Backlog (RPT-037) and Other sprint
+        // (RPT-038) - sixteen bars.
+        var nextSprint = Guid.NewGuid();
+        SprintTaskFacts Other(int n, Guid? sprintId, bool inBacklog) => new(
+            new TaskTimeFacts(Guid.NewGuid(), $"T-26-{n:00000}", "Task", TaskItemStatus.InProgress, [people[0].Id], null, 0),
+            null, sprintId, inBacklog, created, null, 30);
+        tasks.AddRange([Other(90, sprint.Id, false), Other(91, null, false), Other(92, null, true), Other(93, nextSprint, false)]);
         var time = people.Select((p, i) => new SprintPersonTime(tasks[i % tasks.Count].Task.Id, p.Id, 60 + i, 60 + i)).ToList();
         var report = SprintReportRules.Build(sprint, tasks, time, [], [], projects.ToDictionary(p => p.Id), [],
-            new Dictionary<Guid, string>(), people.ToDictionary(p => p.Id), null, null, DateTime.UtcNow);
-        Assert.Equal(30, report.Rows.Count);
+            new Dictionary<Guid, string>(), new HashSet<Guid> { nextSprint }, people.ToDictionary(p => p.Id), null, null, DateTime.UtcNow);
+        Assert.Equal(34, report.Rows.Count);
+        Assert.True(report.Summary.HasBacklog);
+        Assert.True(report.Summary.HasOtherSprint);
         Assert.Equal(40, report.People.Count);
 
         var byProject = XDocument.Parse(SprintCharts.Projects(report).Svg);
@@ -150,14 +307,74 @@ public class SvgChartsTests
         Assert.Contains("29 others", Texts(byPerson));
         Assert.Contains("Person 40", Texts(byPerson)); // the most time keeps its bar
         Assert.DoesNotContain("Person 1", Texts(byPerson));
-        foreach (var chart in new[] { byProject, byPerson })
-            Assert.True(double.Parse(chart.Root!.Attribute("height")!.Value, CultureInfo.InvariantCulture) <= 450);
+        var projectTime = XDocument.Parse(SprintCharts.ProjectTime(report).Svg);
+        Assert.Contains("19 other projects", Texts(projectTime));
+        var personTasks = XDocument.Parse(SprintCharts.PeopleTasks(report).Svg);
+        Assert.Contains("29 others", Texts(personTasks)); // Time by person's people: the ten with time and no task too
+        Assert.Contains("Person 40", Texts(personTasks));
+        // Sixteen bars, a legend and the gap before the unplanned ones are 461px: well short of the ~27 rows that overflowed a page.
+        foreach (var chart in new[] { byProject, byPerson, projectTime, personTasks })
+            Assert.True(double.Parse(chart.Root!.Attribute("height")!.Value, CultureInfo.InvariantCulture) <= 480);
 
         // A picture QuestPDF can't fit on one page fails the whole document, so the PDF is the proof.
         QuestPDF.Settings.License = LicenseType.Community;
-        var pdf = ReportPdfBuilder.Build("Sprint status", "Sprint 14",
-            [new ReportPdfBuilder.Charts(SprintCharts.All(report).Select(c => new ReportPdfBuilder.Chart(c.Title, c.Svg)).ToList())],
-            landscape: true);
+        var pdf = ReportPdfBuilder.Build("Sprint status", "Sprint 14", [.. SprintCharts.PdfSections(report)], landscape: true);
         Assert.NotEmpty(pdf);
+    }
+
+    /// <summary>
+    /// RPT-036: the two charts of a pair keep the same projects, and the same people, in the same order: past
+    /// <see cref="SprintCharts.MaxBars"/>, the ones with the most time in the sprint, though others have more tasks. A person with
+    /// time and no task is on both, as is one with tasks and no time; Unassigned only on Tasks by person.
+    /// </summary>
+    [Fact]
+    public void The_charts_of_a_pair_keep_the_same_rows()
+    {
+        var sprint = new SprintFacts(Guid.NewGuid(), "Sprint 14", null, new DateOnly(2026, 10, 19), new DateOnly(2026, 10, 30),
+            SprintStatus.Active, null);
+        var created = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
+        var projects = Enumerable.Range(1, 14).Select(i => new SprintProjectFacts(Guid.NewGuid(), $"P-26-{i:00000}", $"Project {i}", "Ops")).ToList();
+        var people = Enumerable.Range(1, 15).Select(i => new ReportPerson(Guid.NewGuid(), $"Person {i}", true)).ToList();
+        var n = 0;
+        SprintTaskFacts NewTask(SprintProjectFacts p, Guid[] assignees, int minutes) => new(
+            new TaskTimeFacts(Guid.NewGuid(), $"T-26-{++n:00000}", "Task", TaskItemStatus.InProgress, assignees, null, minutes),
+            p.Id, sprint.Id, false, created, null, minutes);
+        // Projects 1-13 and people 1-13: two tasks and 10 minutes each. Project 14 and Person 14: one task and 10 hours.
+        // Person 15: no task, 8 hours on Project 1's. One task is nobody's.
+        List<SprintTaskFacts> tasks = [];
+        List<SprintPersonTime> time = [];
+        for (var i = 0; i < 13; i++)
+            foreach (var minutes in new[] { 5, 5 })
+            {
+                var t = NewTask(projects[i], [people[i].Id], minutes);
+                tasks.Add(t);
+                time.Add(new(t.Task.Id, people[i].Id, minutes, minutes));
+            }
+        var big = NewTask(projects[13], [people[13].Id], 600);
+        tasks.Add(big);
+        time.Add(new(big.Task.Id, people[13].Id, 600, 600));
+        time.Add(new(tasks[0].Task.Id, people[14].Id, 480, 480));
+        tasks.Add(NewTask(projects[0], [], 0));
+        var report = SprintReportRules.Build(sprint, tasks, time, [], [], projects.ToDictionary(p => p.Id), [],
+            new Dictionary<Guid, string>(), new HashSet<Guid>(), people.ToDictionary(p => p.Id), null, null, DateTime.UtcNow);
+
+        static List<string> Labels(SprintCharts.Chart c, string prefix) =>
+            Texts(XDocument.Parse(c.Svg)).Where(t => t.StartsWith(prefix, StringComparison.Ordinal)).ToList();
+
+        var byProject = Labels(SprintCharts.Projects(report), "Project ");
+        Assert.Equal(byProject, Labels(SprintCharts.ProjectTime(report), "Project "));
+        Assert.Contains("Project 14", byProject); // the most time, though the fewest tasks
+        Assert.Equal(11, byProject.Count);
+        Assert.Contains("3 other projects", Texts(XDocument.Parse(SprintCharts.Projects(report).Svg)));
+        Assert.Contains("3 other projects", Texts(XDocument.Parse(SprintCharts.ProjectTime(report).Svg)));
+
+        var byPerson = Labels(SprintCharts.PeopleTasks(report), "Person ");
+        Assert.Equal(byPerson, Labels(SprintCharts.People(report), "Person "));
+        Assert.Equal(["Person 14", "Person 15"], byPerson.Take(2)); // by time in the sprint
+        Assert.Equal(11, byPerson.Count);
+        Assert.Contains("4 others", Texts(XDocument.Parse(SprintCharts.PeopleTasks(report).Svg)));
+        Assert.Contains("4 others", Texts(XDocument.Parse(SprintCharts.People(report).Svg)));
+        Assert.Contains("Unassigned", Texts(XDocument.Parse(SprintCharts.PeopleTasks(report).Svg)));
+        Assert.DoesNotContain("Unassigned", Texts(XDocument.Parse(SprintCharts.People(report).Svg)));
     }
 }

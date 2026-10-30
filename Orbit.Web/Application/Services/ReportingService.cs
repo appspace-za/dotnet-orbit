@@ -330,8 +330,8 @@ public sealed class ReportingService(ApplicationDbContext db, IActorProvider act
     }
 
     /// <summary>
-    /// One sprint's planned work and the Not Planned work done in its window (§12 Sprint status): the sprint chosen, or the first the
-    /// Sprint filter offers - the active one, or the latest completed one (<see cref="SprintReportRules.Offered"/>). Sprints are
+    /// One sprint's planned work, and the Not Planned work and the Backlog and other sprints' tasks worked on in its window (§12 Sprint
+    /// status): the sprint chosen, or the first the Sprint filter offers - the active one, or the latest completed one (<see cref="SprintReportRules.Offered"/>). Sprints are
     /// company-wide (§6.3), so every viewer is offered them all; the tasks counted are still the viewer's department's. The planned
     /// tasks are those in it now and, once it has ended, the open ones it handed on, which only its Completed audit row records. Each
     /// task's status is read as at the sprint's end from its status changes. A department selects tasks filed in it; the project and
@@ -374,14 +374,24 @@ public sealed class ReportingService(ApplicationDbContext db, IActorProvider act
             .Select(a => a.EntityId)
             .Distinct()
             .ToListAsync(ct);
+        // Logged against in the window, any task: read once, rather than a time-entry lookup for every task in every sprint.
+        var loggedInWindow = await db.TimeEntries.AsNoTracking()
+            .Where(e => e.Date >= from && e.Date < to)
+            .Select(e => e.TaskId)
+            .Distinct()
+            .ToListAsync(ct);
         // Their time is read below, in one query: SprintMinutes and TotalMinutes are filled in by SprintReportRules.WithTime.
+        // The sprints after this one word an other-sprint task's note: Planned for a later sprint, From an earlier one.
+        var laterSprintIds = SprintReportRules.LaterSprints(allSprints, sprint);
+        // Not in this sprint: Not Planned work created in the window, and any task done or logged in it - Not Planned, on the
+        // Backlog (being created there doesn't make a Backlog item work done) or in any other sprint, later or earlier. So every
+        // task done or logged in the window is read. SprintReportRules.UnplannedKind sorts them.
         var candidates = await InDepartment(db.Tasks.AsNoTracking(), f.DepartmentId, actor)
             .Where(t => t.SprintId == sprintId || handedOn.Contains(t.Id)
-                || (t.SprintId == null && !t.InBacklog
-                    && ((t.CreatedAt >= fromUtc && t.CreatedAt < toUtc)
-                        || (t.Status == TaskItemStatus.Done && t.CompletedAt >= fromUtc && t.CompletedAt < toUtc)
-                        || doneInWindow.Contains(t.Id)
-                        || t.TimeEntries.Any(e => e.Date >= from && e.Date < to))))
+                || (t.SprintId == null && !t.InBacklog && t.CreatedAt >= fromUtc && t.CreatedAt < toUtc)
+                || (t.Status == TaskItemStatus.Done && t.CompletedAt >= fromUtc && t.CompletedAt < toUtc)
+                || doneInWindow.Contains(t.Id)
+                || loggedInWindow.Contains(t.Id))
             .Select(t => new SprintTaskFacts(
                 new TaskTimeFacts(t.Id, t.Number, t.Title, t.Status, t.Assignments.Select(x => x.UserId).ToList(), t.EstimateMinutes, 0),
                 t.ProjectId, t.SprintId, t.InBacklog, t.CreatedAt, t.CompletedAt, 0))
@@ -424,7 +434,7 @@ public sealed class ReportingService(ApplicationDbContext db, IActorProvider act
             .Select(u => new ReportPerson(u.Id, u.IsSystemAccount ? ClaudeName : u.DisplayName, u.IsActive || u.IsSystemAccount))
             .ToDictionaryAsync(p => p.Id, ct);
 
-        return SprintReportRules.Build(sprint, tasks, time, days, changes, projects, completions, sprintNames, people,
+        return SprintReportRules.Build(sprint, tasks, time, days, changes, projects, completions, sprintNames, laterSprintIds, people,
             f.ProjectId, f.AssigneeId, asAt) with { Sprints = offered };
     }
 
