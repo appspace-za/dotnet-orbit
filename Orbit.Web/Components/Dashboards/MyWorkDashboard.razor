@@ -1,0 +1,20 @@
+@* The My work view of the dashboard (spec §6.9, decision 134): what is on the viewer's plate and how their day is going - their
+   open work, what they finished lately and their part of the sprint, with their own day plan beside it. *@
+<DashboardTiles Model="Model" />
+<MudGrid Spacing="3">
+    <MudItem xs="12" lg="8">
+        <OpenWorkCard Model="Model" Charts="Charts" />
+        <TrendCard Charts="Charts" />
+        <SprintCard Model="Model" />
+    </MudItem>
+    <MudItem xs="12" lg="4">
+        <DashboardSide Model="Model" Charts="Charts" Approvals="Approvals" AssetChecks="AssetChecks" />
+    </MudItem>
+</MudGrid>
+
+@code {
+    [Parameter, EditorRequired] public DashboardModel Model { get; set; } = null!;
+    [Parameter, EditorRequired] public DashboardCharts Charts { get; set; } = null!;
+    [Parameter] public IReadOnlyList<RequestActionItem>? Approvals { get; set; }
+    [Parameter] public AssetCheckSummary? AssetChecks { get; set; }
+}

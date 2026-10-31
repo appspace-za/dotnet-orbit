@@ -1,0 +1,21 @@
+@* The Company view of the dashboard (spec §6.9, decision 134): which department is under the most load, whether the company is
+   clearing work as fast as it arrives, and each department's part of the sprint. People are on the Department view. *@
+<DashboardTiles Model="Model" />
+<MudGrid Spacing="3">
+    <MudItem xs="12" lg="8">
+        <DashboardLoadChart Title="Open tasks by department" Chart="Charts.Load!" EmptyText="No open tasks anywhere." />
+        <TrendCard Charts="Charts" />
+        <OpenWorkCard Model="Model" Charts="Charts" />
+        <SprintCard Model="Model" />
+    </MudItem>
+    <MudItem xs="12" lg="4">
+        <DashboardSide Model="Model" Charts="Charts" Approvals="Approvals" AssetChecks="AssetChecks" />
+    </MudItem>
+</MudGrid>
+
+@code {
+    [Parameter, EditorRequired] public DashboardModel Model { get; set; } = null!;
+    [Parameter, EditorRequired] public DashboardCharts Charts { get; set; } = null!;
+    [Parameter] public IReadOnlyList<RequestActionItem>? Approvals { get; set; }
+    [Parameter] public AssetCheckSummary? AssetChecks { get; set; }
+}

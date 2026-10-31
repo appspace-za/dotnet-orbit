@@ -1,3 +1,5 @@
+using Orbit.Helpers;
+
 namespace Orbit.Application;
 
 /// <summary>One link in the menu: its label, the URL it opens (where its page answers), and who sees it.</summary>
@@ -7,7 +9,7 @@ public sealed record NavItem(string Label, string Href, Func<Actor, bool> Shows)
 /// The navbar (spec §6.5, §6.9): which menu items a person sees, from their grants. A link shows only to someone who can use the page
 /// it opens - My Time to someone who may log at least their own time, Backlog to someone who may plan at least their own tasks - but
 /// hiding a link blocks nothing: the pages keep their own doors and every service applies the scopes. The Dashboard is everyone's
-/// landing page and adapts to what they may do (<see cref="Services.DashboardService"/>). Pure, so the rules are unit-tested; the
+/// landing page, with the views their task grants reach (<see cref="DashboardRules.Views"/>). Pure, so the rules are unit-tested; the
 /// layout and the dashboard's Where to start card both read it.
 /// </summary>
 public static class Navigation
@@ -20,14 +22,22 @@ public static class Navigation
     /// keys. It replaced the My Tasks page; the chip on the list, the dashboard, Today and the old /Tasks/My address all go here.
     /// An actor with no user (an API key, the system) has no tasks of their own, so it is the plain list.
     /// </summary>
-    public static string MyTasks(Actor a) => a.UserId is Guid me ? $"/Tasks?AssigneeId={me}&OpenOnly=true" : "/Tasks";
+    public static string MyTasks(Actor a) => a.UserId is Guid me ? MyTasks(me) : TaskListKeys.Path;
+
+    /// <summary>The Tasks list's My tasks filter for this person (<see cref="MyTasks(Actor)"/>).</summary>
+    public static string MyTasks(Guid me) =>
+        new FilterQuery().Add(TaskListKeys.Assignee, me).Add(TaskListKeys.OpenOnly, true).At(TaskListKeys.Path);
 
     /// <summary>
     /// The Tasks list's Today filter (§6.12, decision 133): the tasks the viewer is an assignee of that are on today's plan, done ones
     /// included. It is each assignee's own day, used through the day; the Today page is the team's plan for the morning meeting and
     /// shows the department's people too. An actor with no user gets the plain list.
     /// </summary>
-    public static string MyTasksToday(Actor a) => a.UserId is Guid me ? $"/Tasks?AssigneeId={me}&PlannedToday=true" : "/Tasks";
+    public static string MyTasksToday(Actor a) => a.UserId is Guid me ? MyTasksToday(me) : TaskListKeys.Path;
+
+    /// <summary>The Tasks list's Today filter for this person (<see cref="MyTasksToday(Actor)"/>).</summary>
+    public static string MyTasksToday(Guid me) =>
+        new FilterQuery().Add(TaskListKeys.Assignee, me).Add(TaskListKeys.PlannedToday, true).At(TaskListKeys.Path);
 
     /// <summary>The Tasks list: tasks.view at any scope (without it the list is empty).</summary>
     public static bool ShowsTasks(Actor a) => a.Has(Permission.TasksView);

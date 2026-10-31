@@ -87,7 +87,9 @@ Blazor components, Razor Pages and MCP tools are thin. All call the same scoped 
   with a gap (`orbit-gap-row`). A list page's filters are query parameters read as strings
   (`[SupplyParameterFromQuery]`, parsed with `FilterChoice` / `FilterQuery`), and remembered with `BrowserFilterMemory`
   (a Blazor page has no HTTP response to set a cookie on): a page that remembers them inherits `OrbitListPage`, which
-  holds `GoAsync`/`PageUrl`/`ResetAsync`. A date picker converts with `PickerDate`, and a Copy button is `CopyButton`. An HTML attribute on a MudBlazor component whose name matches
+  holds `GoAsync`/`PageUrl`/`ResetAsync`. The Tasks list's keys are `TaskListKeys`: read its filters under them and
+  build any link to it from them with `FilterQuery` (`Navigation.MyTasks`, `DashboardLinks`), never a hand-written query
+  string. A date picker converts with `PickerDate`, and a Copy button is `CopyButton`. An HTML attribute on a MudBlazor component whose name matches
   a parameter binds the parameter (`inputmode` is `InputMode`), so pass it as C# (`InputMode="@(InputMode.@decimal)"`).
   A picked file (`IBrowserFile`) can only be read while its input is on the page, so a form sent later reads it into
   memory as it is picked (`RequestWizard`). Styles are in `css/app.css` (the `orbit-*` classes), `css/gantt.css` and
@@ -96,7 +98,7 @@ Blazor components, Razor Pages and MCP tools are thin. All call the same scoped 
   `ApplicationDbContext.OnModelCreating`), so raw SQL uses `'Todo'`, not `0`. Recent migrations were tested on an
   empty DB and on a DB at the previous migration, forward, back (`Down`) and forward again (spec §13 item 37).
 - **Pure rules** (`Application/Scheduling/*`, `Application/Assets/*Rules`, `Application/Nagios/*`, `Application/Messages/*`, `RoleRules`,
-  `DependencyRules`, `DirectoryImportRules`) have no DB access so they can be unit-tested. Put new domain logic there when it can be
+  `DependencyRules`, `DirectoryImportRules`, `DashboardRules`, `DayPlanRules`, `DueWindowRules`) have no DB access so they can be unit-tested. Put new domain logic there when it can be
   separated. Tests cite the spec's acceptance IDs (e.g. `AST-005`) in their doc comments.
 - The critical path analysis is stored and marked stale by a hash of its inputs (`ScheduleFingerprint`), not by
   write hooks. A new field that affects scheduling must be added to the fingerprint.

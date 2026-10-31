@@ -1,0 +1,22 @@
+@* The Department view of the dashboard (spec §6.9, decision 134): whether the team is all right - who carries the open work and
+   what is stuck, what kind of work it is, whether it is being cleared, and the department's part of the sprint. *@
+<DashboardTiles Model="Model" />
+<MudGrid Spacing="3">
+    <MudItem xs="12" lg="8">
+        <DashboardLoadChart Title="Open tasks by assignee" Note="a task shared by several people counts under each" Chart="Charts.Load!"
+                            EmptyText="No open tasks in the department." />
+        <OpenWorkCard Model="Model" Charts="Charts" />
+        <TrendCard Charts="Charts" />
+        <SprintCard Model="Model" />
+    </MudItem>
+    <MudItem xs="12" lg="4">
+        <DashboardSide Model="Model" Charts="Charts" Approvals="Approvals" AssetChecks="AssetChecks" />
+    </MudItem>
+</MudGrid>
+
+@code {
+    [Parameter, EditorRequired] public DashboardModel Model { get; set; } = null!;
+    [Parameter, EditorRequired] public DashboardCharts Charts { get; set; } = null!;
+    [Parameter] public IReadOnlyList<RequestActionItem>? Approvals { get; set; }
+    [Parameter] public AssetCheckSummary? AssetChecks { get; set; }
+}

@@ -1,0 +1,24 @@
+@* A dashboard donut (spec §6.9): the chart with its figure in the middle and its legend beside it, or a line saying there is
+   nothing when it would be empty (MudChart draws nothing for a zero total). *@
+@if (Chart.Total == 0)
+{
+    <div class="orbit-muted orbit-small"><i>@EmptyText</i></div>
+}
+else
+{
+    <div class="orbit-dash-donut">
+        <div class="orbit-dash-ring" role="img" aria-label="@Chart.Summary">
+            <MudChart T="double" ChartType="ChartType.Donut" ChartSeries="Chart.Series" ChartLabels="Chart.Labels" ChartOptions="Chart.Options"
+                      Width="140px" Height="140px" />
+            <div class="orbit-dash-ring-centre" aria-hidden="true"><b>@Centre</b><span>@CentreLabel</span></div>
+        </div>
+        <DashboardLegend Items="Chart.Slices" />
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public DonutChartData Chart { get; set; } = null!;
+    [Parameter, EditorRequired] public string Centre { get; set; } = "";
+    [Parameter] public string? CentreLabel { get; set; }
+    [Parameter] public string EmptyText { get; set; } = "Nothing to show.";
+}

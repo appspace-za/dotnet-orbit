@@ -1,0 +1,32 @@
+@* A dashboard card of open work per person or per department (spec §6.9): bars stacked by status, the total above each, in a box
+   of fixed height so the card keeps its size however many bars there are. MudChart's bars aren't links (its selection is the
+   series, not the bar), so they carry tooltips only. The height is in pixels: given a percentage, MudChart falls back to 350px
+   whatever its box. *@
+<MudPaper Outlined="true" Class="orbit-card">
+    <div class="orbit-card-header">
+        <b>@Title</b>
+        @if (Note is not null)
+        {
+            <span class="orbit-muted orbit-small">@Note</span>
+        }
+    </div>
+    @if (Chart.IsEmpty)
+    {
+        <div class="orbit-list-item orbit-muted"><i>@EmptyText</i></div>
+    }
+    else
+    {
+        <div class="orbit-dash-plot" role="img" aria-label="@Chart.Summary">
+            <MudChart T="double" ChartType="ChartType.StackedBar" ChartSeries="Chart.Series" ChartLabels="Chart.Labels" ChartOptions="Chart.Options"
+                      Width="100%" Height="@DashboardLook.PlotHeight" MatchBoundsToSize="true" />
+        </div>
+        <DashboardLegend Items="Chart.Legend" Row="true" ShowCounts="false" />
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter] public string? Note { get; set; }
+    [Parameter, EditorRequired] public BarChartData Chart { get; set; } = null!;
+    [Parameter] public string EmptyText { get; set; } = "No open tasks.";
+}

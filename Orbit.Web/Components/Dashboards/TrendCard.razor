@@ -1,0 +1,26 @@
+@* The dashboard's Last 14 days card (spec §6.9): the view's tasks created and done each day, to show at a glance whether work is
+   piling up or being cleared. The Tasks list has no created or completed filter, so the totals aren't links. *@
+<MudPaper Outlined="true" Class="orbit-card">
+    <div class="orbit-card-header">
+        <b>@($"Last {DashboardRules.TrendDays} days")</b>
+        <span class="orbit-muted orbit-small">tasks created and done, @Short(Charts.Trend.From) to @Short(Charts.Trend.To)</span>
+    </div>
+    @if (Charts.Trend.IsEmpty)
+    {
+        <div class="orbit-list-item orbit-muted"><i>@($"No tasks created or done in the last {DashboardRules.TrendDays} days.")</i></div>
+    }
+    else
+    {
+        <div class="orbit-dash-plot" role="img" aria-label="@Charts.Trend.Summary">
+            <MudChart T="double" ChartType="ChartType.Line" ChartSeries="Charts.Trend.Series" ChartLabels="Charts.Trend.Labels"
+                      ChartOptions="Charts.Trend.Options" Width="100%" Height="@DashboardLook.PlotHeight" MatchBoundsToSize="true" />
+        </div>
+        <DashboardLegend Items="Charts.Trend.Legend" Row="true" />
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public DashboardCharts Charts { get; set; } = null!;
+
+    private static string Short(DateOnly d) => d.ToString("d MMM", System.Globalization.CultureInfo.InvariantCulture);
+}

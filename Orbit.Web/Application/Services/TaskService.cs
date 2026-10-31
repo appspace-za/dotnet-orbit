@@ -47,6 +47,7 @@ public sealed class TaskService(
         if (f.Source is TaskSource source) q = q.Where(t => t.Source == source);
         if (f.DueBefore is DateOnly before) q = q.Where(t => t.DueDate != null && t.DueDate <= before);
         if (f.DueAfter is DateOnly after) q = q.Where(t => t.DueDate != null && t.DueDate >= after);
+        if (f.Due is DueWindow window) q = DueWindowRules.Within(q, window, DateOnly.FromDateTime(DateTime.UtcNow));
         if (f.SprintId is Guid sprintId) q = q.Where(t => t.SprintId == sprintId);
         if (f.RecurringTaskDefinitionId is Guid defId) q = q.Where(t => t.RecurringTaskDefinitionId == defId);
         if (f.ParentTaskId is Guid parentId) q = q.Where(t => t.ParentTaskId == parentId);

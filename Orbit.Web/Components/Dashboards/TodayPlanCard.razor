@@ -1,0 +1,16 @@
+@* The dashboard's Today's plan card (spec §6.9, §6.12): the view's tasks on today's plan, closed against planned, so it shows at a
+   glance how the day is going however many tasks were planned. On My work it opens the viewer's own day, otherwise the Today page. *@
+<MudPaper Outlined="true" Class="orbit-card">
+    <div class="orbit-card-header"><b>Today's plan</b><a href="@Model.Links.TodayPlan" class="orbit-small">Open</a></div>
+    <div class="orbit-card-body">
+        <DashboardDonut Chart="Charts.Today!"Centre="@($"{Plan.Closed}/{Plan.Total}")" CentreLabel="closed"
+                        EmptyText="Nothing planned yet. Tick &quot;Today&quot; on tasks after the morning scrum." />
+    </div>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public DashboardModel Model { get; set; } = null!;
+    [Parameter, EditorRequired] public DashboardCharts Charts { get; set; } = null!;
+
+    private StatusCounts Plan => Model.TodayPlan ?? StatusCounts.None;
+}

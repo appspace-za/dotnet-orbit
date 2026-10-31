@@ -1,0 +1,21 @@
+@* The six figures every dashboard view leads with (spec §6.9): its open tasks per status, the overdue ones and the ones due in the
+   next seven days, each opening the Tasks list of exactly those tasks (DashboardLinks). The statuses are named as everywhere else
+   (TaskItemStatus.Label) and the due figures as the Tasks list's Due filter they open (DueWindowRules.Label). *@
+<div class="orbit-stats orbit-stats-6">
+    <DashboardTile Value="Model.Open.Todo" Label="@TaskItemStatus.Todo.Label()" Icon="@Icons.Material.Outlined.RadioButtonUnchecked"
+                   Colour="@DashboardLook.Status(TaskItemStatus.Todo)" Href="@Model.Links.Status(TaskItemStatus.Todo)" />
+    <DashboardTile Value="Model.Open.InProgress" Label="@TaskItemStatus.InProgress.Label()" Icon="@Icons.Material.Outlined.PlayCircle"
+                   Colour="@DashboardLook.Status(TaskItemStatus.InProgress)" Href="@Model.Links.Status(TaskItemStatus.InProgress)" />
+    <DashboardTile Value="Model.Open.Waiting" Label="@TaskItemStatus.Waiting.Label()" Icon="@Icons.Material.Outlined.HourglassEmpty"
+                   Colour="@DashboardLook.Status(TaskItemStatus.Waiting)" Href="@Model.Links.Status(TaskItemStatus.Waiting)" />
+    <DashboardTile Value="Model.Open.Blocked" Label="@TaskItemStatus.Blocked.Label()" Icon="@Icons.Material.Outlined.Block" Alert="Model.Open.Blocked > 0"
+                   Colour="@DashboardLook.Status(TaskItemStatus.Blocked)" Href="@Model.Links.Status(TaskItemStatus.Blocked)" />
+    <DashboardTile Value="Model.OverdueCount" Label="@DueWindowRules.Label(DueWindow.Overdue)" Icon="@Icons.Material.Outlined.EventBusy" Alert="Model.OverdueCount > 0"
+                   Colour="var(--mud-palette-error)" Href="@Model.Links.Overdue" />
+    <DashboardTile Value="Model.DueSoonCount" Label="@DueWindowRules.Label(DueWindow.Soon)" Icon="@Icons.Material.Outlined.CalendarMonth"
+                   Colour="var(--mud-palette-warning)" Href="@Model.Links.DueSoon" />
+</div>
+
+@code {
+    [Parameter, EditorRequired] public DashboardModel Model { get; set; } = null!;
+}

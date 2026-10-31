@@ -184,19 +184,25 @@ public class DefaultRolesTests
         Assert.Equal(DefaultRoles.DepartmentAdminGrants.Count, RoleRules.Validate(DefaultRoles.DepartmentAdminGrants).Count);
     }
 
+    /// <summary>DSH-001 over the shipped roles: Members and Department Admins get My work and the department's view, the System Administrator all three; each starts on My work.</summary>
     [Fact]
-    public void Dashboard_tiers_personal_for_member_department_for_admin_company_for_system_admin()
+    public void Dashboard_views_my_work_and_department_for_member_and_admin_all_three_for_system_admin()
     {
-        Assert.Equal(PermissionScope.Own, DashboardService.DashboardTier(Member));
-        Assert.Equal(PermissionScope.Department, DashboardService.DashboardTier(DeptAdmin));
-        Assert.Equal(PermissionScope.All, DashboardService.DashboardTier(SysAdmin));
-        // The spec's worked examples: an Auditor (view everything, edit nothing) lands on the company tier,
-        // a Coordinator (Member plus tasks.edit at Department) on the department tier.
+        Assert.Equal(new[] { DashboardView.Mine, DashboardView.Department }, DashboardRules.Views(Member));
+        Assert.Equal(new[] { DashboardView.Mine, DashboardView.Department }, DashboardRules.Views(DeptAdmin));
+        Assert.Equal(new[] { DashboardView.Mine, DashboardView.Department, DashboardView.Company }, DashboardRules.Views(SysAdmin));
+        Assert.Equal(DashboardView.Mine, DashboardRules.DefaultView(Member));
+        Assert.Equal(DashboardView.Mine, DashboardRules.DefaultView(DeptAdmin));
+        Assert.Equal(DashboardView.Mine, DashboardRules.DefaultView(SysAdmin));
+        // The spec's worked examples: an Auditor (view everything, edit nothing) gets the department and company views and starts on
+        // the company's; a Coordinator (Member plus tasks.edit at Department) gets My work and the department's.
         var auditor = TestActors.Grants(null, (Permission.TasksView, PermissionScope.All), (Permission.ProjectsView, PermissionScope.All));
-        Assert.Equal(PermissionScope.All, DashboardService.DashboardTier(auditor));
+        Assert.Equal(new[] { DashboardView.Department, DashboardView.Company }, DashboardRules.Views(auditor));
+        Assert.Equal(DashboardView.Company, DashboardRules.DefaultView(auditor));
         var coordinatorGrants = new Dictionary<string, PermissionScope>(DefaultRoles.MemberGrants) { [Permission.TasksEdit] = PermissionScope.Department };
-        Assert.Equal(PermissionScope.Department, DashboardService.DashboardTier(TestActors.With(coordinatorGrants, It)));
-        Assert.Equal(PermissionScope.None, DashboardService.DashboardTier(TestActors.Nobody(It)));
+        Assert.Equal(new[] { DashboardView.Mine, DashboardView.Department }, DashboardRules.Views(TestActors.With(coordinatorGrants, It)));
+        Assert.Empty(DashboardRules.Views(TestActors.Nobody(It)));
+        Assert.Null(DashboardRules.DefaultView(TestActors.Nobody(It)));
     }
 
     [Fact]

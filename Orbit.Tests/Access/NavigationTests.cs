@@ -78,16 +78,20 @@ public class NavigationTests
         Assert.Contains("Dashboard", menu);
     }
 
-    /// <summary>NAV-004: a view-only role gets the dashboard of its view scope, not the personal one it has no work on.</summary>
+    /// <summary>
+    /// NAV-004: a view-only role gets the dashboard views of its view scope, not My work, which it has no work on - unless Own is all
+    /// it sees, when My work (the tasks it raised, requested or is assigned) is its one view.
+    /// </summary>
     [Fact]
     public void View_only_roles_get_their_view_scope_on_the_dashboard()
     {
         var viewer = TestActors.Grants(Finance, (Permission.TasksView, PermissionScope.Department));
-        Assert.True(DashboardService.IsViewOnly(viewer));
-        Assert.Equal(PermissionScope.Department, DashboardService.DashboardTier(viewer));
-        Assert.False(DashboardService.IsViewOnly(TestActors.Member(Finance)));
-        Assert.Equal(PermissionScope.Own, DashboardService.DashboardTier(TestActors.Member(Finance)));
-        Assert.False(DashboardService.IsViewOnly(TestActors.Nobody(Finance)));
+        Assert.Equal(new[] { DashboardView.Department }, DashboardRules.Views(viewer));
+        Assert.Equal(DashboardView.Department, DashboardRules.DefaultView(viewer));
+        var ownViewer = TestActors.Grants(Finance, (Permission.TasksView, PermissionScope.Own));
+        Assert.Equal(new[] { DashboardView.Mine }, DashboardRules.Views(ownViewer));
+        Assert.Equal(DashboardView.Mine, DashboardRules.DefaultView(TestActors.Member(Finance)));
+        Assert.Empty(DashboardRules.Views(TestActors.Nobody(Finance)));
     }
 
     /// <summary>

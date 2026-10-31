@@ -25,6 +25,8 @@ public sealed class TaskFilter
     public TaskSource? Source { get; set; }
     public DateOnly? DueBefore { get; set; }
     public DateOnly? DueAfter { get; set; }
+    /// <summary>Only tasks due in this window, counted from today (UTC date, <see cref="DueWindowRules"/>); on top of the dates above.</summary>
+    public DueWindow? Due { get; set; }
     public Guid? SprintId { get; set; }
     public Guid? RecurringTaskDefinitionId { get; set; }
     /// <summary>Only the direct subtasks of this task (§6.15).</summary>
@@ -44,6 +46,15 @@ public sealed class TaskFilter
     public string? Search { get; set; }
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 50;
+}
+
+/// <summary>The Tasks list's Due filter (§6.2, decision 135): due dates counted from today, so a link to it never goes stale.</summary>
+public enum DueWindow
+{
+    /// <summary>Due before today.</summary>
+    Overdue,
+    /// <summary>Due today or in the next <see cref="DueWindowRules.SoonDays"/> days.</summary>
+    Soon
 }
 
 /// <summary>Input for creating a task, or the complete new state when updating one.</summary>

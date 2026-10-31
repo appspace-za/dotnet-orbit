@@ -132,17 +132,84 @@ body.orbit-dark { background: #111218; color-scheme: dark; }
 .orbit-filter-wide { grid-column: span 2; }
 @media (max-width: 599.98px) { .orbit-filter-wide { grid-column: span 1; } }
 
-/* The dashboard: five tiles in a row, a card that waits on the viewer, counts and progress. */
-@media (min-width: 960px) { .orbit-stats-5 { grid-template-columns: repeat(5, 1fr); } }
+/* The dashboard's side cards: one that waits on the viewer, counts, and the sprint's name. */
 .orbit-card-primary { border-left: 4px solid var(--mud-palette-primary); }
-.orbit-c-primary { color: var(--mud-palette-primary); }
-.orbit-c-info { color: var(--mud-palette-info); }
 .orbit-count { font-size: 1.25rem; font-weight: 600; }
 .orbit-gap-lg { gap: 1rem; }
 a.orbit-plain { color: inherit; text-decoration: none; }
 a.orbit-plain:hover { background: var(--mud-palette-table-hover); }
-.orbit-progress { min-width: 10rem; text-align: right; }
 .orbit-sprint-name { font-size: 1.125rem; font-weight: 600; text-decoration: none; }
+
+/* The dashboard's views (§6.9, decision 134). One colour per status, priority and type, named by DashboardLook for its charts,
+   legends and tiles. MudChart writes each palette entry into its SVG's fill or stroke as given, so the marks follow these variables
+   and the theme toggle; they are on the root so MudChart's tooltips find them too. Picked for colour-blind separation as
+   neighbours on Orbit's light and dark surfaces: status To do neutral, In progress indigo, Waiting cyan (the theme's info blue is
+   too close to indigo), Blocked red, Done green; priority one orange ramp, darker for higher (brighter on dark); type eight hues
+   in the type list's order. */
+:root {
+    --orbit-status-todo: #94a3b8; --orbit-status-in-progress: #4338ca; --orbit-status-waiting: #0891b2;
+    --orbit-status-blocked: #dc2626; --orbit-status-done: #15803d; --orbit-status-cancelled: #475569;
+    --orbit-priority-low: #fb923c; --orbit-priority-medium: #ea580c; --orbit-priority-high: #c2410c; --orbit-priority-critical: #7c2d12;
+    --orbit-type-meeting: #2a78d6; --orbit-type-planning: #eb6834; --orbit-type-task: #1baf7a; --orbit-type-training: #eda100;
+    --orbit-type-audit: #e87ba4; --orbit-type-change: #008300; --orbit-type-request: #6250d6; --orbit-type-problem: #e34948;
+}
+.orbit-dark {
+    --orbit-status-todo: #64748b; --orbit-status-in-progress: #6366f1; --orbit-status-blocked: #e66767;
+    --orbit-status-done: #16a34a; --orbit-status-cancelled: #94a3b8;
+    --orbit-priority-low: #9a3412; --orbit-priority-medium: #ea580c; --orbit-priority-high: #fb923c; --orbit-priority-critical: #fed7aa;
+    --orbit-type-meeting: #3987e5; --orbit-type-planning: #d95926; --orbit-type-task: #199e70; --orbit-type-training: #c98500;
+    --orbit-type-audit: #d55181; --orbit-type-request: #9085e9; --orbit-type-problem: #e66767;
+}
+.orbit-dash-switcher { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin-bottom: 1rem; }
+.orbit-dash-switcher .mud-select { flex: 0 1 16rem; }
+.orbit-dash-switcher .mud-input-control { margin: 0; }
+@media (min-width: 600px) and (max-width: 1279.98px) { .orbit-dash .orbit-stats-6 { grid-template-columns: repeat(3, 1fr); } }
+
+/* A figure: an icon in a tinted circle, the number and what it counts; the whole tile opens its list. */
+.orbit-tile { display: block; color: inherit; text-decoration: none; border-radius: var(--mud-default-borderradius); }
+.orbit-tile .mud-paper { display: flex; align-items: center; gap: .75rem; padding: .75rem 1rem; height: 100%; transition: border-color .15s, background-color .15s; }
+.orbit-tile:hover .mud-paper { border-color: var(--mud-palette-primary); background: var(--mud-palette-table-hover); }
+.orbit-tile:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 2px; }
+.orbit-tile-icon {
+    flex: none; display: grid; place-items: center; width: 2.25rem; height: 2.25rem; border-radius: 50%;
+    color: var(--orbit-tile-colour); background: color-mix(in srgb, var(--orbit-tile-colour) 14%, transparent);
+}
+.orbit-tile-value { display: block; font-size: 1.625rem; font-weight: 600; line-height: 1.1; }
+.orbit-tile-label { display: block; color: var(--mud-palette-text-secondary); font-size: .8125rem; }
+.orbit-tile-alert .orbit-tile-value { color: var(--orbit-tile-colour); }
+
+/* Donuts: the ring with its figure laid over the middle, the legend beside it, two to a card from 600px. */
+.orbit-dash-donuts { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; padding: .75rem 1rem 1rem; }
+@media (min-width: 600px) { .orbit-dash-donuts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.orbit-dash-section { color: var(--mud-palette-text-secondary); font-size: .8125rem; font-weight: 600; margin-bottom: .5rem; }
+.orbit-dash-donut { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; }
+.orbit-dash-ring { position: relative; flex: none; width: 140px; height: 140px; }
+.orbit-dash-ring .mud-chart { margin: 0; }
+.orbit-dash-ring-centre {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    pointer-events: none; text-align: center;
+}
+.orbit-dash-ring-centre b { font-size: 1.375rem; line-height: 1.1; }
+.orbit-dash-ring-centre span { color: var(--mud-palette-text-secondary); font-size: .75rem; }
+.orbit-dash .mud-chart-donut path.mud-chart-serie { stroke: var(--mud-palette-surface); stroke-width: 2px; } /* gaps between segments */
+.orbit-dash .mud-charts-gridlines-yaxis path { stroke: var(--mud-palette-lines-default); } /* MudChart draws them #e0e0e0 */
+
+/* Bar and line charts: MudChart fills the box's width at a fixed height (DashboardLook.PlotHeight), so a card keeps its size. */
+.orbit-dash-plot { padding: .5rem .75rem 0; }
+
+/* A chart's legend: a column beside a donut, or a row under a chart. */
+.orbit-dash-legend { list-style: none; margin: 0; padding: 0; flex: 1 1 9rem; min-width: 0; max-width: 15rem; font-size: .875rem; }
+.orbit-dash-legend li > a, .orbit-dash-entry { display: flex; align-items: center; gap: .5rem; padding: .125rem 0; color: inherit; text-decoration: none; }
+.orbit-dash-legend li > a:hover { color: var(--mud-palette-primary); }
+.orbit-dash-legend-row { display: flex; flex-wrap: wrap; gap: .125rem 1rem; max-width: none; padding: .25rem 1rem .75rem; font-size: .8125rem; }
+.orbit-card-footer .orbit-dash-legend-row { padding: 0; }
+.orbit-dash-swatch { flex: none; width: .625rem; height: .625rem; border-radius: 2px; background: var(--orbit-swatch); }
+.orbit-dash-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.orbit-dash-count { margin-left: auto; font-weight: 600; }
+.orbit-dash-legend-row .orbit-dash-count { margin-left: 0; }
+
+/* A sprint's meters: label, bar, figure. */
+.orbit-dash-meters { display: grid; grid-template-columns: minmax(0, 7rem) minmax(0, 1fr) auto; align-items: center; gap: .375rem .75rem; font-size: .875rem; }
 
 /* Projects and Sprints. */
 .orbit-form { display: flex; flex-direction: column; gap: .75rem; max-width: 60rem; }

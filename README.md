@@ -91,7 +91,7 @@ scopes below it, and a role with no grants sees nothing.
 
 | Permission | Scopes | What it gates | Member | Dept Admin |
 |---|---|---|---|---|
-| `tasks.view` | Own / Dept / All | See tasks, comment, attach; sets the dashboard tier and the Department column/filter | Dept | Dept |
+| `tasks.view` | Own / Dept / All | See tasks, comment, attach; sets the dashboard's widest view and the Department column/filter | Dept | Dept |
 | `tasks.create` | Dept / All | Create tasks and recurring definitions; All also files tasks for other departments under a project (spec §6.2.1) | Dept | Dept |
 | `tasks.create_for` | Own / Dept / All | Name a task's requestee - the person it is created for (Own: only yourself, so the field isn't offered; Dept: anyone in your department; All: anyone) | Own | Own |
 | `tasks.edit` | Own / Dept / All | Edit any field, incl. every status change (close/reopen), parent, dependencies, assignees | Own | Dept |
@@ -120,10 +120,22 @@ scopes below it, and a role with no grants sees nothing.
 
 The navbar follows the same grants: Today needs **Edit tasks**, Tasks **View tasks**, Projects **Edit
 projects**, Backlog and Sprints **Plan tasks**, Recurring **Create tasks**, My Time **Log time** and Assets **View
-assets**, each at any scope. Hiding a link blocks nothing - the pages keep their own rules. The Dashboard is always
-there and adapts: someone who can view tasks but not edit them sees their department's (or company's) work read-only,
-and someone who can't see tasks gets links to what they can use. Anyone who can log requests also gets a **My waiting
-approvals** card there: the requests waiting for their approval, oldest first. The Dashboard's header doesn't repeat
+assets**, each at any scope. Hiding a link blocks nothing - the pages keep their own rules.
+
+The Dashboard is always there. It has three views, switched under its header: **My work** (your own tasks and your
+day), **Department** (who carries the department's work and what is stuck) and **Company** (which department is under
+load). You get the views your grants reach: anyone who edits tasks gets My work, **View tasks** at Department adds
+Department, and at All adds Company too, with a department picker on Department. So Members and Department Admins get
+My work and Department, and the System Administrator all three. Someone who can view tasks but not edit them gets the
+views their view reaches: Department and Company at All, Department at Department, and My work when they see only
+their own tasks. The dashboard opens on the last view you picked in this browser session (My work at first, if you
+edit tasks), and each view has its own address to bookmark. Every view leads with six figures - Todo, In Progress,
+Waiting, Blocked, Overdue and Due in 7 days - each opening the Tasks list of exactly those tasks, then charts in place
+of task lists: open work by priority and by type, tasks created and done over the last 14 days, the active sprint's
+work done (cancelled tasks left out) against its time gone, and Today's plan as one donut of closed against planned. The Department view adds
+open tasks by assignee, the Company view open tasks by department. Someone who can't see tasks gets links to what they
+can use. Anyone who can log requests also gets a **My waiting approvals** card there: the requests waiting for their
+approval, oldest first. The Dashboard's header doesn't repeat
 the menu: it holds the buttons that start something new, **New task** with **Create tasks**, **New project** with
 **Create projects** and **Register asset** with **Register assets**. The same buttons on the list pages follow the same
 permissions, and the create pages behind them need them too.
@@ -167,7 +179,9 @@ them, the Today tick or *Take* saves without reloading the page, so you keep you
 floating in a corner. The Tasks list also has a **Sprint** filter: a planned or active sprint, *Backlog*, or
 *Not Planned*. Its **Project**, **Assignee** and **Requestee** filters each offer *None*: the
 standalone tasks on no project, the tasks nobody is assigned to, and the tasks created for nobody else. Assignee
-*None* replaced the old *Unassigned* tick box. The Backlog's Project and Assignee filters offer *None* too.
+*None* replaced the old *Unassigned* tick box. The Backlog's Project and Assignee filters offer *None* too. A **Due**
+filter picks *Overdue* (due before today) or *Due in 7 days* (today to seven days ahead), counted from the day you open
+the list, so a saved link or a remembered filter doesn't freeze an old date; the dashboard's due figures open it.
 
 **Long lists can be searched by typing** (spec §6.2). The task form's Project, Parent task and Requestee fields, the
 recurring form's Project, the project form's Owner, the time card's *For*, the task page's dependency picker and the

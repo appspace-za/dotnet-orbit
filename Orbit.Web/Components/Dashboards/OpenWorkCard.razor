@@ -1,0 +1,35 @@
+@* The dashboard's Open work card (spec §6.9): the view's open tasks by priority and by type - the tiles above already give them by
+   status - and on My work the department's work nobody has taken yet. *@
+<MudPaper Outlined="true" Class="orbit-card">
+    <div class="orbit-card-header"><b>@Model.ScopeLabel</b><a href="@Model.Links.AllOpen" class="orbit-small">All tasks</a></div>
+    @if (Model.Open.Open == 0)
+    {
+        <div class="orbit-list-item orbit-muted"><i>Nothing open. Nice.</i></div>
+    }
+    else
+    {
+        <div class="orbit-dash-donuts">
+            <div>
+                <div class="orbit-dash-section">By priority</div>
+                <DashboardDonut Chart="Charts.Priority" Centre="@Model.Open.Open.ToString()" CentreLabel="open" />
+            </div>
+            <div>
+                <div class="orbit-dash-section">By type</div>
+                <DashboardDonut Chart="Charts.Type" Centre="@Model.Open.Open.ToString()" CentreLabel="open" />
+            </div>
+        </div>
+    }
+    @if (Model.UpForGrabs is { } grabs)
+    {
+        <div class="orbit-card-footer">
+            <a href="@grabs.Href" class="orbit-gap-row">
+                <b>@grabs.Count</b><span>up for grabs in @(Model.HomeDepartmentName ?? "your department") - take one to make it yours</span>
+            </a>
+        </div>
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public DashboardModel Model { get; set; } = null!;
+    [Parameter, EditorRequired] public DashboardCharts Charts { get; set; } = null!;
+}

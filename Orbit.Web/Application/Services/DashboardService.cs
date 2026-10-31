@@ -6,95 +6,174 @@ using Orbit.Data.Entities;
 namespace Orbit.Application.Services;
 
 /// <summary>
-/// Builds the tiered post-login dashboard (§6.9). The tier is the actor's tasks.view scope: Own = the personal
-/// dashboard, Department = the department dashboard, All = the company-wide one. A role that may view tasks but edit none gets its
-/// view scope without the widgets about its own work; a role that sees no tasks gets no task widgets at all.
+/// Builds one view of the dashboard (spec §6.9, decision 134): My work, a department's or the company's. Each view counts over
+/// its own scope - the tasks the viewer is an assignee of, a department's (<see cref="Scoping.Tasks"/>, narrowed to the picked
+/// department for a viewer at All) or everything - and the same aggregate queries fill every view, so the figures are the same
+/// kind everywhere and each matches the Tasks list its link opens (<see cref="DashboardLinks"/>). Which views a viewer reaches
+/// is <see cref="DashboardRules.Views"/>; the page picks one of those, and this refuses any other.
 /// </summary>
 public sealed class DashboardService(ApplicationDbContext db, IActorProvider actors)
 {
-    public async Task<DashboardModel> BuildAsync(CancellationToken ct = default)
+    /// <summary>
+    /// The dashboard in <paramref name="requested"/> view, or the viewer's default view when null. A viewer who reaches no view
+    /// (no tasks.view) gets the page's frame only, with no figures; asking for a view the viewer doesn't reach is refused.
+    /// </summary>
+    public async Task<DashboardModel> BuildAsync(DashboardView? requested, Guid? departmentId = null, CancellationToken ct = default)
     {
         var actor = await actors.GetAsync(ct);
-        var tier = DashboardTier(actor);
+        var views = DashboardRules.Views(actor);
         var canEdit = actor.Has(Permission.TasksEdit);
+        var seesAll = actor.CanAnywhere(Permission.TasksView);
+        var me = actor.UserId;
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        string? departmentName = actor.DepartmentId is Guid deptId
-            ? await db.Departments.Where(d => d.Id == deptId).Select(d => d.Name).FirstOrDefaultAsync(ct)
+        var homeName = actor.DepartmentId is Guid home
+            ? await db.Departments.AsNoTracking().Where(d => d.Id == home).Select(d => d.Name).FirstOrDefaultAsync(ct)
             : null;
-        if (tier == PermissionScope.None)
+
+        if (requested is null && DashboardRules.DefaultView(actor) is null)
             return new DashboardModel
             {
-                Actor = actor, Tier = tier, Today = today, DepartmentName = departmentName, ScopeLabel = "Your role can't see any tasks", CanEditTasks = canEdit
+                Actor = actor, View = null, Views = views, Today = today, Links = new DashboardLinks(null, null),
+                ScopeLabel = "Your role can't see any tasks", HomeDepartmentName = homeName
             };
-
-        // The personal tier is "my work": assigned to me, rather than everything Own lets me see. Someone who can't edit tasks has no
-        // work of their own there, so at Own they see what Own reaches - the tasks they raised, are assigned or are the requestee of.
-        var personal = tier == PermissionScope.Own && canEdit;
-        var me = actor.UserId;
-        var dueHorizon = today.AddDays(7);
-
-        var open = db.Tasks.AsNoTracking()
-            .Where(t => t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled);
-
-        IQueryable<TaskItem> InTier(IQueryable<TaskItem> q) => personal ? q.Where(t => t.Assignments.Any(x => x.UserId == me)) : Scoping.Tasks(q, actor);
-        var scope = InTier(open);
-        var scopeLabel = tier switch
-        {
-            PermissionScope.All => "Open tasks across the company",
-            PermissionScope.Department => "Open tasks in your department, and yours elsewhere",
-            _ => personal ? "My open tasks" : "Open tasks you raised, requested or are assigned"
-        };
-
-        // Today's day plan (§6.12): same scope, but over all tasks rather than open ones so "done today" counts.
-        var allInScope = InTier(db.Tasks.AsNoTracking());
-        var plannedToday = await allInScope.CountAsync(t => t.PlannedFor == today, ct);
-        var plannedTodayDone = await allInScope.CountAsync(t => t.PlannedFor == today && t.Status == TaskItemStatus.Done, ct);
-
-        var statusCounts = await scope.GroupBy(t => t.Status)
-            .Select(g => new { g.Key, Count = g.Count() }).ToListAsync(ct);
-        int Count(TaskItemStatus s) => statusCounts.FirstOrDefault(c => c.Key == s)?.Count ?? 0;
-        var overdue = await scope.CountAsync(t => t.DueDate != null && t.DueDate < today, ct);
-
-        var openTasks = await Detailed(scope).Take(12).ToListAsync(ct);
-        List<TaskItem> myOpen = personal ? openTasks
-            : canEdit ? await Detailed(open.Where(t => t.Assignments.Any(x => x.UserId == me))).Take(8).ToListAsync(ct)
-            : [];
-
-        // Work nobody has picked up yet, which the viewer may take (§6.5). The wider tiers already list the whole department above.
-        List<TaskItem> upForGrabs = [];
-        var showUpForGrabs = personal && actor.DepartmentId is Guid ownDept && actor.CanInDepartment(Permission.TasksTake, ownDept);
-        if (showUpForGrabs)
-        {
-            var dept = actor.DepartmentId;
-            upForGrabs = await Detailed(open.Where(t => t.DepartmentId == dept && !t.Assignments.Any())).Take(8).ToListAsync(ct);
-        }
-
-        // Active sprint
-        var sprint = await db.Sprints.AsNoTracking().FirstOrDefaultAsync(s => s.Status == SprintStatus.Active, ct);
-        List<TaskItem> sprintTasks = [];
-        List<DepartmentSprintProgress> sprintByDept = [];
-        int sprintTotal = 0, sprintDone = 0;
-        if (sprint is not null)
-        {
-            var all = db.Tasks.AsNoTracking().Where(t => t.SprintId == sprint.Id);
-            sprintTotal = await all.CountAsync(ct);
-            sprintDone = await all.CountAsync(t => t.Status == TaskItemStatus.Done, ct);
-            sprintTasks = await InTier(all)
-                .Include(t => t.Project).Include(t => t.Department).Include(t => t.Asset)
-                .OrderBy(EnumOrder.ByTaskStatus).ThenByDescending(EnumOrder.ByTaskPriority).Take(20).ToListAsync(ct);
-            if (tier == PermissionScope.All)
+        var view = requested ?? DashboardRules.DefaultView(actor)!.Value;
+        if (!views.Contains(view))
+            throw new ForbiddenException(view switch
             {
-                var rows = await all.GroupBy(t => t.Department.Name)
-                    .Select(g => new { Name = g.Key, Total = g.Count(), Done = g.Count(t => t.Status == TaskItemStatus.Done) })
-                    .OrderBy(x => x.Name).ToListAsync(ct);
-                sprintByDept = rows.Select(r => new DepartmentSprintProgress(r.Name, r.Total, r.Done)).ToList();
+                DashboardView.Company => "Your role can't see the whole company's tasks.",
+                DashboardView.Department => "Your role can't see a department's tasks.",
+                _ => "Your role has no tasks of its own to show."
+            });
+
+        // The Department view's department: the viewer's own, or for someone who sees every department the one they picked (else
+        // their own, else the first by name). Unlike the Today page's filter it has no "All": the view is always one department's.
+        List<DepartmentOption> departments = [];
+        Guid? viewDept = null;
+        string? viewDeptName = null;
+        if (view == DashboardView.Department)
+        {
+            if (seesAll)
+            {
+                departments = await db.Departments.AsNoTracking().Where(d => !d.IsArchived).OrderBy(d => d.Name)
+                    .Select(d => new DepartmentOption(d.Id, d.Name)).ToListAsync(ct);
+                var picked = departments.FirstOrDefault(d => d.Id == departmentId)
+                    ?? departments.FirstOrDefault(d => d.Id == actor.DepartmentId)
+                    ?? departments.FirstOrDefault();
+                viewDept = picked?.Id;
+                viewDeptName = picked?.Name;
+            }
+            else
+            {
+                viewDept = actor.DepartmentId;
+                viewDeptName = homeName;
             }
         }
 
-        // Projects at a glance: the projects the viewer may see; on the personal tier only those with their own tasks.
+        // My work is the tasks the viewer is an assignee of (§6.2.3); a view-only role at Own has none of its own to do, so it sees what
+        // Own reaches - the tasks it raised, requested or is assigned. The Department view of someone at All is the picked department;
+        // anyone else's is their department and their own tasks elsewhere (decision 97), as every department list is.
+        var myWork = view == DashboardView.Mine && canEdit;
+        var pickedDept = view == DashboardView.Department && seesAll;
+        IQueryable<TaskItem> InView(IQueryable<TaskItem> q) =>
+            myWork ? q.Where(t => t.Assignments.Any(x => x.UserId == me))
+            : pickedDept ? Scoping.Tasks(q, actor).Where(t => t.DepartmentId == viewDept)
+            : Scoping.Tasks(q, actor);
+
+        var scopeLabel = view switch
+        {
+            DashboardView.Company => "Open tasks across the company",
+            DashboardView.Department when pickedDept => $"Open tasks in {viewDeptName ?? "the department"}",
+            DashboardView.Department => "Open tasks in your department, and yours elsewhere",
+            _ => myWork ? "Your open tasks" : "Open tasks you raised, requested or are assigned"
+        };
+
+        var all = InView(db.Tasks.AsNoTracking());
+        var open = all.Where(t => t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled);
+
+        // The tiles and both donuts, from one grouping.
+        var facetRows = await open.GroupBy(t => new { t.Status, t.Priority, t.Type })
+            .Select(g => new { g.Key.Status, g.Key.Priority, g.Key.Type, Count = g.Count() })
+            .ToListAsync(ct);
+        var facets = facetRows.Select(f => new OpenFacet(f.Status, f.Priority, f.Type, f.Count)).ToList();
+
+        // The due figures over the Tasks list's own Due windows, so each matches the list its link opens.
+        var overdue = await DueWindowRules.Within(open, DueWindow.Overdue, today).CountAsync(ct);
+        var dueSoon = await DueWindowRules.Within(open, DueWindow.Soon, today).CountAsync(ct);
+
+        // Work nobody has picked up yet in the viewer's department, which they may take (§6.5), of what the Tasks list shows them.
+        // Its link names the department only for someone who sees every department, whose list would otherwise be the company's.
+        UpForGrabsLine? upForGrabs = null;
+        if (myWork && actor.DepartmentId is Guid ownDept && actor.CanInDepartment(Permission.TasksTake, ownDept))
+        {
+            var grabs = await Scoping.Tasks(db.Tasks.AsNoTracking(), actor).CountAsync(t => t.DepartmentId == ownDept
+                && t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled && !t.Assignments.Any(), ct);
+            upForGrabs = new UpForGrabsLine(grabs, DashboardLinks.UpForGrabs(seesAll ? ownDept : null));
+        }
+
+        // Today's day plan (§6.12): over all the view's tasks, not the open ones, so what was closed today counts.
+        StatusCounts? todayPlan = canEdit ? await StatusesAsync(all.Where(t => t.PlannedFor == today), ct) : null;
+
+        IReadOnlyList<LoadBar> byAssignee = [];
+        if (view == DashboardView.Department)
+        {
+            // A task several people share counts under each of them (§6.2.3), so the bars can add up to more than the open tasks.
+            var rows = await open.SelectMany(t => t.Assignments, (t, x) => new { x.UserId, x.User.DisplayName, t.Status })
+                .GroupBy(r => new { r.UserId, r.DisplayName, r.Status })
+                .Select(g => new { g.Key.UserId, g.Key.DisplayName, g.Key.Status, Count = g.Count() })
+                .ToListAsync(ct);
+            var unassigned = await StatusesAsync(open.Where(t => !t.Assignments.Any()), ct);
+            byAssignee = DashboardRules.People(rows.Select(r => new PersonStatusCount(r.UserId, r.DisplayName, r.Status, r.Count)), unassigned);
+        }
+
+        IReadOnlyList<LoadBar> byDepartment = [];
+        if (view == DashboardView.Company)
+        {
+            var rows = await open.GroupBy(t => new { t.DepartmentId, t.Department.Name, t.Status })
+                .Select(g => new { g.Key.DepartmentId, g.Key.Name, g.Key.Status, Count = g.Count() })
+                .ToListAsync(ct);
+            byDepartment = DashboardRules.Departments(rows.Select(r => new DepartmentStatusCount(r.DepartmentId, r.Name, r.Status, r.Count)));
+        }
+
+        // The Last 14 days chart, bucketed by UTC day in memory rather than relying on a date translation in SQL. CompletedAt is set
+        // only when a task is done (TaskService.ApplyStatus), so the done series is tasks done.
+        var from = DashboardRules.TrendStartUtc(today);
+        var created = await all.Where(t => t.CreatedAt >= from).Select(t => t.CreatedAt).ToListAsync(ct);
+        var done = await all.Where(t => t.Status == TaskItemStatus.Done && t.CompletedAt != null && t.CompletedAt >= from)
+            .Select(t => t.CompletedAt!.Value).ToListAsync(ct);
+
+        // The active sprint: shared company-wide (§6.3), so its progress is every department's; the view's part beside it.
+        var sprint = await db.Sprints.AsNoTracking().FirstOrDefaultAsync(s => s.Status == SprintStatus.Active, ct);
+        var sprintWhole = StatusCounts.None;
+        var sprintInScope = StatusCounts.None;
+        SprintDay? sprintDay = null;
+        IReadOnlyList<DepartmentSprintProgress> sprintByDept = [];
+        if (sprint is not null)
+        {
+            var inSprint = db.Tasks.AsNoTracking().Where(t => t.SprintId == sprint.Id);
+            sprintDay = DashboardRules.SprintDayOf(sprint.StartDate, sprint.EndDate, today);
+            if (view == DashboardView.Company)
+            {
+                // One grouping for the Company view: the whole sprint, which is also the view's part, and each department's.
+                var rows = (await inSprint.GroupBy(t => new { t.DepartmentId, t.Department.Name, t.Status })
+                        .Select(g => new { g.Key.DepartmentId, g.Key.Name, g.Key.Status, Count = g.Count() })
+                        .ToListAsync(ct))
+                    .Select(r => new DepartmentStatusCount(r.DepartmentId, r.Name, r.Status, r.Count)).ToList();
+                sprintWhole = sprintInScope = StatusCounts.From(rows.Select(r => (r.Status, r.Count)));
+                sprintByDept = DashboardRules.SprintDepartments(rows);
+            }
+            else
+            {
+                sprintWhole = await StatusesAsync(inSprint, ct);
+                sprintInScope = await StatusesAsync(InView(inSprint), ct);
+            }
+        }
+
+        // Projects at a glance: the projects the viewer may see - on My work only those with their tasks, on a picked department
+        // only that department's.
         var projects = Scoping.Projects(db.Projects.AsNoTracking().Include(p => p.Department).Include(p => p.Owner)
             .Where(p => p.Status == ProjectStatus.Active), actor);
-        if (personal) projects = projects.Where(p => p.Tasks.Any(t => t.Assignments.Any(x => x.UserId == me)));
+        if (myWork) projects = projects.Where(p => p.Tasks.Any(t => t.Assignments.Any(x => x.UserId == me)));
+        if (pickedDept) projects = projects.Where(p => p.DepartmentId == viewDept);
         var projectRows = await projects.OrderBy(p => p.Name).Take(12).Select(p => new
         {
             Project = p,
@@ -103,93 +182,39 @@ public sealed class DashboardService(ApplicationDbContext db, IActorProvider act
             Done = p.Tasks.Count(t => t.Status == TaskItemStatus.Done)
         }).ToListAsync(ct);
 
-        var dueSoon = await scope.Where(t => t.DueDate != null && t.DueDate <= dueHorizon)
-            .Include(t => t.Project).Include(t => t.Department).Include(t => t.Asset)
-            .OrderBy(t => t.DueDate).Take(10).ToListAsync(ct);
-
-        List<NameCount> byAssignee = [];
-        List<AuditLog> activity = [];
-        List<DepartmentLoad> byDepartment = [];
-        if (tier >= PermissionScope.Department)
-        {
-            // A task several people share counts under each of them (§6.2.3), so the rows can add up to more than the open tasks.
-            var assigneeRows = await scope.SelectMany(t => t.Assignments)
-                .GroupBy(x => new { x.UserId, x.User.DisplayName })
-                .Select(g => new { Name = g.Key.DisplayName, Count = g.Count() })
-                .ToListAsync(ct);
-            var unassigned = await scope.CountAsync(t => !t.Assignments.Any(), ct);
-            if (unassigned > 0) assigneeRows.Add(new { Name = "Unassigned", Count = unassigned });
-            byAssignee = assigneeRows.OrderByDescending(r => r.Count).ThenBy(r => r.Name).Select(r => new NameCount(r.Name, r.Count)).ToList();
-
-            var feed = db.AuditLogs.AsNoTracking().Where(a => a.EntityType == AuditEntity.Task);
-            if (tier == PermissionScope.Department) feed = feed.Where(a => a.DepartmentId == actor.DepartmentId);
-            activity = await feed.OrderByDescending(a => a.Timestamp).Take(15).ToListAsync(ct);
-        }
-        if (tier == PermissionScope.All)
-        {
-            var deptRows = await db.Departments.AsNoTracking().Where(d => !d.IsArchived).OrderBy(d => d.Name)
-                .Select(d => new
-                {
-                    d.Id,
-                    d.Name,
-                    OpenTasks = d.Tasks.Count(t => t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled),
-                    ActiveProjects = d.Projects.Count(p => p.Status == ProjectStatus.Active),
-                    Users = d.Users.Count(u => u.IsActive && !u.IsSystemAccount)
-                })
-                .ToListAsync(ct);
-            byDepartment = deptRows.Select(r => new DepartmentLoad(r.Id, r.Name, r.OpenTasks, r.ActiveProjects, r.Users)).ToList();
-        }
-
         return new DashboardModel
         {
             Actor = actor,
-            Tier = tier,
+            View = view,
+            Views = views,
             Today = today,
-            DepartmentName = departmentName,
+            Links = new DashboardLinks(myWork ? me : null, pickedDept ? viewDept : null),
             ScopeLabel = scopeLabel,
-            CanEditTasks = canEdit,
-            TodoCount = Count(TaskItemStatus.Todo),
-            InProgressCount = Count(TaskItemStatus.InProgress),
-            WaitingCount = Count(TaskItemStatus.Waiting),
-            BlockedCount = Count(TaskItemStatus.Blocked),
+            HomeDepartmentName = homeName,
+            DepartmentId = viewDept,
+            Departments = departments,
+            Open = DashboardRules.Statuses(facets),
             OverdueCount = overdue,
-            PlannedTodayCount = plannedToday,
-            PlannedTodayDone = plannedTodayDone,
-            OpenTasks = openTasks,
-            MyOpenTasks = myOpen,
+            DueSoonCount = dueSoon,
+            ByPriority = DashboardRules.Priorities(facets),
+            ByType = DashboardRules.Types(facets),
             UpForGrabs = upForGrabs,
-            ShowUpForGrabs = showUpForGrabs,
-            ActiveSprint = sprint,
-            SprintTasks = sprintTasks,
-            SprintTotal = sprintTotal,
-            SprintDone = sprintDone,
-            SprintByDepartment = sprintByDept,
-            Projects = projectRows.Select(r => new ProjectListItem(r.Project, r.Total, r.Open, r.Done)).ToList(),
-            DueSoon = dueSoon,
+            TodayPlan = todayPlan,
             OpenByAssignee = byAssignee,
-            Activity = activity,
-            ByDepartment = byDepartment
+            OpenByDepartment = byDepartment,
+            Trend = DashboardRules.Daily(created, done, today),
+            ActiveSprint = sprint,
+            Sprint = sprintWhole,
+            SprintInScope = sprintInScope,
+            SprintDay = sprintDay,
+            SprintByDepartment = sprintByDept,
+            Projects = projectRows.Select(r => new ProjectListItem(r.Project, r.Total, r.Open, r.Done)).ToList()
         };
     }
 
-    /// <summary>
-    /// The tier is the tasks.view scope (§6.9), with one refinement: a role that sees its department but may only edit
-    /// its own tasks (tasks.edit at Own) gets the personal dashboard, since its own work is what it acts on - which keeps the
-    /// shipped Member role on the dashboard it always had. A view-only role (<see cref="IsViewOnly"/>) has no work of its own,
-    /// so it keeps its view scope.
-    /// </summary>
-    public static PermissionScope DashboardTier(Actor actor)
+    private static async Task<StatusCounts> StatusesAsync(IQueryable<TaskItem> q, CancellationToken ct)
     {
-        var tier = actor.ScopeOf(Permission.TasksView);
-        if (tier == PermissionScope.Department && actor.ScopeOf(Permission.TasksEdit) == PermissionScope.Own)
-            return PermissionScope.Own;
-        return tier;
+        var rows = await q.GroupBy(t => t.Status).Select(g => new { g.Key, Count = g.Count() }).ToListAsync(ct);
+        return StatusCounts.From(rows.Select(r => (r.Key, r.Count)));
     }
-
-    /// <summary>May view tasks but edit none: the dashboard shows what they may see, without the widgets about their own work.</summary>
-    public static bool IsViewOnly(Actor actor) => actor.Has(Permission.TasksView) && !actor.Has(Permission.TasksEdit);
-
-    private static IQueryable<TaskItem> Detailed(IQueryable<TaskItem> q) => q
-        .Include(t => t.Project).Include(t => t.Department).Include(t => t.Asset)
-        .OrderBy(t => t.DueDate == null).ThenBy(t => t.DueDate).ThenByDescending(EnumOrder.ByTaskPriority).ThenByDescending(t => t.CreatedAt);
 }

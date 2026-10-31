@@ -1,9 +1,11 @@
 @page "/"
 @page "/Index"
-@inherits OrbitComponentBase
-@* The dashboard (spec §6.9), everyone's landing page. It adapts to the viewer's reach (DashboardService): their own work, their
-   department's, or the company's; a role that sees no tasks gets the places it can go instead. The header's buttons start new
-   work, each behind the create permission its page's door asks for; the pages to go to are in the menu, so it doesn't repeat them. *@
+@inherits OrbitListPage
+@* The dashboard (spec §6.9, decision 134), everyone's landing page. It has three purpose-built views - My work, a department's and
+   the company's (Components/Dashboards) - and the viewer switches between the ones their task grants reach (DashboardRules.Views).
+   The view, and the department someone who sees every department picked, live in the address and are remembered for the browser
+   session like a list page's filters (OrbitListPage), so the dashboard opens on the last view picked. A role that sees no tasks gets
+   the places it can go instead. The header's buttons start new work, each behind the create permission its page's door asks for. *@
 
 <PageTitle>Dashboard - Orbit</PageTitle>
 
@@ -19,12 +21,11 @@ else
 {
     var d = _d;
     var actor = d.Actor;
-    var sprintPct = d.SprintTotal == 0 ? 0 : (int)Math.Round(d.SprintDone * 100.0 / d.SprintTotal);
 
     <div class="orbit-page-header">
         <div>
             <MudText Typo="Typo.h5" HtmlTag="h1">Welcome, @actor.DisplayName</MudText>
-            <div class="orbit-subtitle">@actor.Role.Name@(d.DepartmentName is not null ? $" · {d.DepartmentName}" : "") · @d.Today.ToString("dddd, d MMMM yyyy")</div>
+            <div class="orbit-subtitle">@actor.Role.Name@(d.HomeDepartmentName is not null ? $" · {d.HomeDepartmentName}" : "") · @d.Today.ToString("dddd, d MMMM yyyy")</div>
         </div>
         @if (actor.Has(Permission.TasksCreate) || actor.Has(Permission.ProjectsCreate) || actor.Has(Permission.AssetsCreate))
         {
@@ -45,7 +46,7 @@ else
         }
     </div>
 
-    @if (!d.SeesTasks)
+    @if (d.View is not DashboardView view)
     {
         // A role that sees no tasks (e.g. one that only logs requests): no task widgets, just the parts of Orbit it can use.
         var destinations = Navigation.Visible(actor).Where(i => i.Href != "/").ToList();
@@ -64,251 +65,109 @@ else
                 </MudPaper>
             </MudItem>
             <MudItem xs="12" lg="4">
-                @SideCards
+                @if (_waitingApprovals is { } approvals)
+                {
+                    <WaitingApprovalsCard Items="approvals" MeId="actor.UserId" />
+                }
+                @if (_assetChecks is { } checks)
+                {
+                    <AssetChecksCard Summary="checks" />
+                }
             </MudItem>
         </MudGrid>
     }
     else
     {
-        <div class="orbit-stats orbit-stats-5">
-            <MudPaper Outlined="true" Class="orbit-stat"><div class="orbit-stat-value">@d.TodoCount</div><div class="orbit-stat-label">To do</div></MudPaper>
-            <MudPaper Outlined="true" Class="orbit-stat"><div class="orbit-stat-value orbit-c-primary">@d.InProgressCount</div><div class="orbit-stat-label">In progress</div></MudPaper>
-            <MudPaper Outlined="true" Class="orbit-stat"><div class="orbit-stat-value orbit-c-info">@d.WaitingCount</div><div class="orbit-stat-label">Waiting</div></MudPaper>
-            <MudPaper Outlined="true" Class="orbit-stat"><div class="orbit-stat-value orbit-overdue">@d.BlockedCount</div><div class="orbit-stat-label">Blocked</div></MudPaper>
-            <MudPaper Outlined="true" Class="orbit-stat"><div class="orbit-stat-value @(d.OverdueCount > 0 ? "orbit-overdue" : null)">@d.OverdueCount</div><div class="orbit-stat-label">Overdue</div></MudPaper>
-        </div>
-
-        @if (d.IsCompanyTier && d.ByDepartment.Count > 0)
-        {
-            <MudPaper Outlined="true" Class="orbit-card">
-                <div class="orbit-card-header"><b>By department</b></div>
-                <div class="orbit-table-wrap">
-                    <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks">
-                        <thead><tr><th>Department</th><th class="text-right">Open tasks</th><th class="text-right">Active projects</th><th class="text-right">Users</th></tr></thead>
-                        <tbody>
-                            @foreach (var row in d.ByDepartment)
+        <div class="orbit-dash">
+            @if (d.Views.Count > 1 || d.Departments.Count > 0)
+            {
+                <div class="orbit-dash-switcher">
+                    @if (d.Views.Count > 1)
+                    {
+                        <MudToggleGroup T="DashboardView" Value="view" ValueChanged="ViewPickedAsync" Color="Color.Primary" Size="Size.Small"
+                                        Outlined="true" Delimiters="true" aria-label="Dashboard view">
+                            @foreach (var v in d.Views)
                             {
-                                <tr @key="row.DepartmentId">
-                                    <td><a href="@($"/Admin/Departments/Details/{row.DepartmentId}")">@row.Name</a></td>
-                                    <td class="text-right"><a href="@($"/Tasks?DepartmentId={row.DepartmentId}&OpenOnly=true")">@row.OpenTasks</a></td>
-                                    <td class="text-right">@row.ActiveProjects</td>
-                                    <td class="text-right">@row.Users</td>
-                                </tr>
+                                <MudToggleItem Value="v" Text="@ViewLabel(v)" />
                             }
-                        </tbody>
-                    </MudSimpleTable>
+                        </MudToggleGroup>
+                    }
+                    @if (d.Departments.Count > 0)
+                    {
+                        <MudSelect T="Guid" Value="d.DepartmentId ?? Guid.Empty" ValueChanged="DepartmentPickedAsync" Label="Department"
+                                   Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Class="orbit-inline" ToStringFunc="DepartmentName">
+                            @foreach (var dept in d.Departments)
+                            {
+                                <MudSelectItem T="Guid" Value="dept.Id">@dept.Name</MudSelectItem>
+                            }
+                        </MudSelect>
+                    }
                 </div>
-            </MudPaper>
-        }
-
-        <MudGrid Spacing="3">
-            <MudItem xs="12" lg="8">
-                <MudPaper Outlined="true" Class="orbit-card">
-                    <div class="orbit-card-header"><b>@d.ScopeLabel</b><a href="/Tasks?OpenOnly=true" class="orbit-small">All tasks</a></div>
-                    <TaskTable Tasks="d.OpenTasks" Actor="actor" Today="d.Today" ShowDepartment="TaskLook.MixesDepartments(actor, d.OpenTasks)"
-                               EmptyMessage="Nothing open. Nice." Changed="ReloadAsync" />
-                </MudPaper>
-
-                @if (d.ShowUpForGrabs)
-                {
-                    <MudPaper Outlined="true" Class="orbit-card">
-                        <div class="orbit-card-header">
-                            <span><b>Up for grabs</b> <span class="orbit-muted orbit-small">unassigned in @(d.DepartmentName ?? "your department") - take one to make it yours</span></span>
-                            <a href="/Tasks?OpenOnly=true&AssigneeId=@(FilterChoice.None)" class="orbit-small">All unassigned</a>
-                        </div>
-                        <TaskTable Tasks="d.UpForGrabs" Actor="actor" Today="d.Today" ShowDepartment="false"
-                                   EmptyMessage="Nothing unassigned in your department right now." Changed="ReloadAsync" />
-                    </MudPaper>
-                }
-
-                @if (d.ShowsOthersWork && d.CanEditTasks)
-                {
-                    <MudPaper Outlined="true" Class="orbit-card">
-                        <div class="orbit-card-header"><b>My open tasks</b><a href="@Navigation.MyTasks(actor)" class="orbit-small">My tasks</a></div>
-                        <TaskTable Tasks="d.MyOpenTasks" Actor="actor" Today="d.Today" ShowDepartment="TaskLook.MixesDepartments(actor, d.MyOpenTasks)"
-                                   ShowAssignee="false" EmptyMessage="No tasks assigned to you." Changed="ReloadAsync" />
-                    </MudPaper>
-                }
-
-                <MudPaper Outlined="true" Class="orbit-card">
-                    <div class="orbit-card-header"><b>Active sprint</b><a href="/Sprints" class="orbit-small">Sprints</a></div>
-                    @if (d.ActiveSprint is null)
-                    {
-                        <div class="orbit-list-item orbit-muted"><i>No sprint is active right now.</i></div>
-                    }
-                    else
-                    {
-                        <div class="orbit-card-body orbit-list-row">
-                            <div>
-                                <a href="@($"/Sprints/Board/{d.ActiveSprint.Id}")" class="orbit-sprint-name">@d.ActiveSprint.Name</a>
-                                <div class="orbit-muted orbit-small">@Ui.Day(d.ActiveSprint.StartDate) to @Ui.Day(d.ActiveSprint.EndDate)</div>
-                                @if (!string.IsNullOrWhiteSpace(d.ActiveSprint.Goal))
-                                {
-                                    <div class="mt-1">@d.ActiveSprint.Goal</div>
-                                }
-                            </div>
-                            <div class="orbit-progress">
-                                <div class="orbit-muted orbit-small">@d.SprintDone / @d.SprintTotal done (@sprintPct%)</div>
-                                <MudProgressLinear Value="sprintPct" Color="Color.Success" Rounded="true" Size="Size.Medium" />
-                            </div>
-                        </div>
-                        @if (d.IsCompanyTier && d.SprintByDepartment.Count > 0)
-                        {
-                            <div class="orbit-card-body orbit-chips">
-                                @foreach (var row in d.SprintByDepartment)
-                                {
-                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@row.Department: @row.Done/@row.Total</MudChip>
-                                }
-                            </div>
-                        }
-                        <TaskTable Tasks="d.SprintTasks" Actor="actor" Today="d.Today" ShowDepartment="TaskLook.MixesDepartments(actor, d.SprintTasks)"
-                                   EmptyMessage="@(d.IsPersonalTier ? "None of your tasks are in this sprint." : "No tasks in this sprint yet.")" Changed="ReloadAsync" />
-                    }
-                </MudPaper>
-            </MudItem>
-
-            <MudItem xs="12" lg="4">
-                @SideCards
-
-                <MudPaper Outlined="true" Class="orbit-card">
-                    <div class="orbit-card-header"><b>Due soon</b></div>
-                    @if (d.DueSoon.Count == 0)
-                    {
-                        <div class="orbit-list-item orbit-muted"><i>Nothing due in the next 7 days.</i></div>
-                    }
-                    @foreach (var t in d.DueSoon)
-                    {
-                        var overdue = t.IsOverdue(d.Today);
-                        <div class="orbit-list-item orbit-list-row" @key="t.Id">
-                            <div class="orbit-truncate">
-                                <a href="@($"/Tasks/Details/{t.Id}")" class="@(overdue ? "orbit-title orbit-overdue" : "orbit-title")">@t.Title</a>
-                                @if (d.ShowsOthersWork && !t.IsUnassigned)
-                                {
-                                    <div class="orbit-sub">@t.AssigneeNames</div>
-                                }
-                            </div>
-                            <MudChip T="string" Size="Size.Small" Color="@(overdue ? Color.Error : Color.Default)" Variant="@(overdue ? Variant.Filled : Variant.Outlined)">@Ui.Day(t.DueDate)</MudChip>
-                        </div>
-                    }
-                </MudPaper>
-
-                <MudPaper Outlined="true" Class="orbit-card">
-                    <div class="orbit-card-header"><b>Projects at a glance</b><a href="/Projects" class="orbit-small">All</a></div>
-                    @if (d.Projects.Count == 0)
-                    {
-                        <div class="orbit-list-item orbit-muted"><i>No active projects@(d.IsPersonalTier ? " with your tasks" : "").</i></div>
-                    }
-                    @foreach (var p in d.Projects)
-                    {
-                        <div class="orbit-list-item" @key="p.Project.Id">
-                            <div class="orbit-list-row">
-                                <a href="@($"/Projects/Details/{p.Project.Id}")" class="orbit-truncate">@p.Project.Name</a>
-                                <span class="orbit-muted orbit-small">@p.DoneTasks/@p.TotalTasks done</span>
-                            </div>
-                            @if (d.IsCompanyTier)
-                            {
-                                <div class="orbit-sub">@p.Project.Department.Name</div>
-                            }
-                            <MudProgressLinear Value="p.PercentDone" Color="Color.Success" Rounded="true" Class="mt-1" />
-                        </div>
-                    }
-                </MudPaper>
-
-                @if (d.ShowsOthersWork)
-                {
-                    <MudPaper Outlined="true" Class="orbit-card">
-                        <div class="orbit-card-header"><b>Open tasks by assignee</b></div>
-                        @if (d.OpenByAssignee.Count == 0)
-                        {
-                            <div class="orbit-list-item orbit-muted"><i>No open tasks.</i></div>
-                        }
-                        @foreach (var row in d.OpenByAssignee)
-                        {
-                            <div class="orbit-list-item orbit-list-row"><span>@row.Name</span><MudChip T="string" Size="Size.Small" Color="Color.Secondary">@row.Count</MudChip></div>
-                        }
-                    </MudPaper>
-
-                    <MudPaper Outlined="true" Class="orbit-card">
-                        <div class="orbit-card-header">
-                            <b>Recent activity</b>
-                            @if (AccessPolicy.CanViewAuditLog(actor))
-                            {
-                                <a href="/Admin/Activity" class="orbit-small">All</a>
-                            }
-                        </div>
-                        @if (d.Activity.Count == 0)
-                        {
-                            <div class="orbit-list-item orbit-muted"><i>Nothing yet.</i></div>
-                        }
-                        @foreach (var a in d.Activity)
-                        {
-                            <div class="orbit-list-item orbit-small orbit-gap-row" @key="a.Id">
-                                <b>@a.ActorName</b>
-                                @if (a.ActorType == ActorType.Api)
-                                {
-                                    <MudChip T="string" Size="Size.Small" Class="orbit-chip-claude">Claude</MudChip>
-                                }
-                                <span>@Ui.ActionLabel(a.Action)</span>
-                                <a href="@($"/Tasks/Details/{a.EntityId}")">@Ui.Truncate(a.Summary, 60)</a>
-                                <span class="orbit-muted">· @Ui.Ago(a.Timestamp)</span>
-                            </div>
-                        }
-                    </MudPaper>
-                }
-            </MudItem>
-        </MudGrid>
+            }
+            @switch (view)
+            {
+                case DashboardView.Mine:
+                    <MyWorkDashboard Model="d" Charts="_charts!" Approvals="_waitingApprovals" AssetChecks="_assetChecks" />
+                    break;
+                case DashboardView.Department:
+                    <DepartmentDashboard Model="d" Charts="_charts!" Approvals="_waitingApprovals" AssetChecks="_assetChecks" />
+                    break;
+                default:
+                    <CompanyDashboard Model="d" Charts="_charts!" Approvals="_waitingApprovals" AssetChecks="_assetChecks" />
+                    break;
+            }
+        </div>
     }
 }
 
 @code {
+    private const string ViewKey = "View";
+
+    protected override string MemoryKey => "dashboard";
+    protected override IReadOnlyList<string> FilterKeys => [ViewKey, nameof(DepartmentId)];
+
+    /// <summary>The view, read as text and resolved leniently: a bad or unreachable one is the viewer's default (DashboardRules.Resolve).</summary>
+    [SupplyParameterFromQuery(Name = ViewKey)] public string? ViewChoice { get; set; }
+    /// <summary>The Department view's department, for someone who sees every department; ignored for anyone else.</summary>
+    [SupplyParameterFromQuery] public string? DepartmentId { get; set; }
+
     private DashboardModel? _d;
+    private DashboardCharts? _charts;
     /// <summary>The Asset checks card (§6.19), for a role with assets.check; null otherwise.</summary>
     private AssetCheckSummary? _assetChecks;
     /// <summary>The My waiting approvals card (§6.9, §6.20), for a role that can open requests; null otherwise.</summary>
     private IReadOnlyList<RequestActionItem>? _waitingApprovals;
+    /// <summary>The side cards are the same on every view, so a view switch or department pick reloads the view only.</summary>
+    private bool _sideLoaded;
 
-    protected override Task OnInitializedAsync() => ReloadAsync();
-
-    private async Task ReloadAsync()
+    protected override async Task OnParametersSetAsync()
     {
+        if (await GoToRememberedAsync(reset: false)) return;
         await Load(async s =>
         {
-            var d = await s.Get<DashboardService>().BuildAsync();
-            _assetChecks = await s.Get<AssetService>().GetCheckSummaryAsync();
-            _waitingApprovals = await s.Get<RequestService>().WaitingApprovalsAsync();
+            var actor = await s.Get<IActorProvider>().GetAsync();
+            var d = await s.Get<DashboardService>().BuildAsync(DashboardRules.Resolve(ViewChoice, actor), FilterChoice.Id(DepartmentId));
+            if (!_sideLoaded)
+            {
+                _assetChecks = await s.Get<AssetService>().GetCheckSummaryAsync();
+                _waitingApprovals = await s.Get<RequestService>().WaitingApprovalsAsync();
+                _sideLoaded = true;
+            }
+            _charts = d.View is null ? null : DashboardCharts.For(d);
             _d = d;
         });
     }
 
-    /// <summary>
-    /// The right-hand column's first cards: the approvals waiting on the viewer (the one card here that waits on them), today's
-    /// plan for someone who edits tasks, and the asset checks.
-    /// </summary>
-    private RenderFragment SideCards => __builder =>
+    private static string ViewLabel(DashboardView view) => view switch
     {
-        if (_waitingApprovals is { } approvals)
-        {
-            <WaitingApprovalsCard Items="approvals" MeId="_d!.Actor.UserId" />
-        }
-        if (_d!.SeesTasks && _d.CanEditTasks)
-        {
-            <MudPaper Outlined="true" Class="orbit-card">
-                <div class="orbit-card-header"><b>Today's plan</b><a href="/Today" class="orbit-small">Open</a></div>
-                <div class="orbit-card-body">
-                    @if (_d.PlannedTodayCount == 0)
-                    {
-                        <span class="orbit-muted orbit-small">Nothing planned yet. Tick "Today" on tasks after the morning scrum.</span>
-                    }
-                    else
-                    {
-                        <span class="orbit-count">@_d.PlannedTodayCount</span> <span class="orbit-muted">planned · @_d.PlannedTodayDone done</span>
-                    }
-                </div>
-            </MudPaper>
-        }
-        if (_assetChecks is { } checks)
-        {
-            <AssetChecksCard Summary="checks" />
-        }
+        DashboardView.Mine => "My work",
+        DashboardView.Department => "Department",
+        _ => "Company"
     };
+
+    private Task ViewPickedAsync(DashboardView view) => GoAsync(ViewKey, DashboardRules.Key(view));
+
+    private Task DepartmentPickedAsync(Guid id) => GoAsync(nameof(DepartmentId), id == Guid.Empty ? null : id.ToString());
+
+    private string DepartmentName(Guid id) => _d?.Departments.FirstOrDefault(d => d.Id == id)?.Name ?? "";
 }

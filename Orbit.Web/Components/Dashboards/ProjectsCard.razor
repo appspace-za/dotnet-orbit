@@ -1,0 +1,27 @@
+@* The dashboard's Projects at a glance card (spec §6.9): the view's active projects with their progress - on My work those with
+   the viewer's tasks, on the Company view with each one's department. *@
+<MudPaper Outlined="true" Class="orbit-card">
+    <div class="orbit-card-header"><b>Projects at a glance</b><a href="/Projects" class="orbit-small">All</a></div>
+    @if (Model.Projects.Count == 0)
+    {
+        <div class="orbit-list-item orbit-muted"><i>No active projects@(Model.View == DashboardView.Mine ? " with your tasks" : "").</i></div>
+    }
+    @foreach (var p in Model.Projects)
+    {
+        <div class="orbit-list-item" @key="p.Project.Id">
+            <div class="orbit-list-row">
+                <a href="@($"/Projects/Details/{p.Project.Id}")" class="orbit-truncate">@p.Project.Name</a>
+                <span class="orbit-muted orbit-small">@p.DoneTasks/@p.TotalTasks done</span>
+            </div>
+            @if (Model.View == DashboardView.Company)
+            {
+                <div class="orbit-muted orbit-small">@p.Project.Department.Name</div>
+            }
+            <MudProgressLinear Value="p.PercentDone" Color="Color.Success" Rounded="true" Class="mt-1" aria-label="@($"{p.Project.Name} done")" />
+        </div>
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public DashboardModel Model { get; set; } = null!;
+}

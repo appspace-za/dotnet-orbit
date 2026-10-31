@@ -1,0 +1,24 @@
+@* Every dashboard view's side column (spec §6.9): the approvals waiting on the viewer first (the one card here that waits on them),
+   Today's plan for someone who edits tasks, the asset checks, then the projects. *@
+@if (Approvals is { } approvals)
+{
+    <WaitingApprovalsCard Items="approvals" MeId="Model.Actor.UserId" />
+}
+@if (Charts.Today is not null)
+{
+    <TodayPlanCard Model="Model" Charts="Charts" />
+}
+@if (AssetChecks is { } checks)
+{
+    <AssetChecksCard Summary="checks" />
+}
+<ProjectsCard Model="Model" />
+
+@code {
+    [Parameter, EditorRequired] public DashboardModel Model { get; set; } = null!;
+    [Parameter, EditorRequired] public DashboardCharts Charts { get; set; } = null!;
+    /// <summary>The My waiting approvals card's rows, for a role that can open requests; null otherwise.</summary>
+    [Parameter] public IReadOnlyList<RequestActionItem>? Approvals { get; set; }
+    /// <summary>The Asset checks card, for a role with assets.check; null otherwise.</summary>
+    [Parameter] public AssetCheckSummary? AssetChecks { get; set; }
+}

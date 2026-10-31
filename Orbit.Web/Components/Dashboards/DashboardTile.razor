@@ -1,0 +1,21 @@
+@* One of the dashboard's figures (spec §6.9): a number, what it counts, and the Tasks list it opens. An alert tile takes its
+   colour on the number when there is something to see (Blocked, Overdue). *@
+<a class="@(Alert ? "orbit-tile orbit-tile-alert" : "orbit-tile")" href="@Href" style="--orbit-tile-colour: @Colour" aria-label="@($"{Value} {Label}")">
+    <MudPaper Outlined="true">
+        <span class="orbit-tile-icon" aria-hidden="true"><MudIcon Icon="@Icon" Size="Size.Small" /></span>
+        <span>
+            <span class="orbit-tile-value">@Value</span>
+            <span class="orbit-tile-label">@Label</span>
+        </span>
+    </MudPaper>
+</a>
+
+@code {
+    [Parameter, EditorRequired] public int Value { get; set; }
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter, EditorRequired] public string Icon { get; set; } = "";
+    /// <summary>A CSS colour, usually one of the dashboard's variables (<see cref="DashboardLook"/>).</summary>
+    [Parameter, EditorRequired] public string Colour { get; set; } = "";
+    [Parameter, EditorRequired] public string Href { get; set; } = "";
+    [Parameter] public bool Alert { get; set; }
+}

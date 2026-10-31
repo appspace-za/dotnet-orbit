@@ -1,0 +1,35 @@
+@* A dashboard chart's legend (spec §6.9): each entry's colour, name and number, linking to its tasks when the Tasks list can show
+   them. Our own markup rather than MudChart's, so every figure can be read and followed without hovering. *@
+<ul class="@(Row ? "orbit-dash-legend orbit-dash-legend-row" : "orbit-dash-legend")">
+    @foreach (var item in Items)
+    {
+        <li @key="item.Label">
+            @if (item.Href is not null)
+            {
+                <a href="@item.Href">@Entry(item)</a>
+            }
+            else
+            {
+                <span class="orbit-dash-entry">@Entry(item)</span>
+            }
+        </li>
+    }
+</ul>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<DashboardSlice> Items { get; set; } = [];
+    /// <summary>The entries side by side under a chart, rather than a column beside it.</summary>
+    [Parameter] public bool Row { get; set; }
+    /// <summary>Off for a chart whose entries don't add up to a count of tasks (a shared task is under each of its assignees).</summary>
+    [Parameter] public bool ShowCounts { get; set; } = true;
+
+    private RenderFragment Entry(DashboardSlice item) => __builder =>
+    {
+        <span class="orbit-dash-swatch" style="--orbit-swatch: @item.Colour"></span>
+        <span class="orbit-dash-label">@item.Label</span>
+        if (ShowCounts)
+        {
+            <span class="orbit-dash-count">@item.Count</span>
+        }
+    };
+}
