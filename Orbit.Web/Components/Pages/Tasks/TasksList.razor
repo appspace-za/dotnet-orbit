@@ -4,7 +4,8 @@
 @using Orbit.Application.Assets
 @* The Tasks list (spec §6.2): every task the viewer may see, filtered and paged, with the rows' live controls. The filters
    live in the address, in the Razor page's keys (old links and bookmarks still work), and are remembered for the browser
-   session (OrbitListPage). Changing a filter applies it at once. *@
+   session (OrbitListPage). Changing a filter applies it at once. The My tasks chip in the header is a quick filter that replaced
+   the My Tasks page (decision 132): the viewer's open tasks in place of whatever was filtered (Navigation.MyTasks). *@
 
 <PageTitle>Tasks - Orbit</PageTitle>
 
@@ -19,14 +20,22 @@ else if (_result is null)
 else
 {
     <div class="orbit-page-header">
-        <MudText Typo="Typo.h5" HtmlTag="h1">
-            Tasks <span class="orbit-subtitle">@_result.TotalCount</span>
-            @if (FilterChoice.Id(ParentTaskId) is not null)
+        <div class="orbit-gap-row">
+            <MudText Typo="Typo.h5" HtmlTag="h1">
+                Tasks <span class="orbit-subtitle">@_result.TotalCount</span>
+                @if (FilterChoice.Id(ParentTaskId) is not null)
+                {
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Href="/Tasks" title="Show the whole list again">Subtasks of one task · clear</MudChip>
+                }
+            </MudText>
+            @if (_actor!.UserId is not null)
             {
-                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Href="/Tasks" title="Show the whole list again">Subtasks of one task · clear</MudChip>
+                <MudChip T="string" Icon="@Icons.Material.Filled.Person" Color="Color.Primary" Variant="@(ShowingMine ? Variant.Filled : Variant.Outlined)"
+                         OnClick="ToggleMyTasksAsync"
+                         title="@(ShowingMine ? "Show everyone's tasks again" : "Only your open tasks, in place of the other filters")">My tasks</MudChip>
             }
-        </MudText>
-        @if (_actor!.Has(Permission.TasksCreate))
+        </div>
+        @if (_actor.Has(Permission.TasksCreate))
         {
             <MudButton Href="/Tasks/Create" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">New task</MudButton>
         }
@@ -55,9 +64,9 @@ else
                 <AssetPicker Label="Asset" Class="orbit-filter orbit-filter-wide" Picked="a => GoAsync(nameof(AssetId), a.Id.ToString())" />
             }
             <FilterSelect Label="Status" Value="@StatusChoice" ValueChanged="v => GoAsync(StatusKey, v)" Options="StatusOptions" />
-            <FilterSelect Label="Assignee" Value="@AssigneeChoice" ValueChanged="v => GoAsync(AssigneeKey, v)" Special="FilterSelect.AllOrNone" Options="_assignees"
-                          Title="One of the people the task is assigned to, or None for the tasks nobody is assigned to" />
-            <FilterSelect Label="Requestee" Value="@RequesteeChoice" ValueChanged="v => GoAsync(RequesteeKey, v)" Special="_requesteeSpecial" Options="_requestees"
+            <FilterSelect Label="Assignee" Value="@AssigneeChoice" ValueChanged="v => GoAsync(AssigneeKey, v)" Special="_peopleSpecial" Options="_assignees"
+                          Title="One of the people the task is assigned to - Me for your own - or None for the tasks nobody is assigned to" />
+            <FilterSelect Label="Requestee" Value="@RequesteeChoice" ValueChanged="v => GoAsync(RequesteeKey, v)" Special="_peopleSpecial" Options="_requestees"
                           Title="Whom the task was created for - with Me, also your own tasks other departments hold; None for the tasks created for nobody else" />
             <FilterSelect Label="Priority" Value="@PriorityChoice" ValueChanged="v => GoAsync(PriorityKey, v)" Options="PriorityOptions" />
             <FilterSelect Label="Type" Value="@TypeChoice" ValueChanged="v => GoAsync(TypeKey, v)" Options="TypeOptions" />
@@ -149,10 +158,24 @@ else
         [("", "All"), (SprintPlacement.NotPlannedValue, SprintPlacement.NotPlannedLabel), (SprintPlacement.BacklogValue, SprintPlacement.BacklogLabel)];
 
     private IReadOnlyList<(string Value, string Text)> _departments = [], _projects = [], _sprintOptions = [], _assignees = [], _requestees = [];
-    /// <summary>The Requestee filter's special entries, kept at the top while typing: All, None and, when signed in, Me.</summary>
-    private IReadOnlyList<(string Value, string Text)> _requesteeSpecial = FilterSelect.AllOrNone;
+    /// <summary>The Assignee and Requestee filters' special entries, kept at the top while typing: All, None and, when signed in, Me.</summary>
+    private IReadOnlyList<(string Value, string Text)> _peopleSpecial = FilterSelect.AllOrNone;
     private bool _canSeeAll, _canFilterByAsset;
     private string? _assetLabel;
+
+    /// <summary>The My tasks quick filter is on: the list is filtered to the viewer as assignee, whatever else is filtered.</summary>
+    private bool ShowingMine => _actor?.UserId is Guid me && FilterChoice.Id(AssigneeChoice) == me;
+
+    /// <summary>
+    /// On, it replaces every filter with the viewer's open tasks (Navigation.MyTasks), which the address remembers on arrival like any
+    /// filter. Off, it clears the assignee only, so whatever was narrowed since stays.
+    /// </summary>
+    private Task ToggleMyTasksAsync()
+    {
+        if (ShowingMine) return GoAsync(AssigneeKey, null);
+        Nav.NavigateTo(Navigation.MyTasks(_actor!));
+        return Task.CompletedTask;
+    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -208,11 +231,13 @@ else
             var people = canSeeAll
                 ? await users.ListAsync(null, departmentId, false)
                 : actor.DepartmentId is Guid ownDept ? await users.GetAssignableAsync(ownDept) : [];
-            _assignees = people.Select(u => (u.Id.ToString(), u.DisplayName)).ToList();
-            // The Requestee filter (§6.2.2): "Me" first, then the same people. Someone outside the list (another department's
-            // person, from a shared link) stays selected rather than silently dropped.
-            _requesteeSpecial = actor.UserId is Guid me ? [.. FilterSelect.AllOrNone, (me.ToString(), "Me")] : FilterSelect.AllOrNone;
-            var requestees = people.Where(u => u.Id != actor.UserId).Select(u => (u.Id.ToString(), u.DisplayName)).ToList();
+            // The Assignee and Requestee filters (§6.2.2, §6.2.3): "Me" first, then the other people, so the viewer is there even when
+            // the department filter leaves them out. A requestee outside the list (another department's person, from a shared link)
+            // stays selected rather than silently dropped.
+            _peopleSpecial = actor.UserId is Guid me ? [.. FilterSelect.AllOrNone, (me.ToString(), "Me")] : FilterSelect.AllOrNone;
+            var others = people.Where(u => u.Id != actor.UserId).Select(u => (u.Id.ToString(), u.DisplayName)).ToList();
+            _assignees = others;
+            var requestees = others.ToList();
             if (filter.RequesteeId is Guid requesteeId && requesteeId != actor.UserId && requestees.All(r => r.Item1 != requesteeId.ToString())
                 && await users.FindAsync(requesteeId) is { } requestee)
                 requestees.Add((requestee.Id.ToString(), requestee.DisplayName));

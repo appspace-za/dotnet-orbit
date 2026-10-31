@@ -70,7 +70,7 @@
         {
             Success(user.Id == actor!.UserId ? "You are no longer assigned to this task." : "Assignee removed.");
             // Someone whose only tie to the task was being assigned to it may not be able to open it any more.
-            if (!AccessPolicy.CanViewTask(actor, changed!)) Nav.NavigateTo("/Tasks/My");
+            if (!AccessPolicy.CanViewTask(actor, changed!)) Nav.NavigateTo(Navigation.MyTasks(actor));
             else await Changed.InvokeAsync();
         }
         _busy = false;

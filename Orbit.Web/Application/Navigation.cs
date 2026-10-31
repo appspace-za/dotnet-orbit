@@ -12,8 +12,15 @@ public sealed record NavItem(string Label, string Href, Func<Actor, bool> Shows)
 /// </summary>
 public static class Navigation
 {
-    /// <summary>Today and My Tasks - your own work: tasks.edit at Own or wider.</summary>
+    /// <summary>Today - your own work: tasks.edit at Own or wider.</summary>
     public static bool ShowsMyWork(Actor a) => a.Has(Permission.TasksEdit);
+
+    /// <summary>
+    /// The Tasks list's My tasks filter (§6.2, decision 132): the open tasks the viewer is an assignee of, in the list's own address
+    /// keys. It replaced the My Tasks page; the chip on the list, the dashboard, Today and the old /Tasks/My address all go here.
+    /// An actor with no user (an API key, the system) has no tasks of their own, so it is the plain list.
+    /// </summary>
+    public static string MyTasks(Actor a) => a.UserId is Guid me ? $"/Tasks?AssigneeId={me}&OpenOnly=true" : "/Tasks";
 
     /// <summary>The Tasks list: tasks.view at any scope (without it the list is empty).</summary>
     public static bool ShowsTasks(Actor a) => a.Has(Permission.TasksView);
@@ -38,7 +45,6 @@ public static class Navigation
     [
         new("Dashboard", "/", _ => true),
         new("Today", "/Today", ShowsMyWork),
-        new("My Tasks", "/Tasks/My", ShowsMyWork),
         new("Tasks", "/Tasks", ShowsTasks),
         new("Projects", "/Projects", ShowsProjects),
         new("Backlog", "/Backlog", ShowsPlanning),

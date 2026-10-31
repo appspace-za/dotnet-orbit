@@ -165,7 +165,7 @@
 
     private string CurrentPath => "/" + Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0];
 
-    /// <summary>The menu item the current page belongs to: the longest link the path starts with ("/Tasks/My" over "/Tasks").</summary>
+    /// <summary>The menu item the current page belongs to: the longest link the path starts with.</summary>
     private NavItem? Current => _menu.Concat(_adminMenu)
         .Where(i => i.Href == "/" ? CurrentPath == "/" : IsUnder(CurrentPath, i.Href))
         .MaxBy(i => i.Href.Length);

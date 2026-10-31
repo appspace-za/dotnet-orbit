@@ -124,7 +124,7 @@ else
                 @if (d.ShowsOthersWork && d.CanEditTasks)
                 {
                     <MudPaper Outlined="true" Class="orbit-card">
-                        <div class="orbit-card-header"><b>My open tasks</b><a href="/Tasks/My" class="orbit-small">My Tasks</a></div>
+                        <div class="orbit-card-header"><b>My open tasks</b><a href="@Navigation.MyTasks(actor)" class="orbit-small">My tasks</a></div>
                         <TaskTable Tasks="d.MyOpenTasks" Actor="actor" Today="d.Today" ShowDepartment="TaskLook.MixesDepartments(actor, d.MyOpenTasks)"
                                    ShowAssignee="false" EmptyMessage="No tasks assigned to you." Changed="ReloadAsync" />
                     </MudPaper>

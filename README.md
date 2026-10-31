@@ -8,7 +8,9 @@ Identity, the `ModelContextProtocol` .NET SDK, Quartz.NET, Ical.Net and QuestPDF
 
 **The web UI is Blazor** (spec §6): Blazor Server with MudBlazor, converted from Razor Pages page by page at the same
 URLs, so bookmarks and the links in emails still work. On the lists a filter applies as soon as you change it (the
-search box as you type), and it's remembered for the browser session. In the task tables, changing a task's status,
+search box as you type), and it's remembered for the browser session. The **My tasks** chip beside the Tasks list's
+title shows your own open tasks in one click, in place of the other filters; it replaced the My Tasks page, whose
+address still leads there. In the task tables, changing a task's status,
 assignee, due date, sprint or *Today* tick saves at once, with no page reload, and a message at the bottom right
 confirms it. Setting *Done* still asks for solution notes. On the task page, comments, time entries, assignees (picked
 by typing a name), dependencies and attachments are added and removed in place, and the clock keeps running while you
@@ -115,7 +117,7 @@ scopes below it, and a role with no grants sees nothing.
 | `nagios.manage` | All | Admin > Nagios: the Nagios instances Orbit watches, their sign-ins, what raises a task and where it goes | - | - |
 | `messages.manage` | All | Admin > Messages: the emails Orbit sends when something happens, to whom and saying what, and the emails sent | - | - |
 
-The navbar follows the same grants: Today and My Tasks need **Edit tasks**, Tasks **View tasks**, Projects **Edit
+The navbar follows the same grants: Today needs **Edit tasks**, Tasks **View tasks**, Projects **Edit
 projects**, Backlog and Sprints **Plan tasks**, Recurring **Create tasks**, My Time **Log time** and Assets **View
 assets**, each at any scope. Hiding a link blocks nothing - the pages keep their own rules. The Dashboard is always
 there and adapts: someone who can view tasks but not edit them sees their department's (or company's) work read-only,
@@ -155,7 +157,7 @@ form the Sprint field follows the project until you pick a value yourself, and t
 the Backlog. Completing a sprint puts its open tasks back on the Backlog. The tasks that were in no sprint before Not
 Planned existed stayed on the Backlog.
 
-In the Tasks list, a project page and My Tasks the **Sprint** column is a dropdown too: pick a planned or active sprint
+In the Tasks list and on a project page the **Sprint** column is a dropdown too: pick a planned or active sprint
 to plan the task into it, or *Backlog* or *Not Planned* to take it out, without the edit form or the Backlog page. It follows
 `tasks.plan`, like planning from the Backlog, and is offered on open tasks only; a closed task, or one you can't plan,
 shows its sprint as a link. A reopened task still in a completed sprint shows that sprint until it is moved. The

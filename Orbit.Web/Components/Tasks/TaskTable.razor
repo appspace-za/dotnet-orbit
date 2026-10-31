@@ -40,7 +40,6 @@ else
                     var statuses = Ui.AllowedStatuses(Actor, t);
                     var canEdit = canView && AccessPolicy.CanEditTask(Actor, t);
                     var quickEdit = QuickEditAssignees is not null && canEdit;
-                    var quickDue = quickEdit || (QuickEditDueDate && canEdit);
                     <tr @key="t.Id">
                         @if (Selectable)
                         {
@@ -151,7 +150,7 @@ else
                             </td>
                         }
                         <td class="@(overdue ? "orbit-overdue" : null)">
-                            @if (quickDue)
+                            @if (quickEdit)
                             {
                                 <TaskDueDatePicker Task="t" Today="Today" Changed="Changed" />
                             }
@@ -210,8 +209,6 @@ else
     /// department plus anyone who sees every department. Null leaves those cells read-only.
     /// </summary>
     [Parameter] public IReadOnlyList<UserSummary>? QuickEditAssignees { get; set; }
-    /// <summary>The due-date control without the assignee one (My Tasks, where every row is the viewer's own).</summary>
-    [Parameter] public bool QuickEditDueDate { get; set; }
     /// <summary>When set (with <see cref="ShowSprint"/>), open rows the actor may plan get the sprint control (§6.3).</summary>
     [Parameter] public IReadOnlyList<Sprint>? QuickEditSprints { get; set; }
 

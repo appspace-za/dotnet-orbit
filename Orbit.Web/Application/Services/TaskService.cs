@@ -99,16 +99,6 @@ public sealed class TaskService(
         return task;
     }
 
-    public async Task<IReadOnlyList<TaskItem>> GetMyTasksAsync(bool openOnly = true, CancellationToken ct = default)
-    {
-        var actor = await actors.GetAsync(ct);
-        if (actor.UserId is not Guid me) return [];
-        var q = WithIncludes(db.Tasks.AsNoTracking()).Where(t => t.Assignments.Any(x => x.UserId == me));
-        if (openOnly) q = q.Where(t => t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled);
-        return await q.OrderBy(t => t.DueDate == null).ThenBy(t => t.DueDate)
-            .ThenByDescending(EnumOrder.ByTaskPriority).ThenByDescending(t => t.CreatedAt).ToListAsync(ct);
-    }
-
     public async Task<TaskItem> CreateAsync(TaskInput input, TaskSource source, CancellationToken ct = default)
     {
         var actor = await actors.GetAsync(ct);

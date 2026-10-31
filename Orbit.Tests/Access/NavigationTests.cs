@@ -14,7 +14,7 @@ public class NavigationTests
     [Fact]
     public void Shipped_roles_see_their_full_menus()
     {
-        string[] full = ["Dashboard", "Today", "My Tasks", "Tasks", "Projects", "Backlog", "Sprints", "Recurring", "My Time", "Assets", "Requests"];
+        string[] full = ["Dashboard", "Today", "Tasks", "Projects", "Backlog", "Sprints", "Recurring", "My Time", "Assets", "Requests"];
         Assert.Equal(full, Menu(TestActors.Member(Finance)));
         Assert.Equal(full, Menu(TestActors.DepartmentAdmin(Finance)));
         Assert.Equal([.. full, "Reports"], Menu(TestActors.SystemAdmin()));
@@ -53,7 +53,7 @@ public class NavigationTests
         Assert.Equal("/Actions", Navigation.AdminVisible(scripter).Single().Href);
     }
 
-    /// <summary>NAV-003: taking one permission away takes its items - planning takes Backlog and Sprints, editing Today and My Tasks.</summary>
+    /// <summary>NAV-003: taking one permission away takes its items - planning takes Backlog and Sprints, editing Today.</summary>
     [Fact]
     public void Removing_a_permission_removes_its_items()
     {
@@ -71,7 +71,6 @@ public class NavigationTests
         noEdit.Remove(Permission.TasksCreate);
         menu = Menu(TestActors.With(noEdit, Finance));
         Assert.DoesNotContain("Today", menu);
-        Assert.DoesNotContain("My Tasks", menu);
         Assert.DoesNotContain("Projects", menu);
         Assert.DoesNotContain("My Time", menu);
         Assert.DoesNotContain("Recurring", menu);
@@ -101,9 +100,21 @@ public class NavigationTests
         var hrefs = Navigation.Main.Concat(Navigation.Admin).ToDictionary(i => i.Label, i => i.Href);
         Assert.Equal("/", hrefs["Dashboard"]);
         Assert.Equal("/Today", hrefs["Today"]);
-        Assert.Equal("/Tasks/My", hrefs["My Tasks"]);
         Assert.Equal("/Tasks", hrefs["Tasks"]);
         Assert.Equal("/Admin/Users", hrefs["Users"]);
         Assert.All(hrefs.Values, h => Assert.DoesNotContain("/Index", h));
+    }
+
+    /// <summary>
+    /// NAV-006: My tasks is the Tasks list filtered to the viewer's open tasks, in the list's own keys (§6.2, decision 132) - the
+    /// quick filter that replaced the My Tasks page. An actor with no user of its own gets the plain list.
+    /// </summary>
+    [Fact]
+    public void My_tasks_is_the_Tasks_list_filtered_to_your_open_tasks()
+    {
+        var me = Guid.NewGuid();
+        Assert.Equal($"/Tasks?AssigneeId={me}&OpenOnly=true", Navigation.MyTasks(TestActors.With(DefaultRoles.MemberGrants, Finance, userId: me)));
+        Assert.Equal("/Tasks", Navigation.MyTasks(Actor.System));
+        Assert.DoesNotContain(Navigation.Main, i => i.Href.StartsWith("/Tasks/", StringComparison.Ordinal));
     }
 }

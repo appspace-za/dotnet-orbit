@@ -75,7 +75,7 @@ else
     @if (plan.Planned.Count == 0)
     {
         <MudPaper Outlined="true" Class="pa-4 orbit-muted">
-            Nothing planned for today yet. Tick "Today" on tasks in <MudLink Href="/Tasks/My">My Tasks</MudLink> or the <MudLink Href="/Tasks">Tasks</MudLink> list.
+            Nothing planned for today yet. Tick "Today" on tasks in the <MudLink Href="/Tasks">Tasks</MudLink> list, or on <MudLink Href="@Navigation.MyTasks(_actor!)">your own</MudLink>.
         </MudPaper>
     }
     else
