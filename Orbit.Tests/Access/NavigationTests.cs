@@ -117,4 +117,17 @@ public class NavigationTests
         Assert.Equal("/Tasks", Navigation.MyTasks(Actor.System));
         Assert.DoesNotContain(Navigation.Main, i => i.Href.StartsWith("/Tasks/", StringComparison.Ordinal));
     }
+
+    /// <summary>
+    /// NAV-007: Today is the Tasks list filtered to the viewer's tasks on today's plan, done ones included - Open only is left off
+    /// (§6.12, decision 133). An actor with no user of its own gets the plain list. The Today page stays in the menu.
+    /// </summary>
+    [Fact]
+    public void Today_is_the_Tasks_list_filtered_to_your_tasks_planned_today()
+    {
+        var me = Guid.NewGuid();
+        Assert.Equal($"/Tasks?AssigneeId={me}&PlannedToday=true", Navigation.MyTasksToday(TestActors.With(DefaultRoles.MemberGrants, Finance, userId: me)));
+        Assert.Equal("/Tasks", Navigation.MyTasksToday(Actor.System));
+        Assert.Contains(Navigation.Main, i => i.Href == "/Today");
+    }
 }

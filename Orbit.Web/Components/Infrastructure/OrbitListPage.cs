@@ -37,9 +37,13 @@ public abstract class OrbitListPage : OrbitComponentBase
     }
 
     /// <summary>Changes one filter: remembers the page's filters, then moves to their address, back on the first page.</summary>
-    protected async Task GoAsync(string key, string? value)
+    protected Task GoAsync(string key, string? value) => GoToAsync(FilterQuery.FromAddress(Nav.Uri, FilterKeys, key, value));
+
+    /// <summary>Clears several filters at once, such as a quick filter turned off, keeping the rest: remembered and moved to as by <see cref="GoAsync"/>.</summary>
+    protected Task ClearAsync(params string[] keys) => GoToAsync(FilterQuery.FromAddress(Nav.Uri, FilterKeys.Except(keys)));
+
+    private async Task GoToAsync(FilterQuery filters)
     {
-        var filters = FilterQuery.FromAddress(Nav.Uri, FilterKeys, key, value);
         await Memory.RememberAsync(MemoryKey, filters.ToString());
         Nav.NavigateTo(filters.Keep(Nav.Uri, CarriedKeys).At(Path));
     }

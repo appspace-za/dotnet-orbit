@@ -4,8 +4,9 @@
 @using Orbit.Application.Assets
 @* The Tasks list (spec §6.2): every task the viewer may see, filtered and paged, with the rows' live controls. The filters
    live in the address, in the Razor page's keys (old links and bookmarks still work), and are remembered for the browser
-   session (OrbitListPage). Changing a filter applies it at once. The My tasks chip in the header is a quick filter that replaced
-   the My Tasks page (decision 132): the viewer's open tasks in place of whatever was filtered (Navigation.MyTasks). *@
+   session (OrbitListPage). Changing a filter applies it at once. The header's chips are quick filters, each in place of whatever
+   was filtered: My tasks, the viewer's open tasks, which replaced the My Tasks page (decision 132, Navigation.MyTasks), and
+   Today, the viewer's tasks on today's plan, done ones included (decision 133, Navigation.MyTasksToday). *@
 
 <PageTitle>Tasks - Orbit</PageTitle>
 
@@ -33,6 +34,9 @@ else
                 <MudChip T="string" Icon="@Icons.Material.Filled.Person" Color="Color.Primary" Variant="@(ShowingMine ? Variant.Filled : Variant.Outlined)"
                          OnClick="ToggleMyTasksAsync"
                          title="@(ShowingMine ? "Show everyone's tasks again" : "Only your open tasks, in place of the other filters")">My tasks</MudChip>
+                <MudChip T="string" Icon="@Icons.Material.Filled.Today" Color="Color.Primary" Variant="@(ShowingMyToday ? Variant.Filled : Variant.Outlined)"
+                         OnClick="ToggleMyTodayAsync"
+                         title="@(ShowingMyToday ? "Show everyone's tasks again, planned for any day" : "Your tasks planned for today, done ones included, in place of the other filters")">Today</MudChip>
             }
         </div>
         @if (_actor.Has(Permission.TasksCreate))
@@ -163,8 +167,15 @@ else
     private bool _canSeeAll, _canFilterByAsset;
     private string? _assetLabel;
 
-    /// <summary>The My tasks quick filter is on: the list is filtered to the viewer as assignee, whatever else is filtered.</summary>
-    private bool ShowingMine => _actor?.UserId is Guid me && FilterChoice.Id(AssigneeChoice) == me;
+    /// <summary>The list is filtered to the viewer as assignee, whatever else is filtered.</summary>
+    private bool AssignedToMe => _actor?.UserId is Guid me && FilterChoice.Id(AssigneeChoice) == me;
+
+    /// <summary>
+    /// Which quick filter is on - one at a time, since both filter on the viewer as assignee (decision 133): Today with Planned today
+    /// ticked, My tasks without it.
+    /// </summary>
+    private bool ShowingMyToday => AssignedToMe && FilterQuery.Flag(PlannedToday);
+    private bool ShowingMine => AssignedToMe && !FilterQuery.Flag(PlannedToday);
 
     /// <summary>
     /// On, it replaces every filter with the viewer's open tasks (Navigation.MyTasks), which the address remembers on arrival like any
@@ -174,6 +185,17 @@ else
     {
         if (ShowingMine) return GoAsync(AssigneeKey, null);
         Nav.NavigateTo(Navigation.MyTasks(_actor!));
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// On, it replaces every filter with the viewer's tasks planned for today (Navigation.MyTasksToday). Off, it clears the two it set,
+    /// the assignee and Planned today, keeping the rest.
+    /// </summary>
+    private Task ToggleMyTodayAsync()
+    {
+        if (ShowingMyToday) return ClearAsync(AssigneeKey, nameof(PlannedToday));
+        Nav.NavigateTo(Navigation.MyTasksToday(_actor!));
         return Task.CompletedTask;
     }
 

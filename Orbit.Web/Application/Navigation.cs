@@ -22,6 +22,13 @@ public static class Navigation
     /// </summary>
     public static string MyTasks(Actor a) => a.UserId is Guid me ? $"/Tasks?AssigneeId={me}&OpenOnly=true" : "/Tasks";
 
+    /// <summary>
+    /// The Tasks list's Today filter (§6.12, decision 133): the tasks the viewer is an assignee of that are on today's plan, done ones
+    /// included. It is each assignee's own day, used through the day; the Today page is the team's plan for the morning meeting and
+    /// shows the department's people too. An actor with no user gets the plain list.
+    /// </summary>
+    public static string MyTasksToday(Actor a) => a.UserId is Guid me ? $"/Tasks?AssigneeId={me}&PlannedToday=true" : "/Tasks";
+
     /// <summary>The Tasks list: tasks.view at any scope (without it the list is empty).</summary>
     public static bool ShowsTasks(Actor a) => a.Has(Permission.TasksView);
 
