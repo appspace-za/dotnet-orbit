@@ -71,7 +71,7 @@ body.orbit-dark { background: #111218; color-scheme: dark; }
 .text-right { text-align: right !important; }
 .text-nowrap { white-space: nowrap !important; }
 
-/* Stat tiles (Today). */
+/* Stat tiles (a department's page, the critical path panel). */
 .orbit-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: .75rem; margin-bottom: 1rem; }
 @media (min-width: 960px) { .orbit-stats { grid-template-columns: repeat(4, 1fr); } }
 .orbit-stat { padding: .875rem 1rem; }
@@ -211,6 +211,39 @@ a.orbit-plain:hover { background: var(--mud-palette-table-hover); }
 /* A sprint's meters: label, bar, figure. */
 .orbit-dash-meters { display: grid; grid-template-columns: minmax(0, 7rem) minmax(0, 1fr) auto; align-items: center; gap: .375rem .75rem; font-size: .875rem; }
 
+/* The Today page (spec §6.12, decision 136): a view per button, on the dashboard's switcher, tiles and donuts. Many people's buttons
+   scroll sideways on a phone rather than widen the page. */
+.orbit-day-tabs { max-width: 100%; overflow-x: auto; }
+.orbit-day-tabs .mud-toggle-group { flex-wrap: nowrap; }
+.orbit-day-tabs .mud-toggle-item { white-space: nowrap; }
+.orbit-day-tab-count { margin-left: .375rem; opacity: .7; font-variant-numeric: tabular-nums; }
+.orbit-day-tab-alert { display: inline-block; width: .5rem; height: .5rem; margin-left: .375rem; border-radius: 50%; background: var(--mud-palette-error); vertical-align: middle; }
+/* A day's estimate against a working day (DayLoadBar): closed, then open, and a mark where the working day ends. */
+.orbit-day-load { position: relative; padding: .25rem 0; min-width: 8rem; }
+.orbit-day-load-track { display: flex; height: .5rem; border-radius: 999px; overflow: hidden; background: var(--mud-palette-lines-default); }
+.orbit-day-load-closed { background: var(--orbit-status-done); }
+.orbit-day-load-open { background: var(--orbit-status-in-progress); }
+.orbit-day-load-over .orbit-day-load-open { background: var(--mud-palette-error); }
+.orbit-day-load-day { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--mud-palette-text-primary); border-radius: 1px; }
+.orbit-day .orbit-card-body .orbit-dash-legend-row { padding: .5rem 0 0; }
+.orbit-day-team td, .orbit-day-outcomes td { vertical-align: middle; }
+.orbit-day-team th, .orbit-day-outcomes th { white-space: nowrap; font-weight: 600; }
+.orbit-day-team-load { min-width: 14rem; width: 50%; }
+.orbit-day-outcomes th:not(:first-child), .orbit-day-outcomes td:not(:first-child) { width: 8rem; }
+.orbit-day-team .mud-chip { margin: 0; }
+/* The Summary's Not finished line: a card header with nothing under it. */
+.orbit-day-leftover { border-bottom: 0; }
+/* A stand-up's look back: an icon for what became of each task, then the task. */
+.orbit-day-outcome { display: flex; flex-wrap: wrap; align-items: center; gap: .375rem; }
+.orbit-day-outcome .mud-chip { margin: 0; }
+.orbit-day-outcome-done { color: var(--orbit-status-done); }
+.orbit-day-outcome-cancelled { color: var(--orbit-status-cancelled); }
+.orbit-day-outcome-carried { color: var(--orbit-status-in-progress); }
+.orbit-day-outcome-unfinished { color: var(--mud-palette-warning); }
+.orbit-day-logged { color: inherit; font-size: .875rem; }
+.orbit-day-logged-row { display: flex; justify-content: space-between; gap: .75rem; padding-top: .25rem; }
+.orbit-day-logged-row > :first-child { min-width: 0; }
+
 /* Projects and Sprints. */
 .orbit-form { display: flex; flex-direction: column; gap: .75rem; max-width: 60rem; }
 .orbit-two-tiles { display: grid; grid-template-columns: 1fr; gap: .75rem; margin-bottom: 1rem; }
@@ -316,13 +349,13 @@ a.orbit-plain:hover { background: var(--mud-palette-table-hover); }
 .orbit-table-wrap { overflow-x: auto; }
 .orbit-tasks th { white-space: nowrap; font-weight: 600; }
 .orbit-tasks td { vertical-align: middle; }
-.orbit-tasks .orbit-number { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .8rem; color: var(--mud-palette-text-secondary); margin-right: .375rem; }
-.orbit-tasks .orbit-title { font-weight: 600; text-decoration: none; color: var(--mud-palette-text-primary); }
-.orbit-tasks a.orbit-title:hover { color: var(--mud-palette-primary); text-decoration: underline; }
-.orbit-tasks .orbit-overdue, .orbit-overdue input { color: var(--mud-palette-error) !important; font-weight: 600; }
+.orbit-tasks .orbit-number, .orbit-day .orbit-number { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .8rem; color: var(--mud-palette-text-secondary); margin-right: .375rem; }
+.orbit-tasks .orbit-title, .orbit-day .orbit-title { font-weight: 600; text-decoration: none; color: var(--mud-palette-text-primary); }
+.orbit-tasks a.orbit-title:hover, .orbit-day a.orbit-title:hover { color: var(--mud-palette-primary); text-decoration: underline; }
+.orbit-tasks .orbit-overdue, .orbit-day .orbit-overdue, .orbit-overdue input { color: var(--mud-palette-error) !important; font-weight: 600; }
 /* Small print under a title: a subtask's parent in task tables, and the second line of a picker's option (a number, an email),
    whose dropdown renders in the popover provider, outside .orbit-tasks. */
-.orbit-tasks .orbit-sub, .mud-popover .orbit-sub { font-size: .8rem; color: var(--mud-palette-text-secondary); }
+.orbit-tasks .orbit-sub, .orbit-day .orbit-sub, .mud-popover .orbit-sub { font-size: .8rem; color: var(--mud-palette-text-secondary); }
 .orbit-tasks .orbit-check { width: 2.5rem; }
 .orbit-tasks .orbit-today { width: 4rem; text-align: center; }
 /* MudBlazor wraps each chip in a .mud-chip-container, which is display: contents, so the margin goes on the chip. */

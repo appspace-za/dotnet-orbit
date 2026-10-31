@@ -1,0 +1,127 @@
+@* The Today page's Yesterday view (spec §6.12, decisions 136 and 137): what became of the last plan - by person, then the tasks
+   left unfinished with the carry-over buttons, the ones carried over to today and the ones closed. The table and the cards count
+   the last plan's own tasks (DayPlanRules.LastPlan); tasks from an older plan show under their own day. The rows are read-only;
+   carrying over is the one change the page makes, and the page does it (Selected, OnCarrySelected, OnCarryAll). *@
+@if (Plan.LastPlanDate is not DateOnly last)
+{
+    <MudPaper Outlined="true" Class="pa-4 orbit-muted">No earlier plan to look back on.</MudPaper>
+}
+else
+{
+    var today = Plan.Date;
+    var outcome = DayPlanRules.LastPlan(Plan);
+    var planName = DayPlanRules.PlanName(last, today);
+    var doneAfter = outcome.Closed.Select(t => (Task: t, On: DayPlanRules.DoneAfter(t, last))).Where(x => x.On is not null).ToList();
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        <div class="orbit-card-header">
+            <span><b>@DayPlanRules.WhenLabel(last, today)</b> <span class="orbit-muted">@last.ToString("dddd, d MMMM yyyy")</span></span>
+            <span class="orbit-muted orbit-small">a shared task counts for each assignee</span>
+        </div>
+        @if (Outcomes.Count == 0)
+        {
+            <div class="orbit-list-item orbit-muted"><i>Nothing to show.</i></div>
+        }
+        else
+        {
+            <div class="orbit-table-wrap">
+                <MudSimpleTable Dense="true" Hover="true" Elevation="0" Class="orbit-day-outcomes">
+                    <thead>
+                        <tr>
+                            <th>Person</th>
+                            <th class="text-right" title="Tasks on that day's plan closed since, whenever that was">Closed</th>
+                            <th class="text-right" title="Tasks on that day's plan carried over to today">Carried over</th>
+                            <th class="text-right" title="Tasks still open on that day's plan">Not finished</th>
+                            <th class="text-right" title="@($"Time logged on {Plan.LoggedDate:yyyy-MM-dd}, on any task")">Logged</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var o in Outcomes)
+                        {
+                            var view = DayPlanView.Person(o.AssigneeId);
+                            <tr @key="view.Key">
+                                <td>
+                                    @if (PersonKeys.Contains(view.Key))
+                                    {
+                                        <a href="@ViewHref(view)" class="orbit-title">@o.Name</a>
+                                    }
+                                    else
+                                    {
+                                        <span title="Nothing planned today">@o.Name</span>
+                                    }
+                                </td>
+                                <td class="text-right">@Figure(o.Closed)</td>
+                                <td class="text-right">@Figure(o.CarriedOver)</td>
+                                <td class="text-right">@Figure(o.NotFinished)</td>
+                                <td class="text-right text-nowrap">@(o.LoggedMinutes > 0 ? TimeFormat.Minutes(o.LoggedMinutes) : "-")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        }
+    </MudPaper>
+
+    @if (Plan.Unfinished.Count > 0)
+    {
+        <MudPaper Outlined="true" Class="orbit-card orbit-card-warning">
+            <div class="orbit-card-header">
+                <span><b>Not finished @DayPlanRules.WhenPhrase(Plan.PreviousDate!.Value, today)</b> <span class="orbit-muted">(@Plan.Unfinished.Count)</span></span>
+                <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" Disabled="Busy" OnClick="OnCarrySelected">
+                        Carry selected over to today@(Selected.Count > 0 ? $" ({Selected.Count})" : "")
+                    </MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" Disabled="Busy" OnClick="OnCarryAll">Carry all over</MudButton>
+                </MudStack>
+            </div>
+            <TaskTable Tasks="Plan.Unfinished" Actor="Actor" Today="today" ReadOnly="true" ShowDepartment="TaskLook.MixesDepartments(Actor, Plan.Unfinished)"
+                       ShowSprint="true" ShowEstimate="true" Waiting="Waiting" CarryOvers="Plan.CarryOvers"
+                       Selectable="true" Selected="Selected" SelectionChanged="SelectionChanged" />
+            <div class="orbit-card-footer">Select tasks to carry them over to today's plan. Tasks drop off this list once they are closed or planned again.</div>
+        </MudPaper>
+    }
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        <div class="orbit-card-header"><span><b>Carried over to today</b> <span class="orbit-muted">(@outcome.CarriedOver.Count)</span></span></div>
+        <TaskTable Tasks="outcome.CarriedOver" Actor="Actor" Today="today" ReadOnly="true" ShowDepartment="TaskLook.MixesDepartments(Actor, outcome.CarriedOver)"
+                   ShowEstimate="true" Waiting="Waiting" CarryOvers="Plan.CarryOvers" EmptyMessage="@($"Nothing on {planName} was carried over to today.")" />
+    </MudPaper>
+
+    @if (outcome.CarriedFromEarlier.Count > 0)
+    {
+        <MudPaper Outlined="true" Class="orbit-card">
+            <div class="orbit-card-header"><span><b>Carried over to today from earlier plans</b> <span class="orbit-muted">(@outcome.CarriedFromEarlier.Count)</span></span></div>
+            <TaskTable Tasks="outcome.CarriedFromEarlier" Actor="Actor" Today="today" ReadOnly="true" ShowDepartment="TaskLook.MixesDepartments(Actor, outcome.CarriedFromEarlier)"
+                       ShowEstimate="true" Waiting="Waiting" CarryOvers="Plan.CarryOvers" />
+            <div class="orbit-card-footer">These came from a plan older than @planName, so the table above doesn't count them.</div>
+        </MudPaper>
+    }
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        <div class="orbit-card-header"><span><b>Closed from @planName</b> <span class="orbit-muted">(@outcome.Closed.Count)</span></span></div>
+        <TaskTable Tasks="outcome.Closed" Actor="Actor" Today="today" ReadOnly="true" ShowDepartment="TaskLook.MixesDepartments(Actor, outcome.Closed)"
+                   ShowEstimate="true" EmptyMessage="@($"Nothing on {planName} has been closed.")" />
+        @if (doneAfter.Count > 0)
+        {
+            <div class="orbit-card-footer">Done after that day: @(string.Join(", ", doneAfter.Select(x => $"{x.Task.Number} {DayPlanRules.WhenPhrase(x.On!.Value, today)}"))).</div>
+        }
+    </MudPaper>
+}
+
+@code {
+    [Parameter, EditorRequired] public DayPlan Plan { get; set; } = null!;
+    [Parameter, EditorRequired] public IReadOnlyList<DayPlanOutcome> Outcomes { get; set; } = [];
+    [Parameter, EditorRequired] public Actor Actor { get; set; } = null!;
+    [Parameter, EditorRequired] public IReadOnlyDictionary<Guid, WaitingSummary> Waiting { get; set; } = null!;
+    /// <summary>The view keys of the people on today's plan, who have a stand-up to link to.</summary>
+    [Parameter, EditorRequired] public IReadOnlySet<string> PersonKeys { get; set; } = null!;
+    [Parameter, EditorRequired] public Func<DayPlanView, string> ViewHref { get; set; } = null!;
+
+    [Parameter, EditorRequired] public HashSet<Guid> Selected { get; set; } = [];
+    [Parameter] public EventCallback SelectionChanged { get; set; }
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public EventCallback OnCarrySelected { get; set; }
+    [Parameter] public EventCallback OnCarryAll { get; set; }
+
+    private static string Figure(int n) => n == 0 ? "-" : n.ToString();
+}

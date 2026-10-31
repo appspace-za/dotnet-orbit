@@ -1,0 +1,145 @@
+@* One person's stand-up on the Today page (spec §6.12, decision 136): their day against a working day, what became of their part of
+   the last plan and the time they logged that day (on any task, planned or not), today's tasks, and the ones worth raising. The
+   unassigned tasks get the same view without the load or the logged time, being nobody's. Read-only: the page is for talking. *@
+@{
+    var g = Person.Today;
+    var load = g.Load(WorkingDayMinutes);
+    var someone = g.AssigneeId is not null;
+    var today = Plan.Date;
+    var lookBack = Plan.LastPlanDate ?? Plan.LoggedDate;
+    var anything = Person.Closed.Count + Person.CarriedOver.Count + Person.NotFinished.Count > 0;
+}
+<MudPaper Outlined="true" Class="@(load.Overloaded ? "orbit-card orbit-card-danger" : "orbit-card")">
+    <div class="orbit-card-header">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap">
+            <MudText Typo="Typo.h6" HtmlTag="h2">@Person.Name</MudText>
+            @if (someone)
+            {
+                <MudChip T="string" Size="Size.Small" Color="@(load.Overloaded ? Color.Error : Color.Default)" Variant="@(load.Overloaded ? Variant.Filled : Variant.Outlined)"
+                         title="@DayPlanLook.LoadTitle(WorkingDayMinutes)">
+                    @DayPlanLook.LoadText(g)@(load.Overloaded ? " - overloaded" : "")
+                </MudChip>
+            }
+            @if (g.Shared > 0)
+            {
+                <span class="orbit-muted" title="Tasks other people are assigned to as well - each is counted in full here">@g.Shared shared</span>
+            }
+            @if (g.OpenUnestimated > 0)
+            {
+                <span class="orbit-muted" title="Open tasks with no estimate - not counted in the sum">+ @g.OpenUnestimated without an estimate</span>
+            }
+        </MudStack>
+        <span class="orbit-muted">@g.Done / @g.Tasks.Count done</span>
+    </div>
+    @if (someone)
+    {
+        <div class="orbit-card-body">
+            <DayLoadBar Load="load" WorkingDayMinutes="WorkingDayMinutes" Label="@DayPlanLook.LoadText(g)" />
+            <DashboardLegend Row="true" ShowCounts="false" Items="LoadLegend(g)" />
+        </div>
+    }
+</MudPaper>
+
+<MudPaper Outlined="true" Class="orbit-card">
+    <div class="orbit-card-header">
+        <span><b>@DayPlanRules.WhenLabel(lookBack, today)</b> <span class="orbit-muted">@lookBack.ToString("dddd, d MMMM yyyy")</span></span>
+    </div>
+    @if (!anything)
+    {
+        <div class="orbit-list-item orbit-muted"><i>Nothing @(someone ? "of theirs" : "unassigned") on @(Plan.LastPlanDate is null ? "an earlier" : "that day's") plan.</i></div>
+    }
+    @foreach (var t in Person.Closed)
+    {
+        var done = t.Status == TaskItemStatus.Done;
+        <div class="orbit-list-item orbit-day-outcome" @key="t.Id">
+            <MudIcon Icon="@(done ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)" Size="Size.Small"
+                     Class="@(done ? "orbit-day-outcome-done" : "orbit-day-outcome-cancelled")" title="@t.Status.Label()" />
+            @TaskName(t)
+            <MudChip T="string" Size="Size.Small" Color="TaskLook.Status(t.Status)">@t.Status.Label()</MudChip>
+            @if (DayPlanRules.DoneAfter(t, lookBack) is DateOnly on)
+            {
+                <span class="orbit-muted orbit-small">done @DayPlanRules.WhenPhrase(on, today)</span>
+            }
+        </div>
+    }
+    @foreach (var t in Person.CarriedOver)
+    {
+        <div class="orbit-list-item orbit-day-outcome" @key="t.Id">
+            <MudIcon Icon="@Icons.Material.Filled.ArrowCircleRight" Size="Size.Small" Class="orbit-day-outcome-carried" title="Carried over to today" />
+            @TaskName(t)
+            <span class="orbit-muted orbit-small">carried over@(Plan.CarriedIn[t.Id] != lookBack ? $" from {Ui.Day(Plan.CarriedIn[t.Id])}" : "")</span>
+        </div>
+    }
+    @foreach (var t in Person.NotFinished)
+    {
+        <div class="orbit-list-item orbit-day-outcome" @key="t.Id">
+            <MudIcon Icon="@Icons.Material.Filled.Error" Size="Size.Small" Class="orbit-day-outcome-unfinished" title="Not finished" />
+            @TaskName(t)
+            <span class="orbit-muted orbit-small">not finished@(t.PlannedFor != lookBack ? $", on the plan for {Ui.Day(t.PlannedFor)}" : "")</span>
+        </div>
+    }
+    @if (someone)
+    {
+        <div class="orbit-card-footer orbit-day-logged">
+            <div><b>Logged @DayPlanRules.WhenPhrase(Plan.LoggedDate, today): @TimeFormat.Minutes(Person.LoggedMinutes)</b></div>
+            @foreach (var l in Person.Logged)
+            {
+                <div class="orbit-day-logged-row" @key="l.TaskId">
+                    <span class="orbit-ellipsis"><span class="orbit-number">@l.Number</span> <a href="@($"/Tasks/Details/{l.TaskId}")">@l.Title</a></span>
+                    <span class="text-nowrap">@TimeFormat.Minutes(l.Minutes)</span>
+                </div>
+            }
+        </div>
+    }
+</MudPaper>
+
+<MudPaper Outlined="true" Class="orbit-card">
+    <div class="orbit-card-header"><span><b>Today</b> <span class="orbit-muted">(@g.Tasks.Count)</span></span></div>
+    <TaskTable Tasks="g.Tasks" Actor="Actor" Today="today" ReadOnly="true" ShowAssignee="g.Shared > 0" ShowDepartment="TaskLook.MixesDepartments(Actor, g.Tasks)"
+               ShowSprint="true" ShowEstimate="true" Waiting="Waiting" CarryOvers="Plan.CarryOvers" />
+</MudPaper>
+
+@if (Person.Flags.Count > 0)
+{
+    <MudPaper Outlined="true" Class="orbit-card orbit-card-warning">
+        <div class="orbit-card-header"><span><b>Flags</b> <span class="orbit-muted">(@Person.Flags.Count)</span></span></div>
+        @foreach (var f in Person.Flags)
+        {
+            <div class="orbit-list-item" @key="f.Task.Id">
+                @TaskName(f.Task)
+                <div class="orbit-sub">@string.Join(" · ", f.Reasons)</div>
+            </div>
+        }
+    </MudPaper>
+}
+
+@code {
+    [Parameter, EditorRequired] public DayPlanPerson Person { get; set; } = null!;
+    [Parameter, EditorRequired] public DayPlan Plan { get; set; } = null!;
+    [Parameter, EditorRequired] public Actor Actor { get; set; } = null!;
+    [Parameter, EditorRequired] public IReadOnlyDictionary<Guid, WaitingSummary> Waiting { get; set; } = null!;
+    [Parameter, EditorRequired] public int WorkingDayMinutes { get; set; }
+
+    /// <summary>A task's number and title, the title opening the task when the viewer may.</summary>
+    private RenderFragment TaskName(TaskItem t) => __builder =>
+    {
+        <span class="orbit-number" title="Task number">@t.Number</span>
+        if (AccessPolicy.CanViewTask(Actor, t))
+        {
+            <a href="@($"/Tasks/Details/{t.Id}")" class="@(t.IsOverdue(Plan.Date) ? "orbit-title orbit-overdue" : "orbit-title")">@t.Title</a>
+        }
+        else
+        {
+            <span class="orbit-title">@t.Title</span>
+        }
+    };
+
+    /// <summary>The load bar's key: the closed and open parts of the estimate, and the working day's mark.</summary>
+    private IReadOnlyList<DashboardSlice> LoadLegend(DayPlanGroup g) =>
+    [
+        new($"Closed {TimeFormat.Minutes(g.EstimatedMinutes - g.OpenEstimatedMinutes)}", 0, DashboardLook.Status(TaskItemStatus.Done), null),
+        new($"Open {TimeFormat.Minutes(g.OpenEstimatedMinutes)}", 0,
+            g.Load(WorkingDayMinutes).Overloaded ? "var(--mud-palette-error)" : DashboardLook.Status(TaskItemStatus.InProgress), null),
+        new($"Working day {TimeFormat.Minutes(WorkingDayMinutes)}", 0, "var(--mud-palette-text-primary)", null)
+    ];
+}

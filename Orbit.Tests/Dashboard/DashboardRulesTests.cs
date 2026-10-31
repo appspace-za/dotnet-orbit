@@ -230,6 +230,9 @@ public class DashboardRulesTests
         Assert.Equal("/Tasks?OpenOnly=true&Priority=Critical", plain.Priority(TaskPriority.Critical));
         Assert.Equal("/Tasks?OpenOnly=true&Type=Problem", plain.Type(TaskType.Problem));
         Assert.Equal("/Tasks?PlannedToday=true&Status=Done", plain.Planned(TaskItemStatus.Done));
+        Assert.Equal("/Tasks?PlannedToday=true", plain.PlannedAll);                       // the Today page's figures
+        Assert.Equal("/Tasks?OpenOnly=true&PlannedToday=true", plain.PlannedOpen);
+        Assert.Equal("/Tasks?OpenOnly=true&Due=Overdue&PlannedToday=true", plain.PlannedOverdue);
         Assert.Equal("/Tasks?OpenOnly=true", plain.AllOpen);
         Assert.Equal("/Today", plain.TodayPlan);
 
@@ -246,6 +249,7 @@ public class DashboardRulesTests
         var picked = new DashboardLinks(null, dept);
         Assert.Equal($"/Tasks?DepartmentId={dept}&Status=Todo", picked.Status(TaskItemStatus.Todo));
         Assert.Equal($"/Today?DepartmentId={dept}", picked.TodayPlan);
+        Assert.Equal($"/Tasks?DepartmentId={dept}&PlannedToday=true", picked.PlannedAll);
         var sprint = Guid.NewGuid();
         Assert.Equal($"/Tasks?DepartmentId={dept}&Sprint={sprint}&Status=Waiting", picked.InSprint(sprint, TaskItemStatus.Waiting));
 
@@ -256,7 +260,7 @@ public class DashboardRulesTests
 
         // Every key of every link to the Tasks list is one the list reads and remembers, so renaming a key fails here; no link has a date.
         var links = new[] { plain, mine, picked }
-            .SelectMany(l => new[] { l.Overdue, l.DueSoon, l.AllOpen, l.TodayPlan }
+            .SelectMany(l => new[] { l.Overdue, l.DueSoon, l.AllOpen, l.TodayPlan, l.PlannedAll, l.PlannedOpen, l.PlannedOverdue }
                 .Concat(Enum.GetValues<TaskItemStatus>().SelectMany(s => new[] { l.Status(s), l.Planned(s), l.InSprint(sprint, s) }))
                 .Concat(Enum.GetValues<TaskPriority>().Select(l.Priority))
                 .Concat(Enum.GetValues<TaskType>().Select(l.Type)))

@@ -1,0 +1,141 @@
+@* The Today page's Summary view (spec §6.12, decisions 136 and 137): the day at a glance for the start of the meeting - the plan's
+   figures, each opening the Tasks list of exactly those tasks, any tasks left unfinished (opening the carry-over buttons), how
+   today's plan and the last one stand, and a line per person that opens their stand-up. *@
+@{
+    var when = DayPlanRules.WhenPhrase(Plan.LoggedDate, Plan.Date);
+}
+<div class="orbit-stats">
+    <DashboardTile Value="Plan.Planned.Count" Label="Planned today" Icon="@Icons.Material.Outlined.EventNote"
+                   Colour="var(--mud-palette-primary)" Href="@Links.PlannedAll" />
+    <DashboardTile Value="Plan.DoneCount" Label="Done" Icon="@Icons.Material.Outlined.CheckCircle"
+                   Colour="@DashboardLook.Status(TaskItemStatus.Done)" Href="@Links.Planned(TaskItemStatus.Done)" />
+    <DashboardTile Value="Plan.OpenCount" Label="Still open" Icon="@Icons.Material.Outlined.PlayCircle"
+                   Colour="@DashboardLook.Status(TaskItemStatus.InProgress)" Href="@Links.PlannedOpen" />
+    <DashboardTile Value="Plan.OverdueCount" Label="Overdue" Icon="@Icons.Material.Outlined.EventBusy" Alert="Plan.OverdueCount > 0"
+                   Colour="var(--mud-palette-error)" Href="@Links.PlannedOverdue" />
+</div>
+
+@if (Plan.PreviousDate is DateOnly left && Plan.Unfinished.Count > 0)
+{
+    @* The page opens here, so tasks left on an earlier plan show before anyone opens the Yesterday view - including an older
+       day's, which the last plan's donut doesn't count (decision 137). *@
+    <MudPaper Outlined="true" Class="orbit-card orbit-card-warning">
+        <div class="orbit-card-header orbit-day-leftover">
+            <span>
+                <b>Not finished @DayPlanRules.WhenPhrase(left, Plan.Date)</b> <span class="orbit-muted">(@Plan.Unfinished.Count)</span>
+                <span class="orbit-muted orbit-small">still open on that day's plan</span>
+            </span>
+            <MudButton Href="@ViewHref(DayPlanView.Yesterday)" Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small">Review and carry over</MudButton>
+        </div>
+    </MudPaper>
+}
+
+<MudPaper Outlined="true" Class="orbit-card">
+    <div class="orbit-card-header">
+        <b>Team</b>
+        <span class="orbit-muted orbit-small">estimates against a @TimeFormat.Minutes(WorkingDayMinutes) working day; a shared task counts in full for each assignee</span>
+    </div>
+    @if (People.Count == 0)
+    {
+        <div class="orbit-list-item orbit-muted">
+            Nothing planned for today yet. Tick "Today" on tasks in the <MudLink Href="/Tasks">Tasks</MudLink> list, or on
+            <MudLink Href="@Navigation.MyTasks(Actor)">your own</MudLink>.
+        </div>
+    }
+    else
+    {
+        <div class="orbit-table-wrap">
+            <MudSimpleTable Dense="true" Hover="true" Elevation="0" Class="orbit-day-team">
+                <thead>
+                    <tr>
+                        <th>Person</th>
+                        <th class="text-right">Done</th>
+                        <th>Load</th>
+                        <th class="text-right" title="@($"Time logged on {Plan.LoggedDate:yyyy-MM-dd}, on any task")">Logged @when</th>
+                        <th>Flags</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var p in People)
+                    {
+                        var g = p.Today;
+                        var load = g.Load(WorkingDayMinutes);
+                        <tr @key="p.View.Key">
+                            <td><a href="@ViewHref(p.View)" class="orbit-title">@p.Name</a></td>
+                            <td class="text-right text-nowrap">@g.Done / @g.Tasks.Count</td>
+                            <td class="orbit-day-team-load">
+                                @if (p.AssigneeId is null)
+                                {
+                                    <span class="orbit-muted">@g.Tasks.Count(t => t.IsOpen) open, nobody's yet</span>
+                                }
+                                else
+                                {
+                                    <DayLoadBar Load="load" WorkingDayMinutes="WorkingDayMinutes" Label="@DayPlanLook.LoadText(g)" />
+                                    <div class="orbit-sub orbit-gap-row">
+                                        <span>@DayPlanLook.LoadText(g)</span>
+                                        @if (load.Overloaded)
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled" title="@DayPlanLook.LoadTitle(WorkingDayMinutes)">overloaded</MudChip>
+                                        }
+                                        @if (g.OpenUnestimated > 0)
+                                        {
+                                            <span class="orbit-muted" title="Open tasks with no estimate - not counted in the sum">+ @g.OpenUnestimated without an estimate</span>
+                                        }
+                                    </div>
+                                }
+                            </td>
+                            <td class="text-right text-nowrap">
+                                @if (p.AssigneeId is null)
+                                {
+                                    <span class="orbit-muted">-</span>
+                                }
+                                else
+                                {
+                                    @(p.LoggedMinutes > 0 ? TimeFormat.Minutes(p.LoggedMinutes) : "-")
+                                }
+                            </td>
+                            <td>
+                                @if (p.Flags.Count > 0)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" title="@string.Join("\n", p.Flags.Select(f => $"{f.Task.Number}: {string.Join(", ", f.Reasons)}"))">@p.Flags.Count flagged</MudChip>
+                                }
+                                else
+                                {
+                                    <span class="orbit-muted">-</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </div>
+    }
+</MudPaper>
+
+<MudPaper Outlined="true" Class="orbit-card">
+    <div class="orbit-dash-donuts">
+        <div>
+            <div class="orbit-dash-section">Today's plan</div>
+            <DashboardDonut Chart="Charts.Today" Centre="@($"{Charts.TodayCounts.Closed}/{Charts.TodayCounts.Total}")" CentreLabel="closed"
+                            EmptyText="Nothing planned yet." />
+        </div>
+        <div>
+            <div class="orbit-dash-section">
+                @(Plan.LastPlanDate is DateOnly last ? $"{DayPlanRules.WhenLabel(last, Plan.Date)}'s plan" : "The last plan")
+            </div>
+            <DashboardDonut Chart="Charts.LastPlan" Centre="@($"{Charts.LastPlanDone}/{Charts.LastPlan.Total}")" CentreLabel="done"
+                            EmptyText="No earlier plan to look back on." />
+        </div>
+    </div>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public DayPlan Plan { get; set; } = null!;
+    [Parameter, EditorRequired] public IReadOnlyList<DayPlanPerson> People { get; set; } = [];
+    [Parameter, EditorRequired] public DayPlanCharts Charts { get; set; } = null!;
+    [Parameter, EditorRequired] public DashboardLinks Links { get; set; } = null!;
+    [Parameter, EditorRequired] public Actor Actor { get; set; } = null!;
+    [Parameter, EditorRequired] public int WorkingDayMinutes { get; set; }
+    /// <summary>The address of another view of the page, keeping its department.</summary>
+    [Parameter, EditorRequired] public Func<DayPlanView, string> ViewHref { get; set; } = null!;
+}

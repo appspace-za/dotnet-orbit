@@ -123,7 +123,26 @@ public sealed class DayPlan
     public IReadOnlyList<TaskItem> Unfinished { get; init; } = [];
     /// <summary>How many times each task in Planned or Unfinished has been carried over to a later day's plan; absent = never.</summary>
     public IReadOnlyDictionary<Guid, int> CarryOvers { get; init; } = new Dictionary<Guid, int>();
+    /// <summary>The tasks in Planned carried over onto Date from an earlier day's plan, with the day each came from (from the audit trail).</summary>
+    public IReadOnlyDictionary<Guid, DateOnly> CarriedIn { get; init; } = new Dictionary<Guid, DateOnly>();
+    /// <summary>
+    /// The last plan before Date (<see cref="DayPlanRules.LastPlanDate"/>): the latest earlier day with tasks in scope still dated
+    /// it, or tasks carried over from it to Date. Null when there is none. Usually <see cref="PreviousDate"/>, which only counts
+    /// days with open tasks left on them.
+    /// </summary>
+    public DateOnly? LastPlanDate { get; init; }
+    /// <summary>The Done and Cancelled tasks still dated LastPlanDate: what got finished on the last plan.</summary>
+    public IReadOnlyList<TaskItem> LastPlanClosed { get; init; } = [];
+    /// <summary>The day <see cref="Logged"/> covers: LastPlanDate, or the day before Date when there is no earlier plan.</summary>
+    public DateOnly LoggedDate { get; init; }
+    /// <summary>The time logged on LoggedDate on tasks in scope, planned or not, per person and task.</summary>
+    public IReadOnlyList<LoggedTask> Logged { get; init; } = [];
     public int DoneCount => Planned.Count(t => t.Status == TaskItemStatus.Done);
     public int OpenCount => Planned.Count(t => t.IsOpen);
     public int OverdueCount => Planned.Count(t => t.IsOverdue(Date));
+    /// <summary>Whether there is an earlier plan to look back on, the Today page's Yesterday view. Any Unfinished task means there is.</summary>
+    public bool HasLastPlan => LastPlanDate is not null;
 }
+
+/// <summary>The time one person logged on one task on a day (§6.10), for the Today page's stand-up (§6.12).</summary>
+public sealed record LoggedTask(Guid UserId, string UserName, Guid TaskId, string Number, string Title, int Minutes);

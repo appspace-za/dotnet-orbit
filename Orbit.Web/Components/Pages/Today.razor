@@ -3,7 +3,11 @@
 @inherits OrbitComponentBase
 @using Microsoft.Extensions.Options
 @inject IOptions<CriticalPathOptions> CriticalPath
-@* The day plan (spec §6.12): what the team picked to work on today, grouped by person, with each person's estimated load. *@
+@* The day plan (spec §6.12, decision 136): the team's plan for the morning meeting, one view at a time - the Summary, what became of
+   the last plan (Yesterday), and a stand-up for each person planned today (Components/DayPlans). It shows tasks rather than
+   changes them: planning happens on the task lists, so carrying unfinished tasks over is the one change made here. The view is in
+   the address (?View=) and isn't remembered, so the page opens on the Summary; each switch reloads, so changes people make
+   elsewhere show up as the meeting goes round. *@
 
 <PageTitle>Today - Orbit</PageTitle>
 
@@ -18,12 +22,11 @@ else if (_plan is null)
 else
 {
     var plan = _plan;
-    var leftOverWhen = plan.PreviousDate == _today.AddDays(-1) ? "yesterday" : $"on {Ui.Day(plan.PreviousDate)}";
 
     <div class="orbit-page-header">
         <div>
             <MudText Typo="Typo.h5" HtmlTag="h1">Today <span class="orbit-subtitle">@_today.ToString("dddd, d MMMM yyyy")</span></MudText>
-            <div class="orbit-subtitle">What the team picked to work on today. Tick "Today" on any task list to add to the plan.</div>
+            <div class="orbit-subtitle">The team's plan for the morning meeting. Tick "Today" on any task list to add to it.</div>
         </div>
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap">
             @if (_actor!.CanAnywhere(Permission.TasksView))
@@ -44,76 +47,55 @@ else
         </MudStack>
     </div>
 
-    <div class="orbit-stats">
-        <MudPaper Outlined="true" Class="orbit-stat"><div class="orbit-stat-value">@plan.Planned.Count</div><div class="orbit-stat-label">Planned today</div></MudPaper>
-        <MudPaper Outlined="true" Class="orbit-stat"><div class="orbit-stat-value">@plan.DoneCount</div><div class="orbit-stat-label">Done</div></MudPaper>
-        <MudPaper Outlined="true" Class="orbit-stat"><div class="orbit-stat-value">@plan.OpenCount</div><div class="orbit-stat-label">Still open</div></MudPaper>
-        <MudPaper Outlined="true" Class="orbit-stat">
-            <div class="orbit-stat-value @(plan.OverdueCount > 0 ? "orbit-overdue" : null)">@plan.OverdueCount</div><div class="orbit-stat-label">Overdue</div>
-        </MudPaper>
-    </div>
-
-    @if (plan.Unfinished.Count > 0)
-    {
-        <MudPaper Outlined="true" Class="orbit-card orbit-card-warning">
-            <div class="orbit-card-header">
-                <span><b>Not finished @leftOverWhen</b> <span class="orbit-muted">(@plan.Unfinished.Count)</span></span>
-                <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
-                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" Disabled="_busy" OnClick="CarrySelectedAsync">
-                        Carry selected over to today@(_selected.Count > 0 ? $" ({_selected.Count})" : "")
-                    </MudButton>
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" Disabled="_busy" OnClick="CarryAllAsync">Carry all over</MudButton>
-                </MudStack>
+    <div class="orbit-dash orbit-day">
+        <div class="orbit-dash-switcher">
+            <div class="orbit-day-tabs">
+                <MudToggleGroup T="string" Value="_view.Key" ValueChanged="ViewPicked" Color="Color.Primary" Size="Size.Small"
+                                Outlined="true" Delimiters="true" aria-label="Today view">
+                    <MudToggleItem Value="@DayPlanRules.SummaryKey" Text="Summary" />
+                    @if (plan.LastPlanDate is DateOnly last)
+                    {
+                        <MudToggleItem Value="@DayPlanRules.YesterdayKey" Text="@DayPlanRules.WhenLabel(last, _today)" title="@($"The plan for {last:dddd, d MMMM yyyy}")" />
+                    }
+                    @foreach (var p in _people)
+                    {
+                        var overloaded = p.Today.Load(WorkingDayMinutes).Overloaded;
+                        <MudToggleItem Value="@p.View.Key" title="@($"{p.Today.Done} of {p.Today.Tasks.Count} done{(overloaded ? " - overloaded" : "")}")">
+                            @p.Name<span class="orbit-day-tab-count">@p.Today.Done/@p.Today.Tasks.Count</span>@if (overloaded)
+                            {
+                                <span class="orbit-day-tab-alert" aria-label="overloaded"></span>
+                            }
+                        </MudToggleItem>
+                    }
+                </MudToggleGroup>
             </div>
-            <TaskTable Tasks="plan.Unfinished" Actor="_actor" Today="_today" ShowDepartment="MixesDepartments(plan.Unfinished)"
-                       ShowSprint="true" ShowPlanToday="true" ShowEstimate="true" QuickEditAssignees="_assignees" Waiting="_waiting"
-                       CarryOvers="plan.CarryOvers" Selectable="true" Selected="_selected" SelectionChanged="StateHasChanged" Changed="ReloadAsync" />
-            <div class="orbit-card-footer">Ticking "Today" on a row carries that one task over. Tasks drop off this list once they are closed or planned again.</div>
-        </MudPaper>
-    }
+        </div>
 
-    @if (plan.Planned.Count == 0)
-    {
-        <MudPaper Outlined="true" Class="pa-4 orbit-muted">
-            Nothing planned for today yet. Tick "Today" on tasks in the <MudLink Href="/Tasks">Tasks</MudLink> list, or on <MudLink Href="@Navigation.MyTasks(_actor!)">your own</MudLink>.
-        </MudPaper>
-    }
-    else
-    {
-        foreach (var g in _groups)
+        @switch (_view.Kind)
         {
-            var overloaded = g.OpenEstimatedMinutes > WorkingDayMinutes;
-            var load = g.EstimatedMinutes == g.OpenEstimatedMinutes
-                ? $"{TimeFormat.Minutes(g.OpenEstimatedMinutes)} estimated"
-                : $"{TimeFormat.Minutes(g.OpenEstimatedMinutes)} still open of {TimeFormat.Minutes(g.EstimatedMinutes)} estimated";
-            <MudPaper Outlined="true" Class="@(overloaded ? "orbit-card orbit-card-danger" : "orbit-card")" @key="@(g.AssigneeId?.ToString() ?? "unassigned")">
-                <div class="orbit-card-header">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap">
-                        <b>@g.Name</b>
-                        <MudChip T="string" Size="Size.Small" Color="@(overloaded ? Color.Error : Color.Default)" Variant="@(overloaded ? Variant.Filled : Variant.Outlined)"
-                                 title="@($"Sum of the estimates of the tasks on this person's plan; a task shared with other assignees counts in full for each of them. More than a working day ({TimeFormat.Minutes(WorkingDayMinutes)}) still open is flagged as overloaded.")">
-                            @load@(overloaded ? " - overloaded" : "")
-                        </MudChip>
-                        @if (g.Shared > 0)
-                        {
-                            <span class="orbit-muted" title="Tasks other people are assigned to as well - each is counted in full here">@g.Shared shared</span>
-                        }
-                        @if (g.OpenUnestimated > 0)
-                        {
-                            <span class="orbit-muted" title="Open tasks with no estimate - not counted in the sum">+ @g.OpenUnestimated without an estimate</span>
-                        }
-                    </MudStack>
-                    <span class="orbit-muted">@g.Done / @g.Tasks.Count done</span>
-                </div>
-                <TaskTable Tasks="g.Tasks" Actor="_actor" Today="_today" ShowDepartment="MixesDepartments(g.Tasks)" ShowSprint="true"
-                           ShowPlanToday="true" ShowEstimate="true" QuickEditAssignees="_assignees" Waiting="_waiting"
-                           CarryOvers="plan.CarryOvers" Changed="ReloadAsync" />
-            </MudPaper>
+            case DayPlanViewKind.Yesterday:
+                <DayPlanYesterday Plan="plan" Outcomes="_outcomes" Actor="_actor" Waiting="_waiting" PersonKeys="_personKeys" ViewHref="ViewHref"
+                                  Selected="_selected" SelectionChanged="StateHasChanged" Busy="_busy"
+                                  OnCarrySelected="CarrySelectedAsync" OnCarryAll="CarryAllAsync" />
+                break;
+            case DayPlanViewKind.Person:
+                <DayPlanStandup Person="_people.First(p => p.AssigneeId == _view.AssigneeId)" Plan="plan" Actor="_actor" Waiting="_waiting"
+                                WorkingDayMinutes="WorkingDayMinutes" />
+                break;
+            default:
+                <DayPlanSummary Plan="plan" People="_people" Charts="_charts!" Links="_links" Actor="_actor" WorkingDayMinutes="WorkingDayMinutes"
+                                ViewHref="ViewHref" />
+                break;
         }
-    }
+    </div>
 }
 
 @code {
+    private const string ViewKey = "View";
+
+    /// <summary>The view, read as text and resolved leniently: a bad one, or a person with nothing planned today, is the Summary.</summary>
+    [SupplyParameterFromQuery(Name = ViewKey)] public string? ViewChoice { get; set; }
+
     /// <summary>
     /// Someone who sees every department may narrow the plan to one; ignored for everyone else. Read as text, as every filter
     /// is: a typed parameter would crash the page on a bad value, where this is just no filter.
@@ -123,9 +105,14 @@ else
     private Actor? _actor;
     private DateOnly _today;
     private DayPlan? _plan;
-    private IReadOnlyList<DayPlanGroup> _groups = [];
+    private DayPlanView _view = DayPlanView.Summary;
+    /// <summary>Everyone on today's plan, one per button, built once per load for the Summary and the stand-ups.</summary>
+    private IReadOnlyList<DayPlanPerson> _people = [];
+    private IReadOnlySet<string> _personKeys = new HashSet<string>();
+    private IReadOnlyList<DayPlanOutcome> _outcomes = [];
+    private DayPlanCharts? _charts;
+    private DashboardLinks _links = new(null, null);
     private IReadOnlyDictionary<Guid, WaitingSummary> _waiting = new Dictionary<Guid, WaitingSummary>();
-    private IReadOnlyList<UserSummary> _assignees = [];
     private IReadOnlyList<Department> _departments = [];
     private readonly HashSet<Guid> _selected = [];
     private bool _busy;
@@ -141,21 +128,34 @@ else
         {
             var actor = await s.Get<IActorProvider>().GetAsync();
             var today = DateOnly.FromDateTime(DateTime.UtcNow);
-            var plan = await s.Get<TaskService>().GetDayPlanAsync(today, DepartmentFilter(actor));
-            _waiting = await s.Get<TaskStructureService>().GetWaitingAsync(plan.Planned.Concat(plan.Unfinished));
-            _assignees = await s.Get<UserDirectoryService>().GetQuickEditCandidatesAsync();
+            var departmentId = DepartmentFilter(actor);
+            var plan = await s.Get<TaskService>().GetDayPlanAsync(today, departmentId);
+            var waiting = await s.Get<TaskStructureService>().GetWaitingAsync(plan.Planned.Concat(plan.Unfinished));
             _departments = actor.CanAnywhere(Permission.TasksView) ? await s.Get<DepartmentService>().ListAsync(false) : [];
+            var people = DayPlanRules.People(plan, waiting);
+            _view = DayPlanRules.ResolveView(ViewChoice, people.Select(p => p.Today).ToList(), plan.HasLastPlan);
+            _people = people;
+            _personKeys = people.Select(p => p.View.Key).ToHashSet();
+            _outcomes = DayPlanRules.Outcomes(plan);
+            // The figures' links narrow to the department only for a viewer at All, as the dashboard's do (DashboardLinks).
+            _links = new DashboardLinks(null, departmentId);
+            _charts = DayPlanCharts.For(plan, _links);
+            _waiting = waiting;
             _actor = actor;
             _today = today;
             _plan = plan;
-            _groups = DayPlanRules.GroupByAssignee(plan.Planned);
             _selected.IntersectWith(plan.Unfinished.Select(t => t.Id));
         });
     }
 
     private Guid? DepartmentFilter(Actor actor) => actor.CanAnywhere(Permission.TasksView) ? FilterChoice.Id(DepartmentId) : null;
 
-    private bool MixesDepartments(IEnumerable<TaskItem> tasks) => TaskLook.MixesDepartments(_actor!, tasks);
+    /// <summary>Another view's address, keeping the department; the Summary has no key.</summary>
+    private string ViewHref(DayPlanView view) =>
+        Nav.GetUriWithQueryParameter(ViewKey, view.Kind == DayPlanViewKind.Summary ? null : view.Key);
+
+    private void ViewPicked(string key) =>
+        Nav.NavigateTo(Nav.GetUriWithQueryParameter(ViewKey, key == DayPlanRules.SummaryKey ? null : key));
 
     private string DepartmentName(Guid id) => id == Guid.Empty ? "All" : _departments.FirstOrDefault(d => d.Id == id)?.Name ?? "";
 
@@ -172,7 +172,7 @@ else
         await CarryOverAsync(_selected.ToList());
     }
 
-    /// <summary>Carries over everything still unfinished from the previous plan; the list is recomputed server-side.</summary>
+    /// <summary>Carries over everything still unfinished from the previous plan; the service picks the tasks.</summary>
     private Task CarryAllAsync() => CarryOverAsync(null);
 
     private async Task CarryOverAsync(IReadOnlyCollection<Guid>? ids)
@@ -186,9 +186,12 @@ else
                 if (ids is null)
                 {
                     var actor = await s.Get<IActorProvider>().GetAsync();
-                    ids = (await tasks.GetDayPlanAsync(today, DepartmentFilter(actor))).Unfinished.Select(t => t.Id).ToList();
+                    moved = await tasks.CarryOverUnfinishedAsync(today, DepartmentFilter(actor));
                 }
-                moved = await tasks.CarryOverAsync(ids, today);
+                else
+                {
+                    moved = await tasks.CarryOverAsync(ids, today);
+                }
             }))
         {
             Success(moved == 0 ? "Nothing to carry over." : $"{moved} task(s) carried over to today.");

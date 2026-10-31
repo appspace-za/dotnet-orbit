@@ -11,7 +11,7 @@ URLs, so bookmarks and the links in emails still work. On the lists a filter app
 search box as you type), and it's remembered for the browser session. Two chips beside the Tasks list's title filter
 it in one click, in place of the other filters: **My tasks**, your own open tasks (it replaced the My Tasks page,
 whose address still leads there), and **Today**, your tasks planned for today, done ones included - your own day,
-where the Today page is the team's plan for the morning meeting. In the task tables, changing a task's status,
+where the Today page is the team's plan for the morning meeting. In the task tables (bar the Today page's, which only show them), changing a task's status,
 assignee, due date, sprint or *Today* tick saves at once, with no page reload, and a message at the bottom right
 confirms it. Setting *Done* still asks for solution notes. On the task page, comments, time entries, assignees (picked
 by typing a name), dependencies and attachments are added and removed in place, and the clock keeps running while you
@@ -140,6 +140,18 @@ the menu: it holds the buttons that start something new, **New task** with **Cre
 **Create projects** and **Register asset** with **Register assets**. The same buttons on the list pages follow the same
 permissions, and the create pages behind them need them too.
 The navbar itself stays at the top of the window while a page scrolls.
+
+**The Today page** (spec §6.12) is the team's plan for the morning meeting, one view at a time, switched like the
+dashboard's: **Summary**, **Yesterday** (the last plan, named after its day) and a button per person planned today,
+showing how many of their tasks are done. The Summary has the day's figures, any tasks left unfinished on an earlier
+plan (with a link to carry them over), a Team table (each person's load against a working day, the time they logged on
+the last plan's day, their flagged tasks) and donuts of today's plan and of how the last one went. A person's view is
+their stand-up: what became of their part of the last plan, with the time they logged that day on any task; today's
+tasks; and the ones worth raising - overdue, blocked or waiting, held up by a dependency, or carried over three times or
+more. Yesterday lists by person what was closed, carried over and left unfinished, with the buttons that carry
+unfinished tasks over to today. The last plan's figures count that day's tasks only; a task from an older plan is shown
+under its own day, and a task closed after the plan's day (this morning, say) says when it was done. The page only shows
+tasks: plan with the *Today* tick on the task lists. It always opens on the Summary.
 
 A role with any grant at Department scope needs its users and keys to belong to a department. The same rules
 are enforced in `AccessPolicy` and `Scoping` for signed-in users and for API keys; grants are read from the

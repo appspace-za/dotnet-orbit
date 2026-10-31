@@ -559,11 +559,26 @@ public sealed class TaskService(
         return moved;
     }
 
+    /// <summary>
+    /// Carry over everything still open on the latest earlier plan that has any (the Today page's Carry all over, §6.12), in the day
+    /// plan's scope: the tasks are picked here, so the list can't be stale. Returns the number moved.
+    /// </summary>
+    public async Task<int> CarryOverUnfinishedAsync(DateOnly to, Guid? departmentId = null, CancellationToken ct = default)
+    {
+        var actor = await actors.GetAsync(ct);
+        var inScope = DayPlanScope(actor, departmentId);
+        var (_, previous) = await EarlierPlansAsync(inScope, to, ct);
+        if (previous is not DateOnly day) return 0;
+        var ids = await LeftOn(inScope, day).Select(t => t.Id).ToListAsync(ct);
+        return await CarryOverAsync(ids, to, ct);
+    }
+
     /// <summary>The day plan for one date, scoped like <see cref="ListAsync"/> (someone who sees every department may narrow to one).</summary>
     public async Task<DayPlan> GetDayPlanAsync(DateOnly date, Guid? departmentId = null, CancellationToken ct = default)
     {
         var actor = await actors.GetAsync(ct);
-        var scoped = Scope(WithIncludes(db.Tasks.AsNoTracking()), actor, new TaskFilter { DepartmentId = departmentId });
+        var inScope = DayPlanScope(actor, departmentId);
+        var scoped = WithIncludes(inScope);
 
         var planned = await scoped.Where(t => t.PlannedFor == date)
             .OrderBy(t => t.Status == TaskItemStatus.Done || t.Status == TaskItemStatus.Cancelled)
@@ -571,23 +586,74 @@ public sealed class TaskService(
             .ThenByDescending(EnumOrder.ByTaskPriority).ThenBy(t => t.DueDate == null).ThenBy(t => t.DueDate)
             .ToListAsync(ct);
 
-        // Whatever is still open on the most recent earlier plan - "what didn't get finished last time".
-        var leftOver = scoped.Where(t => t.PlannedFor != null && t.PlannedFor < date
-            && t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled);
-        var previous = await leftOver.MaxAsync(t => t.PlannedFor, ct);
-        List<TaskItem> unfinished = previous is null ? [] : await leftOver.Where(t => t.PlannedFor == previous)
-            .OrderBy(t => !t.Assignments.Any()).ThenBy(t => t.Assignments.Min(x => x.User.DisplayName)).ThenByDescending(EnumOrder.ByTaskPriority)
-            .ToListAsync(ct);
+        // Whatever is still open on the most recent earlier plan that has any - "what didn't get finished last time". It keeps
+        // its own rule, apart from the last plan's, so stranded tasks still surface (decision 136).
+        var (latestEarlier, previous) = await EarlierPlansAsync(inScope, date, ct);
+        List<TaskItem> unfinished = previous is DateOnly left ? await ByPerson(LeftOn(scoped, left)).ToListAsync(ct) : [];
 
-        // How often each of them has slipped to a later day, from their Planned audit rows - one query for the page.
+        // How often each of them has slipped to a later day, and which of today's came over from an earlier plan, from their
+        // Planned audit rows - one query for the page.
         var ids = planned.Concat(unfinished).Select(t => t.Id).ToList();
         var entries = ids.Count == 0 ? [] : await db.AuditLogs.AsNoTracking()
             .Where(a => a.EntityType == AuditEntity.Task && a.Action == AuditAction.Planned && ids.Contains(a.EntityId))
             .Select(a => new { a.EntityId, a.Details })
             .ToListAsync(ct);
-        var carryOvers = DayPlanRules.CountCarryOvers(entries.Select(a => (a.EntityId, (string?)a.Details)));
-        return new DayPlan { Date = date, Planned = planned, PreviousDate = previous, Unfinished = unfinished, CarryOvers = carryOvers };
+        var moves = entries.Select(a => (a.EntityId, (string?)a.Details)).ToList();
+        var carryOvers = DayPlanRules.CountCarryOvers(moves);
+        var plannedIds = planned.Select(t => t.Id).ToHashSet();
+        var carriedIn = DayPlanRules.CarriedInto(moves.Where(m => plannedIds.Contains(m.EntityId)), date);
+
+        // The last plan's outcome (the Today page's Yesterday view): the latest earlier day with a plan, closed tasks included,
+        // or that today's carried-over tasks came from.
+        var lastPlan = DayPlanRules.LastPlanDate(latestEarlier, carriedIn.Values);
+        List<TaskItem> lastClosed = lastPlan is null ? [] : await ByPerson(scoped
+            .Where(t => t.PlannedFor == lastPlan && (t.Status == TaskItemStatus.Done || t.Status == TaskItemStatus.Cancelled)))
+            .ToListAsync(ct);
+
+        // The time logged that day on tasks in the same scope, planned or not: time on a task is visible to whoever sees the task.
+        var loggedDate = lastPlan ?? date.AddDays(-1);
+        var logged = await db.TimeEntries.AsNoTracking()
+            .Where(e => e.Date == loggedDate && inScope.Select(t => t.Id).Contains(e.TaskId))
+            .GroupBy(e => new { e.UserId, e.User.DisplayName, e.TaskId, e.Task.Number, e.Task.Title })
+            .Select(g => new LoggedTask(g.Key.UserId, g.Key.DisplayName, g.Key.TaskId, g.Key.Number, g.Key.Title, g.Sum(e => e.DurationMinutes)))
+            .ToListAsync(ct);
+
+        return new DayPlan
+        {
+            Date = date, Planned = planned, PreviousDate = previous, Unfinished = unfinished, CarryOvers = carryOvers,
+            CarriedIn = carriedIn, LastPlanDate = lastPlan, LastPlanClosed = lastClosed, LoggedDate = loggedDate, Logged = logged
+        };
     }
+
+    /// <summary>The tasks a day plan covers, one definition for its tasks and for the time logged on them (§6.12).</summary>
+    private IQueryable<TaskItem> DayPlanScope(Actor actor, Guid? departmentId) =>
+        Scope(db.Tasks.AsNoTracking(), actor, new TaskFilter { DepartmentId = departmentId });
+
+    /// <summary>
+    /// In one query, the latest day before <paramref name="date"/> with tasks in scope on its plan, closed ones included, and the
+    /// latest with open ones still on it: the last plan's candidate and the Not finished day (<see cref="DayPlan.PreviousDate"/>).
+    /// </summary>
+    private static async Task<(DateOnly? Latest, DateOnly? LatestOpen)> EarlierPlansAsync(IQueryable<TaskItem> inScope, DateOnly date,
+        CancellationToken ct)
+    {
+        var days = await inScope.Where(t => t.PlannedFor != null && t.PlannedFor < date)
+            .GroupBy(t => 1)
+            .Select(g => new
+            {
+                Latest = g.Max(t => t.PlannedFor),
+                LatestOpen = g.Max(t => t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled ? t.PlannedFor : null)
+            })
+            .SingleOrDefaultAsync(ct); // one group at most: none when there is no earlier plan
+        return (days?.Latest, days?.LatestOpen);
+    }
+
+    /// <summary>The open tasks still on <paramref name="day"/>'s plan: the Not finished list, and what Carry all over moves.</summary>
+    private static IQueryable<TaskItem> LeftOn(IQueryable<TaskItem> q, DateOnly day) =>
+        q.Where(t => t.PlannedFor == day && t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled);
+
+    /// <summary>The order of the Today page's earlier-plan lists: by first assignee's name, the unassigned last, then highest priority.</summary>
+    private static IOrderedQueryable<TaskItem> ByPerson(IQueryable<TaskItem> q) =>
+        q.OrderBy(t => !t.Assignments.Any()).ThenBy(t => t.Assignments.Min(x => x.User.DisplayName)).ThenByDescending(EnumOrder.ByTaskPriority);
 
     /// <summary>Plan tasks into a sprint, or move them to the Backlog or Not Planned (§6.3). Returns the number moved.</summary>
     public async Task<int> MoveToSprintAsync(IReadOnlyCollection<Guid> taskIds, SprintPlacement target, CancellationToken ct = default)

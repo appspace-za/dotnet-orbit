@@ -39,7 +39,7 @@ else
                     var overdue = t.IsOverdue(Today);
                     var statuses = Ui.AllowedStatuses(Actor, t);
                     var canEdit = canView && AccessPolicy.CanEditTask(Actor, t);
-                    var quickEdit = QuickEditAssignees is not null && canEdit;
+                    var quickEdit = !ReadOnly && QuickEditAssignees is not null && canEdit;
                     <tr @key="t.Id">
                         @if (Selectable)
                         {
@@ -55,7 +55,7 @@ else
                         @if (ShowPlanToday)
                         {
                             <td class="orbit-today">
-                                @if (t.IsOpen && AccessPolicy.CanPlanTask(Actor, t))
+                                @if (!ReadOnly && t.IsOpen && AccessPolicy.CanPlanTask(Actor, t))
                                 {
                                     <PlanTodayToggle Task="t" Today="Today" Changed="Changed" />
                                 }
@@ -139,7 +139,7 @@ else
                                 {
                                     <TaskAssigneeSelect Task="t" Candidates="CandidatesFor(t)" Changed="Changed" />
                                 }
-                                else if (AccessPolicy.CanTakeTask(Actor, t))
+                                else if (!ReadOnly && AccessPolicy.CanTakeTask(Actor, t))
                                 {
                                     <TakeButton Task="t" Changed="Changed" />
                                 }
@@ -168,7 +168,7 @@ else
                         @if (ShowSprint)
                         {
                             <td>
-                                @if (QuickEditSprints is not null && canView && t.IsOpen && AccessPolicy.CanPlanTask(Actor, t))
+                                @if (!ReadOnly && QuickEditSprints is not null && canView && t.IsOpen && AccessPolicy.CanPlanTask(Actor, t))
                                 {
                                     <TaskSprintSelect Task="t" Sprints="QuickEditSprints" Changed="Changed" />
                                 }
@@ -183,7 +183,7 @@ else
                             </td>
                         }
                         <td>
-                            @if (canView && statuses.Count > 1)
+                            @if (!ReadOnly && canView && statuses.Count > 1)
                             {
                                 <TaskStatusSelect Task="t" Statuses="statuses" Changed="Changed" />
                             }
@@ -211,6 +211,12 @@ else
     [Parameter] public IReadOnlyList<UserSummary>? QuickEditAssignees { get; set; }
     /// <summary>When set (with <see cref="ShowSprint"/>), open rows the actor may plan get the sprint control (§6.3).</summary>
     [Parameter] public IReadOnlyList<Sprint>? QuickEditSprints { get; set; }
+
+    /// <summary>
+    /// Every cell as text, for a page that shows tasks rather than changes them (the Today page, §6.12): no status, assignee,
+    /// due-date or sprint control, no Take button and no Today tick. A <see cref="Selectable"/> checkbox still shows.
+    /// </summary>
+    [Parameter] public bool ReadOnly { get; set; }
 
     [Parameter] public bool ShowPlanToday { get; set; }
     [Parameter] public bool ShowProject { get; set; } = true;

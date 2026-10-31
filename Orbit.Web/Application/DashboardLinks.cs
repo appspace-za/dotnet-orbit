@@ -43,6 +43,16 @@ public sealed record DashboardLinks(Guid? Assignee, Guid? DepartmentId)
     public string Planned(TaskItemStatus status) =>
         Tasks().Add(TaskListKeys.PlannedToday, true).Add(TaskListKeys.Status, status.ToString()).At(TaskListKeys.Path);
 
+    /// <summary>Today's whole plan, done tasks included: the Today page's Planned figure (§6.12).</summary>
+    public string PlannedAll => Tasks().Add(TaskListKeys.PlannedToday, true).At(TaskListKeys.Path);
+
+    /// <summary>The open tasks on today's plan: the Today page's Still open figure.</summary>
+    public string PlannedOpen => Open().Add(TaskListKeys.PlannedToday, true).At(TaskListKeys.Path);
+
+    /// <summary>The overdue tasks on today's plan: the Today page's Overdue figure.</summary>
+    public string PlannedOverdue =>
+        Open().Add(TaskListKeys.Due, DueWindow.Overdue.ToString()).Add(TaskListKeys.PlannedToday, true).At(TaskListKeys.Path);
+
     /// <summary>The view's open tasks: on My work the Tasks list's My tasks filter (<see cref="Navigation.MyTasks(Guid)"/>).</summary>
     public string AllOpen => Assignee is Guid me && DepartmentId is null ? Navigation.MyTasks(me) : Open().At(TaskListKeys.Path);
 
