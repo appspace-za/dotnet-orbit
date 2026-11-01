@@ -13,7 +13,8 @@ it in one click, in place of the other filters: **My tasks**, your own open task
 whose address still leads there), and **Today**, your tasks planned for today, done ones included - your own day,
 where the Today page is the team's plan for the morning meeting. In the task tables (bar the Today page's, which only show them), changing a task's status,
 assignee, due date, sprint or *Today* tick saves at once, with no page reload, and a message at the bottom right
-confirms it. Setting *Done* still asks for solution notes. On the task page, comments, time entries, assignees (picked
+confirms it. The Tasks list, project and sprint pages also have an **Est.** column, where the estimate is typed in
+minutes and saved on Enter or on leaving the box (empty for none). Setting *Done* still asks for solution notes. On the task page, comments, time entries, assignees (picked
 by typing a name), dependencies and attachments are added and removed in place, and the clock keeps running while you
 work on the page. On an asset's page, checks, holders and the location change in place too, and Quick check refreshes
 the list when you close it. Only sign-in and the account pages (ASP.NET Identity's own) and the error page are still

@@ -85,4 +85,37 @@ public class TimeRulesTests
         Assert.Equal(TimeRules.MaxEntryMinutes, TimeRules.ClockMinutes(Now, Now.AddHours(30)));
         Assert.Equal(0, TimeRules.ClockMinutes(Now, Now.AddMinutes(-5)));
     }
+
+    /// <summary>TIME-008: the task tables' estimate box takes whole minutes; blank or 0 is no estimate; hours, fractions and signs are refused (§6.2).</summary>
+    [Theory]
+    [InlineData(null, true, null)]
+    [InlineData("", true, null)]
+    [InlineData("   ", true, null)]
+    [InlineData("0", true, null)]
+    [InlineData("90", true, 90)]
+    [InlineData(" 90 ", true, 90)]
+    [InlineData("1h", false, null)]
+    [InlineData("1.5", false, null)]
+    [InlineData("-5", false, null)]
+    [InlineData("+5", false, null)]
+    [InlineData("1,000", false, null)]
+    [InlineData("abc", false, null)]
+    [InlineData("99999999999", false, null)]
+    public void The_estimate_box_takes_whole_minutes(string? text, bool read, int? expected)
+    {
+        Assert.Equal(read, TimeRules.TryParseEstimate(text, out var minutes));
+        Assert.Equal(expected, minutes);
+    }
+
+    /// <summary>TIME-009: an estimate of none or 0 is stored as none; one from a minute to a year is kept; below or above is refused (§6.10).</summary>
+    [Fact]
+    public void An_estimate_is_up_to_a_year()
+    {
+        Assert.Null(TimeRules.CleanEstimate(null));
+        Assert.Null(TimeRules.CleanEstimate(0));
+        Assert.Equal(1, TimeRules.CleanEstimate(1));
+        Assert.Equal(TimeRules.MaxEstimateMinutes, TimeRules.CleanEstimate(TimeRules.MaxEstimateMinutes));
+        Assert.Throws<ValidationException>(() => TimeRules.CleanEstimate(-1));
+        Assert.Throws<ValidationException>(() => TimeRules.CleanEstimate(TimeRules.MaxEstimateMinutes + 1));
+    }
 }

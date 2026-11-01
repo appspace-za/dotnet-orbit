@@ -139,7 +139,7 @@ public sealed class TaskService(
             AssetId = input.AssetId,
             Priority = input.Priority,
             Type = input.Type,
-            EstimateMinutes = CleanEstimate(input.EstimateMinutes),
+            EstimateMinutes = TimeRules.CleanEstimate(input.EstimateMinutes),
             Assignments = [],
             RequesteeId = requestee?.Id,
             ParentTaskId = parent?.Id,
@@ -230,7 +230,7 @@ public sealed class TaskService(
         var parent = await structure.ValidateParentAsync(task, input.ParentTaskId, input.ProjectId, departmentId, childOpen: !newStatus.IsClosed(), ct);
 
         var previousParentId = task.ParentTaskId;
-        var estimate = CleanEstimate(input.EstimateMinutes);
+        var estimate = TimeRules.CleanEstimate(input.EstimateMinutes);
         var changes = new ChangeSet()
             .TrackText("title", task.Title, title)
             .TrackText("description", task.Description, input.Description)
@@ -485,6 +485,25 @@ public sealed class TaskService(
         return task;
     }
 
+    /// <summary>Quick inline estimate change (the task list control, §6.2, §6.10): whole minutes, null for none. Same rights as a full edit.</summary>
+    public async Task<TaskItem> ChangeEstimateAsync(Guid id, int? estimateMinutes, CancellationToken ct = default)
+    {
+        var actor = await actors.GetAsync(ct);
+        var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == id, ct)
+            ?? throw new NotFoundException("Task not found.");
+        AccessPolicy.Require(AccessPolicy.CanViewTask(actor, task), "This task belongs to another department.");
+        AccessPolicy.Require(AccessPolicy.CanEditTask(actor, task), "You don't have permission to edit this task.");
+        var estimate = TimeRules.CleanEstimate(estimateMinutes);
+        if (task.EstimateMinutes == estimate) return task;
+
+        var changes = new ChangeSet().Track("estimateMinutes", task.EstimateMinutes, estimate);
+        task.EstimateMinutes = estimate;
+        task.UpdatedAt = DateTime.UtcNow;
+        audit.Add(actor, AuditEntity.Task, task.Id, AuditAction.Updated, task.DepartmentId, task.Title, changes.Changes);
+        await db.SaveChangesAsync(ct);
+        return task;
+    }
+
     /// <summary>
     /// The Gantt's drag-to-reschedule (§6.16): set both planned dates at once. Same rights as a full edit, the same
     /// "start not after due" rule, and an ordinary <c>Updated</c> audit entry. Only this task moves - successors never shift.
@@ -722,15 +741,6 @@ public sealed class TaskService(
     }
 
     private static string? Clean(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
-
-    /// <summary>An estimate (§6.10) is whole minutes: null or 0 clears it; at most a year.</summary>
-    private static int? CleanEstimate(int? minutes)
-    {
-        if (minutes is null or 0) return null;
-        if (minutes < 0) throw new ValidationException("The estimate can't be negative.");
-        if (minutes > 525_600) throw new ValidationException("The estimate must be at most a year (525,600 minutes).");
-        return minutes;
-    }
 
     private static void ApplyStatus(TaskItem task, TaskItemStatus status, DateTime now)
     {

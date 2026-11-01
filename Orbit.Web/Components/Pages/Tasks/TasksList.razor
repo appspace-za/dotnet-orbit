@@ -90,7 +90,7 @@ else
 
     <MudPaper Outlined="true" Class="orbit-card">
         <TaskTable Tasks="_result.Items" Actor="_actor" Today="_today" ShowDepartment="TaskLook.MixesDepartments(_actor, _result.Items)"
-                   ShowSprint="true" ShowPlanToday="true" QuickEditAssignees="_quickEditAssignees" QuickEditSprints="_openSprints"
+                   ShowSprint="true" ShowEstimate="true" ShowPlanToday="true" QuickEditAssignees="_quickEditAssignees" QuickEditSprints="_openSprints"
                    Waiting="_waiting" EmptyMessage="No tasks match these filters." Changed="ReloadAsync" />
         @if (_result.TotalPages > 1)
         {

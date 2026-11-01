@@ -367,7 +367,8 @@ a.orbit-plain:hover { background: var(--mud-palette-table-hover); }
 .orbit-tasks .orbit-inline { width: 11rem; }
 .orbit-inline { min-width: 9rem; }
 .orbit-inline-date { width: 11.5rem; }
-.orbit-inline .mud-input-control, .orbit-inline-date .mud-input-control { margin: 0; }
+.orbit-inline-estimate { width: 7.5rem; }
+.orbit-inline .mud-input-control, .orbit-inline-date .mud-input-control, .orbit-inline-estimate .mud-input-control { margin: 0; }
 
 /* --- Reconnect dialog (shown by blazor.web.js) ------------------------------------------- */
 .orbit-reconnect { display: none; }

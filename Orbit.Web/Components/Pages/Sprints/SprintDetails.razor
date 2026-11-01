@@ -91,7 +91,7 @@ else
                 </MudButton>
             }
         </div>
-        <TaskTable Tasks="_tasks" Actor="_actor!" Today="_today" ShowDepartment="true" ShowPlanToday="true" QuickEditAssignees="_quickEditAssignees"
+        <TaskTable Tasks="_tasks" Actor="_actor!" Today="_today" ShowDepartment="true" ShowEstimate="true" ShowPlanToday="true" QuickEditAssignees="_quickEditAssignees"
                    Waiting="_waiting" Selectable="@(s.Status != SprintStatus.Completed)" Selected="_selected" SelectionChanged="StateHasChanged"
                    EmptyMessage="No tasks in this sprint. Plan some from the backlog." Changed="ReloadAsync" />
     </MudPaper>

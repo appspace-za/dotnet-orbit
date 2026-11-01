@@ -223,7 +223,7 @@ else
                 <FilterSelect Label="Assignee" Value="@AssigneeId" ValueChanged="v => Go(nameof(AssigneeId), v)" Options="_assigneeOptions" Class="orbit-field-sm" />
             </div>
         </div>
-        <TaskTable Tasks="_tasks" Actor="_actor!" Today="_today" ShowProject="false" ShowDepartment="_isCrossDepartment" ShowSprint="true" ShowPlanToday="true"
+        <TaskTable Tasks="_tasks" Actor="_actor!" Today="_today" ShowProject="false" ShowDepartment="_isCrossDepartment" ShowSprint="true" ShowEstimate="true" ShowPlanToday="true"
                    QuickEditAssignees="_quickEditAssignees" QuickEditSprints="_openSprints" Waiting="_waiting" EmptyMessage="No tasks match." Changed="ReloadAsync" />
     </MudPaper>
 

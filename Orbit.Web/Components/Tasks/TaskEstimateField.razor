@@ -1,0 +1,42 @@
+@inherits OrbitComponentBase
+@* The inline estimate control (spec §6.2, §6.10): whole minutes, as on the edit form, saved on Enter or on leaving the box;
+   emptying it removes the estimate. A text box rather than MudNumericField, whose arrow keys step the value and would save
+   each step. *@
+<MudTextField @key="_version" T="string" Value="Current" ValueChanged="TypedAsync" Placeholder="-"
+              InputMode="@(InputMode.numeric)" Pattern="[0-9]*" Adornment="Adornment.End" AdornmentText="min"
+              Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="_busy" Class="orbit-inline-estimate"
+              aria-label="Estimate in minutes" title="@Title" />
+
+@code {
+    [Parameter, EditorRequired] public TaskItem Task { get; set; } = null!;
+    [Parameter] public EventCallback Changed { get; set; }
+
+    private int _version;
+    private bool _busy;
+
+    private string? Current => Task.EstimateMinutes?.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    private string Title => Task.EstimateMinutes is int minutes ? $"Estimate: {TimeFormat.Minutes(minutes)}" : "No estimate";
+
+    private async Task TypedAsync(string? text)
+    {
+        if (!TimeRules.TryParseEstimate(text, out var minutes))
+        {
+            Error("Type the estimate in whole minutes, e.g. 90; leave it empty for none.");
+            _version++;
+            return;
+        }
+        if (minutes == Task.EstimateMinutes) return;
+        _busy = true;
+        TaskItem? changed = null;
+        if (await Act(async s => changed = await s.Get<TaskService>().ChangeEstimateAsync(Task.Id, minutes)))
+        {
+            Success(TaskMessages.EstimateSet(changed!));
+            await Changed.InvokeAsync();
+        }
+        else
+        {
+            _version++;
+        }
+        _busy = false;
+    }
+}

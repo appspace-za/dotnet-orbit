@@ -162,7 +162,11 @@ else
                         @if (ShowEstimate)
                         {
                             <td class="text-right text-nowrap">
-                                @if (t.EstimateMinutes is int estimate) { @TimeFormat.Minutes(estimate) } else { <span class="orbit-muted" title="No estimate">-</span> }
+                                @if (quickEdit)
+                                {
+                                    <TaskEstimateField Task="t" Changed="Changed" />
+                                }
+                                else if (t.EstimateMinutes is int estimate) { @TimeFormat.Minutes(estimate) } else { <span class="orbit-muted" title="No estimate">-</span> }
                             </td>
                         }
                         @if (ShowSprint)
@@ -205,8 +209,9 @@ else
     [Parameter] public DateOnly Today { get; set; } = DateOnly.FromDateTime(DateTime.UtcNow);
 
     /// <summary>
-    /// When set, rows the actor may edit get the assignee and due-date controls. Candidates are narrowed per row to the task's
-    /// department plus anyone who sees every department. Null leaves those cells read-only.
+    /// When set, rows the actor may edit get the assignee and due-date controls, and the estimate control where
+    /// <see cref="ShowEstimate"/> is on. Candidates are narrowed per row to the task's department plus anyone who sees every
+    /// department. Null leaves those cells read-only.
     /// </summary>
     [Parameter] public IReadOnlyList<UserSummary>? QuickEditAssignees { get; set; }
     /// <summary>When set (with <see cref="ShowSprint"/>), open rows the actor may plan get the sprint control (§6.3).</summary>
@@ -214,7 +219,7 @@ else
 
     /// <summary>
     /// Every cell as text, for a page that shows tasks rather than changes them (the Today page, §6.12): no status, assignee,
-    /// due-date or sprint control, no Take button and no Today tick. A <see cref="Selectable"/> checkbox still shows.
+    /// due-date, estimate or sprint control, no Take button and no Today tick. A <see cref="Selectable"/> checkbox still shows.
     /// </summary>
     [Parameter] public bool ReadOnly { get; set; }
 

@@ -27,6 +27,10 @@ public static class TaskMessages
         ? $"{Name(task)} no longer has a due date."
         : $"{Name(task)} is now due {Ui.Day(task.DueDate)}.";
 
+    public static string EstimateSet(TaskItem task) => task.EstimateMinutes is int minutes
+        ? $"{Name(task)} is now estimated at {Orbit.Application.Models.TimeFormat.Minutes(minutes)}."
+        : $"{Name(task)} no longer has an estimate.";
+
     /// <summary>Read from the stored fields (§6.3), so a task whose sprint isn't loaded still reads as planned.</summary>
     public static string SprintSet(TaskItem task) => SprintPlacement.Of(task) switch
     {
