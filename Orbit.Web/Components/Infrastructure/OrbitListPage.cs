@@ -4,8 +4,8 @@ using Orbit.Helpers;
 namespace Orbit.Components.Infrastructure;
 
 /// <summary>
-/// A list page whose filters live in its address and are remembered for the browser session (spec §6.2): Tasks, Backlog, Assets,
-/// Projects and Planning. A filter changed on the page is remembered and the page moves to its new address; opening the page with no filter
+/// A list page whose filters live in its address and are remembered for the browser session (spec §6.2): Tasks, Assets, Projects
+/// and Planning. A filter changed on the page is remembered and the page moves to its new address; opening the page with no filter
 /// of its own goes to the remembered one; Reset forgets it (<see cref="BrowserFilterMemory"/>). One copy of what the pages used to
 /// copy from each other (decision 112). The current filters are read from the address, which is where the page's own
 /// <c>[SupplyParameterFromQuery]</c> properties come from.

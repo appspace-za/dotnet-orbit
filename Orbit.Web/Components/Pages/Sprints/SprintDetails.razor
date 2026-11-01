@@ -93,7 +93,7 @@ else
         </div>
         <TaskTable Tasks="_tasks" Actor="_actor!" Today="_today" ShowDepartment="true" ShowEstimate="true" ShowPlanToday="true" QuickEditAssignees="_quickEditAssignees"
                    Waiting="_waiting" Selectable="@(s.Status != SprintStatus.Completed)" Selected="_selected" SelectionChanged="StateHasChanged"
-                   EmptyMessage="No tasks in this sprint. Plan some from the backlog." Changed="ReloadAsync" />
+                   EmptyMessage="No tasks in this sprint. Plan some on the Planning page." Changed="ReloadAsync" />
     </MudPaper>
 }
 

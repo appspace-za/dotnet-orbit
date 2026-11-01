@@ -236,8 +236,8 @@ else
     [Parameter] public IReadOnlyList<Sprint>? QuickEditSprints { get; set; }
 
     /// <summary>
-    /// Every cell as text, for a page that shows tasks rather than changes them (the Today page, §6.12, and the Backlog, §6.3): no status, assignee,
-    /// due-date, estimate or sprint control, no Take button and no Today tick. A <see cref="Selectable"/> checkbox still shows.
+    /// Every cell as text, for a page that shows tasks rather than changes them (the Today page, §6.12): no status, assignee, due-date,
+    /// estimate or sprint control, no Take button and no Today tick. A <see cref="Selectable"/> checkbox still shows.
     /// The same as <see cref="Edits"/> None.
     /// </summary>
     [Parameter] public bool ReadOnly { get; set; }

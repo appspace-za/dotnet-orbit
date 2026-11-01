@@ -7,7 +7,7 @@ public sealed record NavItem(string Label, string Href, Func<Actor, bool> Shows)
 
 /// <summary>
 /// The navbar (spec §6.5, §6.9): which menu items a person sees, from their grants. A link shows only to someone who can use the page
-/// it opens - My Time to someone who may log at least their own time, Backlog to someone who may plan at least their own tasks - but
+/// it opens - My Time to someone who may log at least their own time, Sprints to someone who may plan at least their own tasks - but
 /// hiding a link blocks nothing: the pages keep their own doors and every service applies the scopes. The Dashboard is everyone's
 /// landing page, with the views their task grants reach (<see cref="DashboardRules.Views"/>). Pure, so the rules are unit-tested; the
 /// layout and the dashboard's Where to start card both read it.
@@ -45,7 +45,7 @@ public static class Navigation
     /// <summary>Projects: projects.edit at Own or wider.</summary>
     public static bool ShowsProjects(Actor a) => a.Has(Permission.ProjectsEdit);
 
-    /// <summary>Backlog and Sprints: tasks.plan at Own or wider.</summary>
+    /// <summary>Sprints: tasks.plan at Own or wider. The Planning page is opened from there, not from the menu (decision 142).</summary>
     public static bool ShowsPlanning(Actor a) => a.Has(Permission.TasksPlan);
 
     /// <summary>Recurring tasks: tasks.create (Department or All).</summary>
@@ -64,7 +64,6 @@ public static class Navigation
         new("Today", "/Today", ShowsMyWork),
         new("Tasks", "/Tasks", ShowsTasks),
         new("Projects", "/Projects", ShowsProjects),
-        new("Backlog", "/Backlog", ShowsPlanning),
         new("Sprints", "/Sprints", ShowsPlanning),
         new("Recurring", "/Recurring", ShowsRecurring),
         new("My Time", "/Time/My", ShowsMyTime),

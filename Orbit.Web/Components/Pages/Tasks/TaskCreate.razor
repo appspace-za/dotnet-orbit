@@ -1,7 +1,7 @@
 @page "/Tasks/Create"
 @attribute [RequirePermission(Permission.TasksCreate)]
 @* A new task (spec §6.2): blank, on ?projectId= (the project page's "New task"), placed by ?sprintId= - a sprint's id, "backlog"
-   (the Backlog page's "New task") or "none" for Not Planned (§6.3) - or a subtask of ?parentTaskId= (the task page's "Add
+   (the Planning page's "New task") or "none" for Not Planned (§6.3) - or a subtask of ?parentTaskId= (the task page's "Add
    subtask", §6.15). The door is tasks.create at any scope, as the Razor page's was; the service checks the department. *@
 
 <PageTitle>New task - Orbit</PageTitle>

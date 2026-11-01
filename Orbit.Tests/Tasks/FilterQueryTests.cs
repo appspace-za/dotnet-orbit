@@ -108,12 +108,12 @@ public class FilterQueryTests
         var id = Guid.NewGuid();
         RouteData Route(Type page, params (string Key, object? Value)[] values) => new(page, values.ToDictionary(v => v.Key, v => v.Value));
 
-        Assert.True(OrbitRouteView.SamePage(Route(typeof(Orbit.Components.Pages.Backlog)), Route(typeof(Orbit.Components.Pages.Backlog))));
+        Assert.True(OrbitRouteView.SamePage(Route(typeof(Orbit.Components.Pages.Tasks.TasksList)), Route(typeof(Orbit.Components.Pages.Tasks.TasksList))));
         Assert.True(OrbitRouteView.SamePage(Route(typeof(Orbit.Components.Pages.Tasks.TaskDetails), ("Id", id)),
             Route(typeof(Orbit.Components.Pages.Tasks.TaskDetails), ("Id", id))));
         Assert.False(OrbitRouteView.SamePage(Route(typeof(Orbit.Components.Pages.Tasks.TaskDetails), ("Id", id)),
             Route(typeof(Orbit.Components.Pages.Tasks.TaskDetails), ("Id", Guid.NewGuid()))));
-        Assert.False(OrbitRouteView.SamePage(Route(typeof(Orbit.Components.Pages.Backlog)), Route(typeof(Orbit.Components.Pages.Tasks.TaskDetails), ("Id", id))));
+        Assert.False(OrbitRouteView.SamePage(Route(typeof(Orbit.Components.Pages.Tasks.TasksList)), Route(typeof(Orbit.Components.Pages.Tasks.TaskDetails), ("Id", id))));
     }
 
     [Fact]

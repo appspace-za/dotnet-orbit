@@ -14,7 +14,7 @@ public class NavigationTests
     [Fact]
     public void Shipped_roles_see_their_full_menus()
     {
-        string[] full = ["Dashboard", "Today", "Tasks", "Projects", "Backlog", "Sprints", "Recurring", "My Time", "Assets", "Requests"];
+        string[] full = ["Dashboard", "Today", "Tasks", "Projects", "Sprints", "Recurring", "My Time", "Assets", "Requests"];
         Assert.Equal(full, Menu(TestActors.Member(Finance)));
         Assert.Equal(full, Menu(TestActors.DepartmentAdmin(Finance)));
         Assert.Equal([.. full, "Reports"], Menu(TestActors.SystemAdmin()));
@@ -53,14 +53,13 @@ public class NavigationTests
         Assert.Equal("/Actions", Navigation.AdminVisible(scripter).Single().Href);
     }
 
-    /// <summary>NAV-003: taking one permission away takes its items - planning takes Backlog and Sprints, editing Today.</summary>
+    /// <summary>NAV-003: taking one permission away takes its items - planning takes Sprints, editing Today.</summary>
     [Fact]
     public void Removing_a_permission_removes_its_items()
     {
         var noPlan = new Dictionary<string, PermissionScope>(DefaultRoles.MemberGrants);
         noPlan.Remove(Permission.TasksPlan);
         var menu = Menu(TestActors.With(noPlan, Finance));
-        Assert.DoesNotContain("Backlog", menu);
         Assert.DoesNotContain("Sprints", menu);
         Assert.Contains("Today", menu);
 

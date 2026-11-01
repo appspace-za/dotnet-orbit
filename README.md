@@ -11,11 +11,11 @@ URLs, so bookmarks and the links in emails still work. On the lists a filter app
 search box as you type), and it's remembered for the browser session. Two chips beside the Tasks list's title filter
 it in one click, in place of the other filters: **My tasks**, your own open tasks (it replaced the My Tasks page,
 whose address still leads there), and **Today**, your tasks planned for today, done ones included - your own day,
-where the Today page is the team's plan for the morning meeting. In the task tables (bar the Today page's and the Backlog's, which only show them), changing a task's status,
+where the Today page is the team's plan for the morning meeting. In the task tables (bar the Today page's, which only shows them), changing a task's status,
 assignee, due date, sprint or *Today* tick saves at once, with no page reload, and a message at the bottom right
 confirms it. The Tasks list, project and sprint pages also have an **Est.** column, where the estimate is typed in
-minutes and saved on Enter or on leaving the box (empty for none); the Backlog shows the estimate too, read only, and
-the sprint Planning page changes it and a task's assignee in place. Setting *Done* still asks for solution notes. On the task page, comments, time entries, assignees (picked
+minutes and saved on Enter or on leaving the box (empty for none), and the sprint Planning page changes it and a
+task's assignee in place. Setting *Done* still asks for solution notes. On the task page, comments, time entries, assignees (picked
 by typing a name), dependencies and attachments are added and removed in place, and the clock keeps running while you
 work on the page. On an asset's page, checks, holders and the location change in place too, and Quick check refreshes
 the list when you close it. Only sign-in and the account pages (ASP.NET Identity's own) and the error page are still
@@ -121,7 +121,7 @@ scopes below it, and a role with no grants sees nothing.
 | `messages.manage` | All | Admin > Messages: the emails Orbit sends when something happens, to whom and saying what, and the emails sent | - | - |
 
 The navbar follows the same grants: Today needs **Edit tasks**, Tasks **View tasks**, Projects **Edit
-projects**, Backlog and Sprints **Plan tasks**, Recurring **Create tasks**, My Time **Log time** and Assets **View
+projects**, Sprints **Plan tasks**, Recurring **Create tasks**, My Time **Log time** and Assets **View
 assets**, each at any scope. The sprint Planning page has no menu item: its buttons on the Sprints page and a sprint's
 page show with **Plan tasks**. Hiding a link blocks nothing - the pages keep their own rules.
 
@@ -179,13 +179,12 @@ is never split. As shipped, each person added is emailed, and the due-soon remin
 A task in no sprint is either on the **Backlog** or **Not Planned** (spec §6.3). The Backlog is the work to discuss and
 plan into a sprint at sprint planning, typically project work. Not Planned is work that came up during the sprint
 without being planned, typically support: a Nagios alert, a request, a fault reported. Not Planned tasks sit outside
-every sprint and aren't listed on the Backlog page. A new task starts on the Backlog when it is on a project and Not
-Planned when it is standalone, whoever creates it - the task form, Claude, a recurring definition or a request. On the
-form the Sprint field follows the project until you pick a value yourself, and the Backlog page's *New task* starts on
-the Backlog. Completing a sprint puts its open tasks back on the Backlog. The tasks that were in no sprint before Not
-Planned existed stayed on the Backlog. The Backlog page is for sprint planning, not day-to-day work, so it only shows
-its tasks: the status as a chip, with no status control, *Today* tick or *Take*, and the estimate as text, to weigh how
-much goes into a sprint. Select tasks and *Plan into sprint* to plan them.
+every sprint. A new task starts on the Backlog when it is on a project and Not Planned when it is standalone, whoever
+creates it - the task form, Claude, a recurring definition or a request. On the form the Sprint field follows the
+project until you pick a value yourself, and the sprint Planning page's *New task* starts on the Backlog. Completing a
+sprint puts its open tasks back on the Backlog. The tasks that were in no sprint before Not Planned existed stayed on
+the Backlog. There is no Backlog page any more: the sprint Planning page below lists the Backlog beside the sprints,
+and the Tasks list's **Sprint** filter finds it.
 
 **Sprint planning** has its own page (spec §6.3), opened with the *Planning* button at the top of the Sprints page, or
 from a sprint's page with that sprint chosen. Pick the sprint you are planning at the top: it starts on the next planned
@@ -209,15 +208,15 @@ Sprints page's *Planning* always opens on the next sprint. The page needs **Plan
 tasks** scope allows, and plan the ones your **Plan tasks** reach allows.
 
 In the Tasks list and on a project page the **Sprint** column is a dropdown too: pick a planned or active sprint
-to plan the task into it, or *Backlog* or *Not Planned* to take it out, without the edit form or the Backlog page. It follows
-`tasks.plan`, like planning from the Backlog, and is offered on open tasks only; a closed task, or one you can't plan,
+to plan the task into it, or *Backlog* or *Not Planned* to take it out, without the edit form. It follows
+`tasks.plan`, like the Planning page, and is offered on open tasks only; a closed task, or one you can't plan,
 shows its sprint as a link. A reopened task still in a completed sprint shows that sprint until it is moved. The
 status, assignee, due-date and sprint controls are shared components (`Components/Tasks`). A change through any of
 them, the Today tick or *Take* saves without reloading the page, so you keep your place, and the message shows
 floating in a corner. The Tasks list also has a **Sprint** filter: a planned or active sprint, *Backlog*, or
 *Not Planned*. Its **Project**, **Assignee** and **Requestee** filters each offer *None*: the
 standalone tasks on no project, the tasks nobody is assigned to, and the tasks created for nobody else. Assignee
-*None* replaced the old *Unassigned* tick box. The Backlog's Project and Assignee filters offer *None* too. A **Due**
+*None* replaced the old *Unassigned* tick box. The Planning page's Assignee filter offers *None* too. A **Due**
 filter picks *Overdue* (due before today) or *Due in 7 days* (today to seven days ahead), counted from the day you open
 the list, so a saved link or a remembered filter doesn't freeze an old date; the dashboard's due figures open it.
 
@@ -232,7 +231,7 @@ type. Every search box matches what you type literally: `%` and `_` are ordinary
 
 A task has a **type**, the kind of work it is: Meeting, Planning, Task (the default), Training, Audit, Change, Request
 or Problem. It is chosen on the task form, shown as a coloured badge beside the title (a plain Task has none in the
-lists) and is a filter on the Tasks list and the Backlog. A request flow's task step sets the type of the task it
+lists) and is a filter on the Tasks list. A request flow's task step sets the type of the task it
 creates, and `create_task`, `update_task` and `list_tasks` take it as `type`. A type is a label and nothing more: no
 workflow comes with one.
 
@@ -471,7 +470,7 @@ page lists the forms, pages and approvals waiting for you (the Dashboard's **My 
 approvals); **Your requests** what you logged or were addressed in (at Department scope, your whole department's);
 **Department requests** (needs **Manage requests**) everything filed with your department, where a manager can also
 cancel a request or retry and skip a step that failed. The tasks a flow creates carry the source *Request* and link
-back to their request; the Tasks list, the Backlog and `list_tasks` filter on the source.
+back to their request; the Tasks list and `list_tasks` filter on the source.
 
 Each department builds its own flows (**Admin > Request flows**, needs **Configure request flows**): categories with an
 icon and colour, flows, and each flow's steps with their fields, stages, dependencies and settings, with a *Not set
@@ -525,7 +524,7 @@ incident raises a task at most once, however many checks follow and whether the 
 - A check that can't be trusted - the agent offline, a wrong password, Nagios not updating its status - changes
   nothing and shows why on the instance.
 
-The raised tasks carry the source *Nagios* (the Tasks list, the Backlog and `list_tasks` filter on it), are created
+The raised tasks carry the source *Nagios* (the Tasks list and `list_tasks` filter on it), are created
 by *System*, and show the problem as Nagios last reported it, with a link to Nagios, to whoever can see the task.
 That includes what the check says *now*: if its text changes while the problem lasts (another order joins the list),
 nothing new is raised and no note is added, but the task page shows the latest text and when it was read. The task's
