@@ -22,6 +22,9 @@ public sealed record ReportAddress(
         new(FilterQuery.Enum<ReportKind>(kind) ?? ReportKind.ClosedByPerson, FilterQuery.Date(from), FilterQuery.Date(to),
             FilterChoice.Id(projectId), FilterChoice.Id(departmentId), FilterChoice.Id(ownerId), FilterChoice.Id(assigneeId),
             FilterChoice.Id(sprintId));
+
+    /// <summary>The period reported on, the last 31 days by default; Sprint status replaces it with the sprint's days.</summary>
+    public (DateOnly From, DateOnly To) Period(DateOnly today) => FilterQuery.Period(From, To, today, 30);
 }
 
 /// <summary>
@@ -123,10 +126,7 @@ public sealed class ReportRun
         if (!run.Definition.ByProject) run.ProjectId = null; // assets belong to no project
         if (!run.Definition.ByOwnerAndAssignee) run.OwnerId = null;
         if (!run.Definition.ByAssignee) run.AssigneeId = null;
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var to = filters.To ?? today;
-        var from = filters.From ?? to.AddDays(-30);
-        if (to < from) (from, to) = (to, from);
+        var (from, to) = filters.Period(DateOnly.FromDateTime(DateTime.UtcNow));
         run.From = from;
         run.To = to;
 

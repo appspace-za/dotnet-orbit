@@ -58,6 +58,18 @@ public sealed class FilterQuery
     public static DateOnly? Date(string? value) =>
         DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? d : null;
 
+    /// <summary>
+    /// A period in the address (My Time, the reports): To defaults to today and From to <paramref name="daysBefore"/> days before
+    /// To, and a From after To is swapped with it. A page reads it before it loads, so its date pickers never show an older
+    /// period while the new one loads (§13 item 143).
+    /// </summary>
+    public static (DateOnly From, DateOnly To) Period(DateOnly? from, DateOnly? to, DateOnly today, int daysBefore)
+    {
+        var end = to ?? today;
+        var start = from ?? end.AddDays(-daysBefore);
+        return start <= end ? (start, end) : (end, start);
+    }
+
     /// <summary>A tick in a filter's address ("true"): anything else, a bad value included, is off.</summary>
     public static bool Flag(string? value) => bool.TryParse(value?.Trim(), out var b) && b;
 

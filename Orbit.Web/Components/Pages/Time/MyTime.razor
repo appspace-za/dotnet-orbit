@@ -1,7 +1,9 @@
 @page "/Time/My"
 @inherits OrbitComponentBase
 @* My Time (spec §6.10): the time the viewer logged in a date range - the last seven days by default - as entries with a total,
-   and by day. The range lives in the address (From, To) and applies as soon as a date changes. *@
+   and by day. The range lives in the address (From, To) and applies as soon as a date changes. The pickers show the range read
+   from the address, never the loaded one: a MudDatePicker handed a date other than its own raises DateChanged with it, so the
+   older range showing while the new one loaded sent the page back to it, and back again, for ever (§13 item 143). *@
 
 <PageTitle>My Time - Orbit</PageTitle>
 
@@ -22,9 +24,9 @@ else
             <div class="orbit-subtitle">Time you logged between @Ui.Day(s.From) and @Ui.Day(s.To).</div>
         </div>
         <div class="orbit-actions">
-            <MudDatePicker Date="PickerDate.Of(s.From)" DateChanged="d => Go(d, PickerDate.Of(s.To))" Label="From" DateFormat="yyyy-MM-dd" Editable="true" AutoClose="true"
+            <MudDatePicker Date="PickerDate.Of(_from)" DateChanged="d => Go(PickerDate.Day(d), _to)" Label="From" DateFormat="yyyy-MM-dd" Editable="true" AutoClose="true"
                            Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-field-sm" />
-            <MudDatePicker Date="PickerDate.Of(s.To)" DateChanged="d => Go(PickerDate.Of(s.From), d)" Label="To" DateFormat="yyyy-MM-dd" Editable="true" AutoClose="true"
+            <MudDatePicker Date="PickerDate.Of(_to)" DateChanged="d => Go(_from, PickerDate.Day(d))" Label="To" DateFormat="yyyy-MM-dd" Editable="true" AutoClose="true"
                            Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-field-sm" />
         </div>
     </div>
@@ -81,20 +83,21 @@ else
     [SupplyParameterFromQuery] public string? To { get; set; }
 
     private MyTimeSummary? _summary;
+    /// <summary>The range in the address, which the pickers show. Set before the entries load, so they show it while they do.</summary>
+    private DateOnly _from, _to;
 
-    protected override async Task OnParametersSetAsync() => await Load(async s =>
+    protected override async Task OnParametersSetAsync()
     {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var to = FilterQuery.Date(To) ?? today;
-        var from = FilterQuery.Date(From) ?? to.AddDays(-6);
-        _summary = await s.Get<TimeEntryService>().MyTimeAsync(from, to);
-    });
+        var (from, to) = FilterQuery.Period(FilterQuery.Date(From), FilterQuery.Date(To), DateOnly.FromDateTime(DateTime.UtcNow), 6);
+        (_from, _to) = (from, to);
+        await Load(async s => _summary = await s.Get<TimeEntryService>().MyTimeAsync(from, to));
+    }
 
-    private void Go(DateTime? from, DateTime? to)
+    private void Go(DateOnly? from, DateOnly? to)
     {
-        var query = new FilterQuery()
-            .Add(nameof(From), PickerDate.Day(from))
-            .Add(nameof(To), PickerDate.Day(to));
-        Nav.NavigateTo(query.At("/Time/My"));
+        // A picker handed a date other than its own (the range put in order, say) raises DateChanged with it: that is the range
+        // already shown, so there is nowhere to go.
+        if (from == _from && to == _to) return;
+        Nav.NavigateTo(new FilterQuery().Add(nameof(From), from).Add(nameof(To), to).At("/Time/My"));
     }
 }

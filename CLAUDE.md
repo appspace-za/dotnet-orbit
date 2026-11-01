@@ -92,7 +92,9 @@ Blazor components, Razor Pages and MCP tools are thin. All call the same scoped 
   holds `GoAsync`/`PageUrl`/`ResetAsync`. A key carried in the address but not remembered (the Planning page's sprint) is
   in `CarriedKeys` and changed with `GoCarried`. The Tasks list's keys are `TaskListKeys`: read its filters under them and
   build any link to it from them with `FilterQuery` (`Navigation.MyTasks`, `DashboardLinks`), never a hand-written query
-  string. A date picker converts with `PickerDate`, and a Copy button is `CopyButton`. A task table is `TaskTable`: `Edits`
+  string. A date picker converts with `PickerDate`. Its `Date` must come from state set before any await (the address), never
+  from loaded data: a `MudDatePicker` handed a date other than its own raises `DateChanged` with it, so a stale date sends the
+  page back to it (spec §13 item 143). A Copy button is `CopyButton`. A task table is `TaskTable`: `Edits`
   (`TaskTableEdits`) picks its inline controls, and `SprintCell`, `RowActions` and `RowClass` let a page add its own, as the
   Planning page does, rather than copying the table. An HTML attribute on a MudBlazor component whose name matches
   a parameter binds the parameter (`inputmode` is `InputMode`), so pass it as C# (`InputMode="@(InputMode.@decimal)"`).

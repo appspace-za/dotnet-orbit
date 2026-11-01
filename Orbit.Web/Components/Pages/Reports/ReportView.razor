@@ -43,9 +43,9 @@ else
             }
             else
             {
-                <MudDatePicker Label="From" Date="@PickerDate.Of(run.From)" DateChanged="d => Go(ReportRun.FromKey, PickerDate.Write(d))" DateFormat="yyyy-MM-dd"
+                <MudDatePicker Label="From" Date="@PickerDate.Of(_from)" DateChanged="d => GoDate(ReportRun.FromKey, d, _from)" DateFormat="yyyy-MM-dd"
                                Editable="true" AutoClose="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-filter" />
-                <MudDatePicker Label="To" Date="@PickerDate.Of(run.To)" DateChanged="d => Go(ReportRun.ToKey, PickerDate.Write(d))" DateFormat="yyyy-MM-dd"
+                <MudDatePicker Label="To" Date="@PickerDate.Of(_to)" DateChanged="d => GoDate(ReportRun.ToKey, d, _to)" DateFormat="yyyy-MM-dd"
                                Editable="true" AutoClose="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-filter" />
             }
             @if (run.CanChooseDepartment)
@@ -190,10 +190,17 @@ else
     private ReportRun? _run;
     private IReadOnlyList<(string Value, string Text)> _departments = [], _projects = [], _owners = [], _assignees = [];
     private bool _loading;
+    /// <summary>
+    /// The period in the address, which the date pickers show. Read before the report loads, never from it: a MudDatePicker handed
+    /// a date other than its own raises DateChanged with it, so the older period showing while the new one loaded sent the page
+    /// back to it, and back again (§13 item 143).
+    /// </summary>
+    private DateOnly _from, _to;
 
     protected override async Task OnParametersSetAsync()
     {
         var address = ReportAddress.Parse(Kind, From, To, ProjectId, DepartmentId, OwnerId, AssigneeId, SprintId);
+        (_from, _to) = address.Period(DateOnly.FromDateTime(DateTime.UtcNow));
         _loading = true;
         await Load(async s =>
         {
@@ -209,6 +216,13 @@ else
 
     /// <summary>Applies a changed filter: the report reloads at its new address, as the Razor page's Run button did.</summary>
     private void Go(string key, string? value, params string[] clear) => Nav.NavigateTo($"/Reports/View?{_run!.Query(key, value, clear)}");
+
+    /// <summary>A changed date. A picker handed a date other than its own raises DateChanged with it, the date shown: nothing to do.</summary>
+    private void GoDate(string key, DateTime? picked, DateOnly shown)
+    {
+        if (PickerDate.Day(picked) == shown) return;
+        Go(key, PickerDate.Write(picked));
+    }
 
     private static IReadOnlyList<(string Value, string Text)> WithAll(IReadOnlyList<(string Value, string Text)> options) => [("", "All"), .. options];
 

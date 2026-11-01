@@ -134,6 +134,41 @@ public class FilterQueryTests
         Assert.Equal(picked, PickerDate.Of(new DateOnly(2026, 10, 28)));
     }
 
+    private static readonly DateOnly Today = new(2026, 11, 1);
+
+    /// <summary>
+    /// Decision 143: My Time's period, read from the address before the page loads. With no dates it is the last seven days, To
+    /// defaults to today and From counts back from To.
+    /// </summary>
+    [Fact]
+    public void A_period_defaults_to_the_days_before_to()
+    {
+        Assert.Equal((new DateOnly(2026, 10, 26), Today), FilterQuery.Period(null, null, Today, 6));
+        Assert.Equal((new DateOnly(2026, 10, 4), new DateOnly(2026, 10, 10)), FilterQuery.Period(null, new DateOnly(2026, 10, 10), Today, 6));
+        Assert.Equal((new DateOnly(2026, 10, 1), Today), FilterQuery.Period(new DateOnly(2026, 10, 1), null, Today, 6));
+        Assert.Equal((new DateOnly(2026, 10, 1), new DateOnly(2026, 10, 31)),
+            FilterQuery.Period(new DateOnly(2026, 10, 1), new DateOnly(2026, 10, 31), Today, 6));
+    }
+
+    /// <summary>Decision 143: a From after To is put in order, as the service and the reports always did.</summary>
+    [Fact]
+    public void A_period_the_wrong_way_round_is_swapped()
+    {
+        Assert.Equal((new DateOnly(2026, 10, 10), new DateOnly(2026, 10, 20)),
+            FilterQuery.Period(new DateOnly(2026, 10, 20), new DateOnly(2026, 10, 10), Today, 6));
+        Assert.Equal((Today, new DateOnly(2026, 11, 5)), FilterQuery.Period(new DateOnly(2026, 11, 5), null, Today, 6));
+    }
+
+    /// <summary>Decision 143: a report's period is the last 31 days by default, and the page and its PDF read it the same way.</summary>
+    [Fact]
+    public void A_report_period_defaults_to_the_last_31_days()
+    {
+        var address = Orbit.Components.Pages.Reports.ReportAddress.Parse(null, null, null, null, null, null, null);
+        Assert.Equal((new DateOnly(2026, 10, 2), Today), address.Period(Today));
+        Assert.Equal((new DateOnly(2026, 10, 1), new DateOnly(2026, 10, 31)),
+            Orbit.Components.Pages.Reports.ReportAddress.Parse(null, "2026-10-31", "2026-10-01", null, null, null, null).Period(Today));
+    }
+
     [Theory]
     [InlineData("28/10/2026")]
     [InlineData("2026-13-01")]
