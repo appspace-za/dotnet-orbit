@@ -11,10 +11,10 @@ URLs, so bookmarks and the links in emails still work. On the lists a filter app
 search box as you type), and it's remembered for the browser session. Two chips beside the Tasks list's title filter
 it in one click, in place of the other filters: **My tasks**, your own open tasks (it replaced the My Tasks page,
 whose address still leads there), and **Today**, your tasks planned for today, done ones included - your own day,
-where the Today page is the team's plan for the morning meeting. In the task tables (bar the Today page's, which only show them), changing a task's status,
+where the Today page is the team's plan for the morning meeting. In the task tables (bar the Today page's and the Backlog's, which only show them), changing a task's status,
 assignee, due date, sprint or *Today* tick saves at once, with no page reload, and a message at the bottom right
 confirms it. The Tasks list, project and sprint pages also have an **Est.** column, where the estimate is typed in
-minutes and saved on Enter or on leaving the box (empty for none). Setting *Done* still asks for solution notes. On the task page, comments, time entries, assignees (picked
+minutes and saved on Enter or on leaving the box (empty for none); the Backlog shows the estimate too, read only. Setting *Done* still asks for solution notes. On the task page, comments, time entries, assignees (picked
 by typing a name), dependencies and attachments are added and removed in place, and the clock keeps running while you
 work on the page. On an asset's page, checks, holders and the location change in place too, and Quick check refreshes
 the list when you close it. Only sign-in and the account pages (ASP.NET Identity's own) and the error page are still
@@ -181,7 +181,9 @@ every sprint and aren't listed on the Backlog page. A new task starts on the Bac
 Planned when it is standalone, whoever creates it - the task form, Claude, a recurring definition or a request. On the
 form the Sprint field follows the project until you pick a value yourself, and the Backlog page's *New task* starts on
 the Backlog. Completing a sprint puts its open tasks back on the Backlog. The tasks that were in no sprint before Not
-Planned existed stayed on the Backlog.
+Planned existed stayed on the Backlog. The Backlog page is for sprint planning, not day-to-day work, so it only shows
+its tasks: the status as a chip, with no status control, *Today* tick or *Take*, and the estimate as text, to weigh how
+much goes into a sprint. Select tasks and *Plan into sprint* to plan them.
 
 In the Tasks list and on a project page the **Sprint** column is a dropdown too: pick a planned or active sprint
 to plan the task into it, or *Backlog* or *Not Planned* to take it out, without the edit form or the Backlog page. It follows

@@ -3,7 +3,8 @@
 @inherits OrbitListPage
 @* The backlog (spec §6.3): open tasks waiting for sprint planning - in no sprint and not Not Planned - filtered and paged, 100 a
    page. Select tasks and choose a sprint to plan them into it. The filters live in the address, in the Razor page's keys, and are remembered for the browser session
-   (OrbitListPage). *@
+   (OrbitListPage). The page is for sprint planning, not day-to-day work, so its rows only show the tasks: no status
+   control, Today tick or Take, and the estimate is shown as text to weigh a sprint's load (decision 139). *@
 
 <PageTitle>Backlog - Orbit</PageTitle>
 
@@ -73,8 +74,8 @@ else
             </div>
         </div>
         <TaskTable Tasks="_result.Items" Actor="_actor" Today="_today" ShowDepartment="TaskLook.MixesDepartments(_actor, _result.Items)"
-                   ShowPlanToday="true" Selectable="true" Selected="_selected" SelectionChanged="StateHasChanged" Waiting="_waiting"
-                   EmptyMessage="The backlog is empty." Changed="ReloadAsync" />
+                   ReadOnly="true" ShowEstimate="true" Selectable="true" Selected="_selected" SelectionChanged="StateHasChanged" Waiting="_waiting"
+                   EmptyMessage="The backlog is empty." />
         @if (_result.TotalPages > 1)
         {
             <div class="orbit-card-footer orbit-list-row">
