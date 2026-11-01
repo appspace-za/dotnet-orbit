@@ -1,23 +1,10 @@
 @* The interactive root. A link to a page that is still a Razor page matches no route here, so the router loads it from the
-   server. Page doors are [Authorize] / [RequirePermission] on each page, checked by AuthorizeRouteView on every navigation. *@
+   server. Page doors are [Authorize] / [RequirePermission] on each page, checked by OrbitRouteView on arriving at a page; a
+   change of the query string alone, such as a list page's filter, keeps the page as it is (decision 141). *@
 <CascadingValue Value="_shell" IsFixed="true">
     <Router AppAssembly="typeof(Routes).Assembly" NotFoundPage="typeof(NotFound)">
         <Found Context="routeData">
-            <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)">
-                <NotAuthorized>
-                    @if (context.User.Identity?.IsAuthenticated != true)
-                    {
-                        <RedirectToLogin />
-                    }
-                    else
-                    {
-                        <AccessDenied />
-                    }
-                </NotAuthorized>
-                <Authorizing>
-                    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
-                </Authorizing>
-            </AuthorizeRouteView>
+            <OrbitRouteView RouteData="routeData" />
             <FocusOnNavigate RouteData="routeData" Selector="h1" />
         </Found>
     </Router>

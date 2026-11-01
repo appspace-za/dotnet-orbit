@@ -38,9 +38,9 @@ else
             {
                 <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Href="@($"/Sprints/Board/{s.Id}")">Board</MudButton>
             }
-            @if (s.Status != SprintStatus.Completed)
+            @if (s.Status != SprintStatus.Completed && _actor!.Has(Permission.TasksPlan))
             {
-                <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="/Backlog">Plan from backlog</MudButton>
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@($"/Sprints/Planning?Sprint={s.Id}")">Planning</MudButton>
             }
             @* The sprint's review (§12 Sprint status). reports.view is needed at Department or All, as ReportingService requires. *@
             @if (s.Status != SprintStatus.Planned && AccessPolicy.CanViewReports(_actor!))

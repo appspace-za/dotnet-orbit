@@ -57,7 +57,9 @@ Blazor components, Razor Pages and MCP tools are thin. All call the same scoped 
   runs in a fresh scope acting for the circuit's user (`s.Get<TaskService>()`). `Load` maps NotFound to the not-found
   page and Forbidden to `Refusal`; `Act` shows any `OrbitException` as an error snackbar. `ApplicationDbContext`
   can't be created in a circuit's own scope (`AddOrbitDbContext`), so a directly injected service fails loudly. Page
-  doors are `[Authorize]` (folder `_Imports.razor`) and `[RequirePermission(Permission.X)]`.
+  doors are `[Authorize]` (folder `_Imports.razor`) and `[RequirePermission(Permission.X)]`. `OrbitRouteView` checks a door
+  on arriving at a page, not when only the query string changes (a filter), since the check reads the database and its
+  *Authorizing* placeholder would rebuild the page. So a page must read its query through `[SupplyParameterFromQuery]`.
 - Every write is audited in the same unit of work: `audit.Add(actor, AuditEntity.X, id, AuditAction.Y, departmentId,
   summary, details)` queues the row and the caller's `SaveChangesAsync` persists it. `ChangeSet` builds field-level
   `{from,to}` diffs for the details.
@@ -87,9 +89,12 @@ Blazor components, Razor Pages and MCP tools are thin. All call the same scoped 
   with a gap (`orbit-gap-row`). A list page's filters are query parameters read as strings
   (`[SupplyParameterFromQuery]`, parsed with `FilterChoice` / `FilterQuery`), and remembered with `BrowserFilterMemory`
   (a Blazor page has no HTTP response to set a cookie on): a page that remembers them inherits `OrbitListPage`, which
-  holds `GoAsync`/`PageUrl`/`ResetAsync`. The Tasks list's keys are `TaskListKeys`: read its filters under them and
+  holds `GoAsync`/`PageUrl`/`ResetAsync`. A key carried in the address but not remembered (the Planning page's sprint) is
+  in `CarriedKeys` and changed with `GoCarried`. The Tasks list's keys are `TaskListKeys`: read its filters under them and
   build any link to it from them with `FilterQuery` (`Navigation.MyTasks`, `DashboardLinks`), never a hand-written query
-  string. A date picker converts with `PickerDate`, and a Copy button is `CopyButton`. An HTML attribute on a MudBlazor component whose name matches
+  string. A date picker converts with `PickerDate`, and a Copy button is `CopyButton`. A task table is `TaskTable`: `Edits`
+  (`TaskTableEdits`) picks its inline controls, and `SprintCell`, `RowActions` and `RowClass` let a page add its own, as the
+  Planning page does, rather than copying the table. An HTML attribute on a MudBlazor component whose name matches
   a parameter binds the parameter (`inputmode` is `InputMode`), so pass it as C# (`InputMode="@(InputMode.@decimal)"`).
   A picked file (`IBrowserFile`) can only be read while its input is on the page, so a form sent later reads it into
   memory as it is picked (`RequestWizard`). Styles are in `css/app.css` (the `orbit-*` classes), `css/gantt.css` and
@@ -98,7 +103,7 @@ Blazor components, Razor Pages and MCP tools are thin. All call the same scoped 
   `ApplicationDbContext.OnModelCreating`), so raw SQL uses `'Todo'`, not `0`. Recent migrations were tested on an
   empty DB and on a DB at the previous migration, forward, back (`Down`) and forward again (spec §13 item 37).
 - **Pure rules** (`Application/Scheduling/*`, `Application/Assets/*Rules`, `Application/Nagios/*`, `Application/Messages/*`, `RoleRules`,
-  `DependencyRules`, `DirectoryImportRules`, `DashboardRules`, `DayPlanRules`, `DueWindowRules`) have no DB access so they can be unit-tested. Put new domain logic there when it can be
+  `DependencyRules`, `DirectoryImportRules`, `DashboardRules`, `DayPlanRules`, `DueWindowRules`, `SprintPlanningRules`) have no DB access so they can be unit-tested. Put new domain logic there when it can be
   separated. Tests cite the spec's acceptance IDs (e.g. `AST-005`) in their doc comments.
 - The critical path analysis is stored and marked stale by a hash of its inputs (`ScheduleFingerprint`), not by
   write hooks. A new field that affects scheduling must be added to the fingerprint.

@@ -21,10 +21,17 @@ else
             <MudText Typo="Typo.h5" HtmlTag="h1">Sprints</MudText>
             <div class="orbit-subtitle">Company-wide planning windows. Only one sprint is active at a time.</div>
         </div>
-        @if (canManage)
-        {
-            <MudButton Href="/Sprints/Create" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">New sprint</MudButton>
-        }
+        <div class="orbit-actions">
+            @* Sprint planning (decision 140): reached from here and a sprint's page, not the menu. *@
+            @if (_actor.Has(Permission.TasksPlan))
+            {
+                <MudButton Href="/Sprints/Planning" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.EventNote">Planning</MudButton>
+            }
+            @if (canManage)
+            {
+                <MudButton Href="/Sprints/Create" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">New sprint</MudButton>
+            }
+        </div>
     </div>
 
     <MudPaper Outlined="true" Class="orbit-card">

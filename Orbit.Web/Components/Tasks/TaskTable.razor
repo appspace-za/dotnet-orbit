@@ -1,5 +1,7 @@
 @* The shared task table (spec §6.2), which replaced the Razor _TaskRows partial with the same columns and rules. Rows
-   the viewer may change get live controls that save at once, with no page reload; Changed tells the page to reload its data. *@
+   the viewer may change get live controls that save at once, with no page reload; Changed tells the page to reload its data.
+   Edits says which controls a page wants, and a page can add a class per row, its own Sprint cell and a column of row actions
+   (the Planning page, §6.3, decision 141). *@
 @if (Tasks.Count == 0)
 {
     <p class="orbit-empty">@(EmptyMessage ?? "No tasks.")</p>
@@ -7,7 +9,7 @@
 else
 {
     <div class="orbit-table-wrap">
-        <MudSimpleTable Dense="true" Hover="true" Elevation="0" Class="orbit-tasks">
+        <MudSimpleTable Dense="true" Hover="true" Elevation="0" Class="@(Class is null ? "orbit-tasks" : $"orbit-tasks {Class}")">
             <thead>
                 <tr>
                     @if (Selectable)
@@ -27,9 +29,13 @@ else
                     <th>Priority</th>
                     @if (ShowAssignee) { <th>Assignee</th> }
                     <th>Due</th>
-                    @if (ShowEstimate) { <th class="text-right" title="Estimated effort">Est.</th> }
+                    @if (ShowEstimate)
+                    {
+                        <th class="text-right" title="@(Logged is null ? "Estimated effort" : "Estimated effort, and what is left of it after the time logged")">Est.</th>
+                    }
                     @if (ShowSprint) { <th>Sprint</th> }
                     <th>Status</th>
+                    @if (RowActions is not null) { <th></th> }
                 </tr>
             </thead>
             <tbody>
@@ -39,8 +45,8 @@ else
                     var overdue = t.IsOverdue(Today);
                     var statuses = Ui.AllowedStatuses(Actor, t);
                     var canEdit = canView && AccessPolicy.CanEditTask(Actor, t);
-                    var quickEdit = !ReadOnly && QuickEditAssignees is not null && canEdit;
-                    <tr @key="t.Id">
+                    var quickEdit = QuickEditAssignees is not null && canEdit;
+                    <tr @key="t.Id" class="@RowClass?.Invoke(t)">
                         @if (Selectable)
                         {
                             <td class="orbit-check">
@@ -55,7 +61,7 @@ else
                         @if (ShowPlanToday)
                         {
                             <td class="orbit-today">
-                                @if (!ReadOnly && t.IsOpen && AccessPolicy.CanPlanTask(Actor, t))
+                                @if (Allows(TaskTableEdits.Today) && t.IsOpen && AccessPolicy.CanPlanTask(Actor, t))
                                 {
                                     <PlanTodayToggle Task="t" Today="Today" Changed="Changed" />
                                 }
@@ -69,7 +75,7 @@ else
                             <span class="orbit-number" title="Task number">@t.Number</span>
                             @if (canView)
                             {
-                                <a href="@($"/Tasks/Details/{t.Id}")" class="@(overdue ? "orbit-title orbit-overdue" : "orbit-title")">@t.Title</a>
+                                <a href="@($"/Tasks/Details/{t.Id}")" target="@(NewTab ? "_blank" : null)" class="@(overdue ? "orbit-title orbit-overdue" : "orbit-title")">@t.Title</a>
                             }
                             else
                             {
@@ -107,7 +113,7 @@ else
                             <td>
                                 @if (t.Project is not null)
                                 {
-                                    <MudLink Href="@($"/Projects/Details/{t.ProjectId}")" Underline="Underline.Hover">@t.Project.Name</MudLink>
+                                    <MudLink Href="@($"/Projects/Details/{t.ProjectId}")" Target="@(NewTab ? "_blank" : null)" Underline="Underline.Hover">@t.Project.Name</MudLink>
                                 }
                                 else
                                 {
@@ -135,11 +141,11 @@ else
                                         <div class="orbit-sub">@u.DisplayName</div>
                                     }
                                 }
-                                else if (quickEdit)
+                                else if (quickEdit && Allows(TaskTableEdits.Assignee))
                                 {
                                     <TaskAssigneeSelect Task="t" Candidates="CandidatesFor(t)" Changed="Changed" />
                                 }
-                                else if (!ReadOnly && AccessPolicy.CanTakeTask(Actor, t))
+                                else if (Allows(TaskTableEdits.Take) && AccessPolicy.CanTakeTask(Actor, t))
                                 {
                                     <TakeButton Task="t" Changed="Changed" />
                                 }
@@ -150,7 +156,7 @@ else
                             </td>
                         }
                         <td class="@(overdue ? "orbit-overdue" : null)">
-                            @if (quickEdit)
+                            @if (quickEdit && Allows(TaskTableEdits.DueDate))
                             {
                                 <TaskDueDatePicker Task="t" Today="Today" Changed="Changed" />
                             }
@@ -162,23 +168,31 @@ else
                         @if (ShowEstimate)
                         {
                             <td class="text-right text-nowrap">
-                                @if (quickEdit)
+                                @if (quickEdit && Allows(TaskTableEdits.Estimate))
                                 {
                                     <TaskEstimateField Task="t" Changed="Changed" />
                                 }
                                 else if (t.EstimateMinutes is int estimate) { @TimeFormat.Minutes(estimate) } else { <span class="orbit-muted" title="No estimate">-</span> }
+                                @if (Logged?.GetValueOrDefault(t.Id) is int logged and > 0 && t.EstimateMinutes is not null)
+                                {
+                                    <div class="orbit-sub" title="@($"{TimeFormat.Minutes(logged)} logged so far")">@TimeFormat.Minutes(SprintPlanningRules.Remaining(t, logged)) left</div>
+                                }
                             </td>
                         }
                         @if (ShowSprint)
                         {
                             <td>
-                                @if (!ReadOnly && QuickEditSprints is not null && canView && t.IsOpen && AccessPolicy.CanPlanTask(Actor, t))
+                                @if (SprintCell is not null)
+                                {
+                                    @SprintCell(t)
+                                }
+                                else if (Allows(TaskTableEdits.Sprint) && QuickEditSprints is not null && canView && t.IsOpen && AccessPolicy.CanPlanTask(Actor, t))
                                 {
                                     <TaskSprintSelect Task="t" Sprints="QuickEditSprints" Changed="Changed" />
                                 }
                                 else if (t.Sprint is not null)
                                 {
-                                    <MudLink Href="@($"/Sprints/Details/{t.SprintId}")" Underline="Underline.Hover">@t.Sprint.Name</MudLink>
+                                    <MudLink Href="@($"/Sprints/Details/{t.SprintId}")" Target="@(NewTab ? "_blank" : null)" Underline="Underline.Hover">@t.Sprint.Name</MudLink>
                                 }
                                 else
                                 {
@@ -187,7 +201,7 @@ else
                             </td>
                         }
                         <td>
-                            @if (!ReadOnly && canView && statuses.Count > 1)
+                            @if (Allows(TaskTableEdits.Status) && canView && statuses.Count > 1)
                             {
                                 <TaskStatusSelect Task="t" Statuses="statuses" Changed="Changed" />
                             }
@@ -196,6 +210,10 @@ else
                                 <MudChip T="string" Size="Size.Small" Color="TaskLook.Status(t.Status)">@t.Status.Label()</MudChip>
                             }
                         </td>
+                        @if (RowActions is not null)
+                        {
+                            <td class="text-right text-nowrap">@RowActions(t)</td>
+                        }
                     </tr>
                 }
             </tbody>
@@ -210,8 +228,8 @@ else
 
     /// <summary>
     /// When set, rows the actor may edit get the assignee and due-date controls, and the estimate control where
-    /// <see cref="ShowEstimate"/> is on. Candidates are narrowed per row to the task's department plus anyone who sees every
-    /// department. Null leaves those cells read-only.
+    /// <see cref="ShowEstimate"/> is on, as far as <see cref="Edits"/> allows. Candidates are narrowed per row to the task's
+    /// department plus anyone who sees every department. Null leaves those cells read-only.
     /// </summary>
     [Parameter] public IReadOnlyList<UserSummary>? QuickEditAssignees { get; set; }
     /// <summary>When set (with <see cref="ShowSprint"/>), open rows the actor may plan get the sprint control (§6.3).</summary>
@@ -220,8 +238,12 @@ else
     /// <summary>
     /// Every cell as text, for a page that shows tasks rather than changes them (the Today page, §6.12, and the Backlog, §6.3): no status, assignee,
     /// due-date, estimate or sprint control, no Take button and no Today tick. A <see cref="Selectable"/> checkbox still shows.
+    /// The same as <see cref="Edits"/> None.
     /// </summary>
     [Parameter] public bool ReadOnly { get; set; }
+
+    /// <summary>Which live controls the rows may have (all by default); each still needs the actor's right and its data.</summary>
+    [Parameter] public TaskTableEdits Edits { get; set; } = TaskTableEdits.All;
 
     [Parameter] public bool ShowPlanToday { get; set; }
     [Parameter] public bool ShowProject { get; set; } = true;
@@ -229,6 +251,21 @@ else
     [Parameter] public bool ShowSprint { get; set; }
     [Parameter] public bool ShowAssignee { get; set; } = true;
     [Parameter] public bool ShowEstimate { get; set; }
+
+    /// <summary>All the time logged on each task so far: when set, the Est. cell adds what is left of the estimate (§6.10).</summary>
+    [Parameter] public IReadOnlyDictionary<Guid, int>? Logged { get; set; }
+
+    /// <summary>Task, project and sprint links open in a new tab, so a page with state to keep (the Planning page) stays put.</summary>
+    [Parameter] public bool NewTab { get; set; }
+
+    /// <summary>A class added to the table, beside orbit-tasks.</summary>
+    [Parameter] public string? Class { get; set; }
+    /// <summary>A class for a task's row, or null for none.</summary>
+    [Parameter] public Func<TaskItem, string?>? RowClass { get; set; }
+    /// <summary>The Sprint cell's content in place of the sprint control or link (with <see cref="ShowSprint"/>).</summary>
+    [Parameter] public RenderFragment<TaskItem>? SprintCell { get; set; }
+    /// <summary>A last column of buttons for each row.</summary>
+    [Parameter] public RenderFragment<TaskItem>? RowActions { get; set; }
 
     /// <summary>A checkbox on each row the actor may plan, collected in <see cref="Selected"/>.</summary>
     [Parameter] public bool Selectable { get; set; }
@@ -244,6 +281,13 @@ else
     /// <summary>Raised after a row's control changed its task.</summary>
     [Parameter] public EventCallback Changed { get; set; }
 
+    /// <summary>The assignee candidates for each department's rows, worked out once for the parameters given.</summary>
+    private readonly Dictionary<Guid, IReadOnlyList<UserSummary>> _candidates = [];
+
+    protected override void OnParametersSet() => _candidates.Clear();
+
+    private bool Allows(TaskTableEdits edit) => !ReadOnly && Edits.HasFlag(edit);
+
     private List<Guid> Selectables => Tasks.Where(t => AccessPolicy.CanPlanTask(Actor, t)).Select(t => t.Id).ToList();
 
     private bool? AllSelected
@@ -256,8 +300,12 @@ else
         }
     }
 
-    private IReadOnlyList<UserSummary> CandidatesFor(TaskItem t) =>
-        QuickEditAssignees!.Where(u => u.DepartmentId == t.DepartmentId || u.CanViewAllTasks).ToList();
+    private IReadOnlyList<UserSummary> CandidatesFor(TaskItem t)
+    {
+        if (!_candidates.TryGetValue(t.DepartmentId, out var list))
+            _candidates[t.DepartmentId] = list = QuickEditAssignees!.Where(u => u.DepartmentId == t.DepartmentId || u.CanViewAllTasks).ToList();
+        return list;
+    }
 
     private async Task ToggleAsync(Guid id, bool selected)
     {

@@ -1,0 +1,418 @@
+@page "/Sprints/Planning"
+@inherits OrbitListPage
+@attribute [RequirePermission(Permission.TasksPlan)]
+@* The Planning page (spec §6.3, decisions 140 and 141), for sprint planning meetings. It is reached from the Sprints page and a
+   sprint's page, not the menu, and needs tasks.plan. OrbitRouteView checks that door on arriving, not on every filter change, so
+   the open panels and the ticks survive the filters. The services apply tasks.view to what is listed and tasks.plan to every move,
+   and a row the viewer may not plan has no tick box or button.
+   Every open project task is shown, grouped by project in collapsible panels, wherever it sits: the sprint
+   being planned, another sprint, the Backlog or Not Planned. Standalone tasks are shown only on the Backlog or in a sprint
+   (SprintPlanningRules.Shown). A panel's rows are the shared TaskTable with the estimate and assignee controls, a chip for where
+   the task sits, and a button that plans it into the sprint chosen at the top, moves it there, or takes it back to the Backlog;
+   ticked rows move together. The totals and the panels' counts follow the filters; each person's load is all their work in the
+   sprint the viewer may see, whatever the filters. Every change reloads the plan, keeping the open panels open. The filters live
+   in the address and are remembered for the browser session (OrbitListPage). The sprint is in the address too but isn't
+   remembered, so the page opens on the next sprint unless a link names one. *@
+
+<PageTitle>Sprint planning - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_plan is null || _actor is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var plan = _plan;
+    var target = plan.Target;
+    var totals = plan.TargetTotals;
+    var backlog = plan.BacklogTotals;
+    <div class="orbit-plan">
+        <nav class="orbit-breadcrumbs" aria-label="breadcrumb">
+            <a href="/Sprints">Sprints</a><span class="orbit-crumb-sep">/</span><span aria-current="page">Planning</span>
+        </nav>
+        <div class="orbit-page-header">
+            <div>
+                <MudText Typo="Typo.h5" HtmlTag="h1">Sprint planning</MudText>
+                <div class="orbit-subtitle">
+                    Every open project task by project, wherever it sits, and the standalone tasks on the Backlog or in a sprint. Plan
+                    tasks into the sprint chosen here. The totals follow the filters.
+                </div>
+            </div>
+            <div class="orbit-actions">
+                @if (target is not null)
+                {
+                    <MudSelect T="Guid" Value="target.Id" ValueChanged="v => GoCarried(SprintKey, v.ToString())" Label="Planning for"
+                               Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Class="orbit-field-lg" ToStringFunc="SprintName">
+                        @foreach (var s in plan.OpenSprints)
+                        {
+                            <MudSelectItem T="Guid" Value="s.Id">@Ui.SprintLabel(s)</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@($"/Sprints/Details/{target.Id}")">Sprint page</MudButton>
+                }
+                @if (_actor.Has(Permission.TasksCreate))
+                {
+                    <MudButton Href="@($"/Tasks/Create?sprintId={SprintPlacement.BacklogValue}")" Size="Size.Small" Variant="Variant.Filled"
+                               Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">New task</MudButton>
+                }
+            </div>
+        </div>
+
+        @if (target is null)
+        {
+            <MudPaper Outlined="true" Class="orbit-card orbit-card-warning">
+                <div class="orbit-card-header orbit-plan-flush">
+                    <span>
+                        <b>No planned or active sprint.</b>
+                        <span class="orbit-muted orbit-small">Create a sprint to plan tasks into it. Until then the tasks are only shown here.</span>
+                    </span>
+                    @if (AccessPolicy.CanManageSprints(_actor))
+                    {
+                        <MudButton Href="/Sprints/Create" Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">New sprint</MudButton>
+                    }
+                </div>
+            </MudPaper>
+        }
+        else
+        {
+            <div class="orbit-stats">
+                <MudPaper Outlined="true" Class="orbit-stat">
+                    <div class="orbit-stat-label">In @target.Name</div>
+                    <div class="orbit-stat-value">@totals.Tasks</div>
+                    <div class="orbit-sub">@(totals.Unestimated > 0 ? $"{totals.Unestimated} without an estimate" : totals.Tasks > 0 ? "all estimated" : "nothing planned yet")</div>
+                </MudPaper>
+                <MudPaper Outlined="true" Class="orbit-stat">
+                    <div class="orbit-stat-label">Estimated</div>
+                    <div class="orbit-stat-value">@TimeFormat.Minutes(totals.EstimatedMinutes)</div>
+                    <div class="orbit-sub">@Ui.Day(target.StartDate) to @Ui.Day(target.EndDate)</div>
+                </MudPaper>
+                <MudPaper Outlined="true" Class="orbit-stat">
+                    <div class="orbit-stat-label">Remaining</div>
+                    <div class="orbit-stat-value">@TimeFormat.Minutes(totals.RemainingMinutes)</div>
+                    <div class="orbit-sub">after the time already logged on them</div>
+                </MudPaper>
+                <MudPaper Outlined="true" Class="orbit-stat">
+                    <div class="orbit-stat-label">On the Backlog</div>
+                    <div class="orbit-stat-value">@backlog.Tasks</div>
+                    <div class="orbit-sub">
+                        @TimeFormat.Minutes(backlog.EstimatedMinutes) estimated@(backlog.Unestimated > 0 ? $", {backlog.Unestimated} without an estimate" : "")
+                    </div>
+                </MudPaper>
+            </div>
+        }
+
+        @* Stays under the app bar while the panels scroll, so the sprint's figures and the bulk actions are always in reach. *@
+        <MudPaper Outlined="true" Class="orbit-plan-bar">
+            <span class="orbit-gap-row">
+                @if (target is not null)
+                {
+                    <b>@target.Name:</b>
+                    <span>@PlanningLook.LoadText(totals)</span>
+                    @if (totals.HasLogged)
+                    {
+                        <span class="orbit-muted">· @TimeFormat.Minutes(totals.RemainingMinutes) left</span>
+                    }
+                    <span class="orbit-muted">· Backlog @PlanningLook.Plural(backlog.Tasks, "task")</span>
+                }
+            </span>
+            <span class="orbit-gap-row">
+                @if (_selected.Count > 0)
+                {
+                    @if (target is not null)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Disabled="Moving" OnClick="PlanSelectedAsync">
+                            Plan selected into @target.Name (@_selected.Count)
+                        </MudButton>
+                    }
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="Moving" OnClick="BacklogSelectedAsync">Back to Backlog (@_selected.Count)</MudButton>
+                    <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="_selected.Clear">Clear</MudButton>
+                }
+                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="ExpandAll" Disabled="plan.Groups.Count == 0">Expand all</MudButton>
+                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="_expanded.Clear" Disabled="_expanded.Count == 0">Collapse all</MudButton>
+            </span>
+        </MudPaper>
+
+        <MudPaper Outlined="true" Class="orbit-card">
+            <div class="orbit-filters">
+                <MudTextField T="string" Value="Search" ValueChanged="v => GoAsync(nameof(Search), v)" Label="Search" DebounceInterval="500"
+                              Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-filter orbit-filter-wide" />
+                @if (_canSeeAll)
+                {
+                    <FilterSelect Label="Department" Value="@DepartmentId" ValueChanged="v => GoAsync(nameof(DepartmentId), v)" Options="_departments" />
+                }
+                <FilterSelect Label="Assignee" Value="@AssigneeChoice" ValueChanged="v => GoAsync(AssigneeKey, v)" Special="FilterSelect.AllOrNone" Options="_assignees"
+                              Title="One of the people the task is assigned to, or None for the tasks nobody is assigned to" />
+                <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="ResetAsync"
+                           title="Clear the filters and go back to the next sprint - they are remembered for this browser session until you reset them">Reset</MudButton>
+            </div>
+        </MudPaper>
+
+        @if (target is not null)
+        {
+            <MudExpansionPanels Outlined="true" Class="orbit-plan-panels">
+                <MudExpansionPanel Expanded="_peopleOpen" ExpandedChanged="v => _peopleOpen = v">
+                    <TitleContent>
+                        <div class="orbit-plan-title">
+                            <span class="orbit-title">Load per person</span>
+                            <span class="orbit-muted orbit-small">
+                                @PlanningLook.Plural(plan.WorkingDays, "working day")@(plan.Today > target.StartDate ? " left" : "") ×
+                                @TimeFormat.Minutes(plan.WorkingDayMinutes) = @TimeFormat.Minutes(plan.CapacityMinutes) each
+                            </span>
+                            @if (plan.OverloadedCount > 0)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled">@plan.OverloadedCount overloaded</MudChip>
+                            }
+                        </div>
+                    </TitleContent>
+                    <ChildContent>
+                        <PlanningPeople Planning="plan" PersonPicked="PickPersonAsync" />
+                    </ChildContent>
+                </MudExpansionPanel>
+            </MudExpansionPanels>
+        }
+
+        @if (plan.Groups.Count == 0)
+        {
+            <MudPaper Outlined="true" Class="orbit-card">
+                <p class="orbit-empty">@(Filtered ? "No open tasks match the filters." : "No open project tasks, and nothing on the Backlog or in a sprint.")</p>
+            </MudPaper>
+        }
+        else
+        {
+            <MudExpansionPanels MultiExpansion="true" Outlined="true" Class="orbit-plan-panels">
+                @foreach (var g in plan.Groups)
+                {
+                    var key = g.Key;
+                    var c = g.Counts;
+                    <MudExpansionPanel @key="key" Expanded="_expanded.Contains(key)" ExpandedChanged="v => Toggle(key, v)">
+                        <TitleContent>
+                            <div class="orbit-plan-title">
+                                @if (g.Project is { } p)
+                                {
+                                    <span class="orbit-number">@p.Number</span>
+                                    <a href="@($"/Projects/Details/{p.Id}")" target="_blank" class="orbit-title" @onclick:stopPropagation="true"
+                                       title="Open the project in a new tab">@p.Name</a>
+                                    @if (p.Status != ProjectStatus.Active)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="StatusLook.Project(p.Status)">@p.Status.Label()</MudChip>
+                                    }
+                                    <span class="orbit-muted orbit-small">@p.Department?.Name</span>
+                                }
+                                else
+                                {
+                                    <span class="orbit-title">No project</span>
+                                    <span class="orbit-muted orbit-small">standalone tasks on the Backlog or in a sprint</span>
+                                }
+                                <span class="orbit-plan-counts">
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@c.Open open</MudChip>
+                                    @if (target is not null && c.Target.Tasks > 0)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled"
+                                                 title="@PlanningLook.LoadText(c.Target)">@c.Target.Tasks in @target.Name · @TimeFormat.Minutes(c.Target.EstimatedMinutes)</MudChip>
+                                    }
+                                    @if (c.Backlog.Tasks > 0)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                                 title="@PlanningLook.LoadText(c.Backlog)">@c.Backlog.Tasks on the Backlog · @TimeFormat.Minutes(c.Backlog.EstimatedMinutes)</MudChip>
+                                    }
+                                    @if (c.OtherSprints > 0)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@c.OtherSprints in @(target is null ? "a sprint" : "other sprints")</MudChip>
+                                    }
+                                    @if (c.NotPlanned > 0)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Text">@c.NotPlanned Not Planned</MudChip>
+                                    }
+                                </span>
+                            </div>
+                        </TitleContent>
+                        <ChildContent>
+                            <TaskTable Tasks="g.Tasks" Actor="_actor" Today="plan.Today" Edits="PlanningEdits" QuickEditAssignees="_candidates"
+                                       ShowProject="false" ShowDepartment="PlanningLook.ShowsDepartment(g, _actor)" ShowSprint="true" ShowEstimate="true"
+                                       Logged="plan.LoggedMinutes" NewTab="true" Class="orbit-plan-tasks" RowClass="t => PlanningLook.RowClass(t, target)"
+                                       Selectable="true" Selected="_selected" SelectionChanged="StateHasChanged" Waiting="_waiting" Changed="ReloadAsync">
+                                <SprintCell Context="t">
+                                    <MudChip T="string" Size="Size.Small" Color="PlanningLook.PlacementColour(t, target)"
+                                             Variant="PlanningLook.PlacementVariant(t, target)">@PlanningLook.Placement(t)</MudChip>
+                                </SprintCell>
+                                <RowActions Context="t">
+                                    @if (target is not null && AccessPolicy.CanPlanTask(_actor, t))
+                                    {
+                                        var action = SprintPlanningRules.ActionFor(t, target.Id);
+                                        <MudButton Size="Size.Small" Variant="PlanningLook.ActionVariant(action)" Color="Color.Primary"
+                                                   StartIcon="@PlanningLook.ActionIcon(action)" Disabled="@(_busy || _moving.Contains(t.Id))"
+                                                   title="@PlanningLook.ActionTitle(action, target)" OnClick="() => PlanOneAsync(t)">@PlanningLook.ActionLabel(action)</MudButton>
+                                    }
+                                </RowActions>
+                            </TaskTable>
+                        </ChildContent>
+                    </MudExpansionPanel>
+                }
+            </MudExpansionPanels>
+        }
+    </div>
+}
+
+@code {
+    private const string SprintKey = "Sprint", AssigneeKey = "AssigneeId";
+
+    /// <summary>The filter fields remembered for the session (§6.2, §6.3).</summary>
+    private static readonly string[] RememberedFilters = [nameof(Search), nameof(DepartmentId), AssigneeKey];
+
+    /// <summary>
+    /// The sprint being planned is carried in the address but not remembered (decision 141): the Sprints page's Planning button
+    /// opens the next sprint, and a sprint page's link adds its sprint to the remembered filters rather than replacing them.
+    /// </summary>
+    private static readonly string[] Carried = [SprintKey];
+
+    /// <summary>A row's live controls: the estimate and a single assignee, which are usually settled at planning (decision 140).</summary>
+    private const TaskTableEdits PlanningEdits = TaskTableEdits.Assignee | TaskTableEdits.Estimate;
+
+    protected override string MemoryKey => "planning";
+    protected override IReadOnlyList<string> FilterKeys => RememberedFilters;
+    protected override IReadOnlyList<string> CarriedKeys => Carried;
+
+    /// <summary>The sprint being planned; blank, or one no longer open, for the next sprint (<see cref="SprintPlanningRules.DefaultTarget"/>).</summary>
+    [SupplyParameterFromQuery(Name = SprintKey)] public string? SprintChoice { get; set; }
+    [SupplyParameterFromQuery] public string? Search { get; set; }
+    [SupplyParameterFromQuery] public string? DepartmentId { get; set; }
+    /// <summary>Empty for all, "none" for the tasks nobody is assigned to (<see cref="FilterChoice"/>), or a person's id.</summary>
+    [SupplyParameterFromQuery(Name = AssigneeKey)] public string? AssigneeChoice { get; set; }
+    /// <summary>"Reset": forget the remembered filter and show the plain page.</summary>
+    [SupplyParameterFromQuery] public string? Reset { get; set; }
+
+    private Actor? _actor;
+    private SprintPlanning? _plan;
+    private IReadOnlyDictionary<Guid, WaitingSummary> _waiting = new Dictionary<Guid, WaitingSummary>();
+    /// <summary>The inline assignee control's candidates, and the people the Assignee filter offers (<see cref="_directoryFor"/>).</summary>
+    private IReadOnlyList<UserSummary> _candidates = [], _directory = [];
+    private IReadOnlyList<(string Value, string Text)> _departments = [], _assignees = [];
+    /// <summary>The department filter <see cref="_directory"/> was read for: it is read again only when that filter changes.</summary>
+    private Guid? _directoryFor;
+    /// <summary>The ticked rows, the open project panels (<see cref="PlanningGroup.Key"/>), and the rows whose button is running.</summary>
+    private readonly HashSet<Guid> _selected = [], _expanded = [], _moving = [];
+    /// <summary><c>_busy</c>: the ticked rows are moving. <c>_listsLoaded</c>: the departments and candidates have been read.</summary>
+    private bool _canSeeAll, _busy, _peopleOpen, _listsLoaded;
+
+    /// <summary>A move is running, a row's or the ticked rows': the ticked rows' buttons wait, as a row's button waits for them.</summary>
+    private bool Moving => _busy || _moving.Count > 0;
+
+    /// <summary>A filter narrows the tasks, so the totals and the people are those of the matching tasks.</summary>
+    private bool Filtered => !string.IsNullOrWhiteSpace(Search) || FilterChoice.Id(DepartmentId) is not null || !string.IsNullOrWhiteSpace(AssigneeChoice);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (await GoToRememberedAsync(FilterQuery.Flag(Reset))) return;
+        await ReloadAsync();
+    }
+
+    /// <summary>
+    /// Reads the plan, after a filter change and after every move or edit. The departments and the candidates don't change with
+    /// the plan, so they are read once, and the Assignee filter's people again only when the Department filter changes.
+    /// </summary>
+    private async Task ReloadAsync()
+    {
+        await Load(async s =>
+        {
+            var actor = await s.Get<IActorProvider>().GetAsync();
+            var users = s.Get<UserDirectoryService>();
+            var canSeeAll = actor.CanAnywhere(Permission.TasksView);
+            var departmentId = FilterChoice.Id(DepartmentId);
+            var plan = await s.Get<SprintPlanningService>().GetAsync(new SprintPlanningFilter
+            {
+                SprintId = FilterChoice.Id(SprintChoice),
+                DepartmentId = departmentId,
+                Unassigned = FilterChoice.IsNone(AssigneeChoice),
+                AssigneeId = FilterChoice.Id(AssigneeChoice),
+                Search = Search
+            });
+            var tasks = plan.Groups.SelectMany(g => g.Tasks).ToList();
+            _waiting = await s.Get<TaskStructureService>().GetWaitingAsync(tasks);
+            if (!_listsLoaded)
+            {
+                _candidates = await users.GetQuickEditCandidatesAsync();
+                _departments = canSeeAll
+                    ? [("", "All"), .. (await s.Get<DepartmentService>().ListAsync(false)).Select(d => (d.Id.ToString(), d.Name))]
+                    : [];
+            }
+            if (!_listsLoaded || _directoryFor != departmentId)
+            {
+                // The candidates are the people the viewer's lookups offer (UserDirectoryService.GetQuickEditCandidatesAsync), so
+                // only a picked department needs a list of its own.
+                _directory = canSeeAll && departmentId is not null ? await users.ListAsync(null, departmentId, false) : _candidates;
+                _directoryFor = departmentId;
+            }
+            _listsLoaded = true;
+            _assignees = PlanningLook.AssigneeOptions(_directory, plan, FilterChoice.Id(AssigneeChoice));
+
+            // A ticked row stays ticked only while it is shown and the viewer may still plan it: a hidden tick would refuse every move.
+            _selected.IntersectWith(tasks.Where(t => AccessPolicy.CanPlanTask(actor, t)).Select(t => t.Id));
+            _canSeeAll = canSeeAll;
+            _actor = actor;
+            _plan = plan;
+        });
+    }
+
+    private string SprintName(Guid id) =>
+        _plan?.OpenSprints.FirstOrDefault(s => s.Id == id) is { } s ? Ui.SprintLabel(s) : "";
+
+    private void Toggle(Guid key, bool open)
+    {
+        if (open) _expanded.Add(key);
+        else _expanded.Remove(key);
+    }
+
+    private void ExpandAll() => _expanded.UnionWith(_plan?.Groups.Select(g => g.Key) ?? []);
+
+    private Task PickPersonAsync(Guid? userId) => GoAsync(AssigneeKey, userId?.ToString() ?? FilterChoice.None);
+
+    /// <summary>
+    /// A row's button: plan the task into the sprint being planned, move it there, or take it back to the Backlog. It waits while
+    /// the ticked rows move, which may include this one, and while its own last click is still running.
+    /// </summary>
+    private async Task PlanOneAsync(TaskItem task)
+    {
+        if (_plan?.Target is not { } target || _busy || !_moving.Add(task.Id)) return;
+        try
+        {
+            var placement = SprintPlanningRules.PlacementFor(SprintPlanningRules.ActionFor(task, target.Id), target.Id);
+            // No message on success: the row's chip and button and the totals show the move. The bulk move, given one task, reads
+            // nothing back, where ChangeSprintAsync would read the whole task for the page to throw away.
+            if (await Act(async s => await s.Get<TaskService>().MoveToSprintAsync([task.Id], placement))) await ReloadAsync();
+        }
+        finally
+        {
+            _moving.Remove(task.Id);
+        }
+    }
+
+    private Task PlanSelectedAsync() =>
+        _plan?.Target is { } target ? MoveSelectedAsync(SprintPlacement.In(target.Id), $"planned into {target.Name}") : Task.CompletedTask;
+
+    private Task BacklogSelectedAsync() => MoveSelectedAsync(SprintPlacement.Backlog, "moved back to the Backlog");
+
+    /// <summary>The ticked rows' move. It waits while a row's own button is running, which may be one of the ticked tasks.</summary>
+    private async Task MoveSelectedAsync(SprintPlacement placement, string done)
+    {
+        if (_selected.Count == 0 || Moving) return;
+        _busy = true;
+        try
+        {
+            var moved = 0;
+            if (await Act(async s => moved = await s.Get<TaskService>().MoveToSprintAsync(_selected.ToList(), placement)))
+            {
+                Success($"{PlanningLook.Plural(moved, "task")} {done}.");
+                _selected.Clear();
+                await ReloadAsync();
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

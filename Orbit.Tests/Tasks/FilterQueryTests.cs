@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Components;
 using Orbit.Components.Infrastructure;
 using Orbit.Helpers;
 
@@ -61,6 +62,58 @@ public class FilterQueryTests
         Assert.Equal("Status=Done&ParentTaskId=abc",
             FilterQuery.FromAddress(Address, ["Status"], "Status", "Done").Keep(Address, ["ParentTaskId"]).ToString());
         Assert.Equal("", FilterQuery.FromAddress("https://orbit.test/Tasks", Keys).Keep("https://orbit.test/Tasks", ["ParentTaskId"]).ToString());
+    }
+
+    private static readonly string[] PlanningFilters = ["Search", "DepartmentId", "AssigneeId"];
+
+    /// <summary>
+    /// Decision 141: a list page opened with none of its filters goes to its remembered filter, keeping the keys it carries without
+    /// remembering them (the Planning page's sprint, from a sprint page's link). It stays when nothing is remembered.
+    /// </summary>
+    [Fact]
+    public void The_remembered_filter_keeps_the_carried_keys()
+    {
+        var fromSprint = new Uri("https://orbit.test/Sprints/Planning?Sprint=abc");
+        Assert.Equal("/Sprints/Planning?Search=printer&DepartmentId=it&Sprint=abc",
+            BrowserFilterMemory.RememberedAddress(fromSprint, "Search=printer&DepartmentId=it", PlanningFilters, ["Sprint"]));
+        Assert.Equal("/Sprints/Planning?Search=printer",
+            BrowserFilterMemory.RememberedAddress(new Uri("https://orbit.test/Sprints/Planning"), "Search=printer", PlanningFilters, ["Sprint"]));
+        Assert.Null(BrowserFilterMemory.RememberedAddress(fromSprint, null, PlanningFilters, ["Sprint"]));
+    }
+
+    /// <summary>
+    /// Decision 141: only the page's filters are taken from the memory. The Planning page remembered its sprint before it stopped
+    /// being a filter; going to that address, which names no filter, would come back here again and again, adding the sprint each
+    /// time. A memory with none of the page's filters left keeps the page where it is.
+    /// </summary>
+    [Fact]
+    public void A_key_that_is_no_longer_a_filter_is_left_behind()
+    {
+        var plain = new Uri("https://orbit.test/Sprints/Planning");
+        Assert.Null(BrowserFilterMemory.RememberedAddress(plain, "Sprint=abc", PlanningFilters, ["Sprint"]));
+        Assert.Equal("/Sprints/Planning?Search=printer",
+            BrowserFilterMemory.RememberedAddress(plain, "Sprint=abc&Search=printer", PlanningFilters, ["Sprint"]));
+        Assert.Equal("/Sprints/Planning?Search=printer&Sprint=new",
+            BrowserFilterMemory.RememberedAddress(new Uri("https://orbit.test/Sprints/Planning?Sprint=new"), "Sprint=old&Search=printer",
+                PlanningFilters, ["Sprint"]));
+    }
+
+    /// <summary>
+    /// Decision 141: the router hands a page a new route, checking its doors again, only when the page or its route values change;
+    /// a change of the query string alone (a list page's filters) is the same page.
+    /// </summary>
+    [Fact]
+    public void Only_a_new_page_or_route_value_counts_as_another_page()
+    {
+        var id = Guid.NewGuid();
+        RouteData Route(Type page, params (string Key, object? Value)[] values) => new(page, values.ToDictionary(v => v.Key, v => v.Value));
+
+        Assert.True(OrbitRouteView.SamePage(Route(typeof(Orbit.Components.Pages.Backlog)), Route(typeof(Orbit.Components.Pages.Backlog))));
+        Assert.True(OrbitRouteView.SamePage(Route(typeof(Orbit.Components.Pages.Tasks.TaskDetails), ("Id", id)),
+            Route(typeof(Orbit.Components.Pages.Tasks.TaskDetails), ("Id", id))));
+        Assert.False(OrbitRouteView.SamePage(Route(typeof(Orbit.Components.Pages.Tasks.TaskDetails), ("Id", id)),
+            Route(typeof(Orbit.Components.Pages.Tasks.TaskDetails), ("Id", Guid.NewGuid()))));
+        Assert.False(OrbitRouteView.SamePage(Route(typeof(Orbit.Components.Pages.Backlog)), Route(typeof(Orbit.Components.Pages.Tasks.TaskDetails), ("Id", id))));
     }
 
     [Fact]

@@ -1,11 +1,12 @@
 @* A day's estimate drawn against a working day (spec §6.12, DayLoad): the closed part, the open part - red when more than a working
-   day is still open - and a mark where the working day ends. Plain CSS: MudChart has no horizontal bar or reference line. *@
+   day is still open - and a mark where the working day ends. Plain CSS: MudChart has no horizontal bar or reference line. The
+   Planning page (§6.3) draws a person's sprint against their capacity the same way, with its own MarkTitle. *@
 <div class="@(Load.Overloaded ? "orbit-day-load orbit-day-load-over" : "orbit-day-load")" role="img" aria-label="@Label">
     <div class="orbit-day-load-track">
         <span class="orbit-day-load-closed" style="width: @(Load.ClosedPercent)%"></span>
         <span class="orbit-day-load-open" style="width: @(Load.OpenPercent)%"></span>
     </div>
-    <span class="orbit-day-load-day" style="left: @(Load.DayPercent)%" title="@($"A working day: {TimeFormat.Minutes(WorkingDayMinutes)}")"></span>
+    <span class="orbit-day-load-day" style="left: @(Load.DayPercent)%" title="@(MarkTitle ?? $"A working day: {TimeFormat.Minutes(WorkingDayMinutes)}")"></span>
 </div>
 
 @code {
@@ -13,4 +14,6 @@
     [Parameter, EditorRequired] public int WorkingDayMinutes { get; set; }
     /// <summary>The bar read out for a screen reader, usually the load in words (<see cref="DayPlanLook.LoadText"/>).</summary>
     [Parameter, EditorRequired] public string Label { get; set; } = "";
+    /// <summary>The mark's tooltip; by default "A working day: 8h".</summary>
+    [Parameter] public string? MarkTitle { get; set; }
 }

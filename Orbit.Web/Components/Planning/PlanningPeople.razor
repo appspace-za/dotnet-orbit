@@ -1,0 +1,71 @@
+@* Each person's share of the sprint being planned (spec §6.3, decisions 140 and 141): all their open tasks in it that the viewer
+   may see, whatever the filters, since capacity is a person's; the estimate and what is left of it, drawn against one person's
+   capacity - the sprint's working days still to come times a working day. A shared task counts in full for each assignee, as on
+   the Today page, so a load is an upper bound. Leave and other work aren't known, so the capacity is too. A person's name filters
+   the page's rows to their tasks. *@
+@if (Planning.People.Count == 0)
+{
+    <p class="orbit-empty">Nothing in @Planning.Target?.Name yet.</p>
+}
+else
+{
+    <div class="orbit-table-wrap">
+        <MudSimpleTable Dense="true" Hover="true" Elevation="0" Class="orbit-day-team">
+            <thead>
+                <tr>
+                    <th>Person</th>
+                    <th class="text-right">Tasks</th>
+                    <th class="text-right">Estimated</th>
+                    <th class="text-right" title="The estimates less the time already logged on those tasks">Remaining</th>
+                    <th>Load</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var p in Planning.People)
+                {
+                    var l = p.Load;
+                    <tr @key="p.UserId">
+                        <td>
+                            <MudLink Underline="Underline.Hover" OnClick="() => PersonPicked.InvokeAsync(p.UserId)"
+                                     title="@($"Show only {(p.UserId is null ? "the tasks nobody is assigned to" : p.Name + "'s tasks")}")">@p.Name</MudLink>
+                        </td>
+                        <td class="text-right">@l.Tasks</td>
+                        <td class="text-right text-nowrap">@TimeFormat.Minutes(l.EstimatedMinutes)</td>
+                        <td class="text-right text-nowrap">@TimeFormat.Minutes(l.RemainingMinutes)</td>
+                        <td class="orbit-day-team-load">
+                            @if (p.UserId is null)
+                            {
+                                <span class="orbit-muted">nobody's yet</span>
+                            }
+                            else
+                            {
+                                var text = $"{TimeFormat.Minutes(l.RemainingMinutes)} of {TimeFormat.Minutes(Planning.CapacityMinutes)}";
+                                <DayLoadBar Load="@(DayLoad.Of(0, l.RemainingMinutes, Planning.CapacityMinutes) with { Overloaded = p.Overloaded })"
+                                            WorkingDayMinutes="Planning.CapacityMinutes" Label="@text"
+                                            MarkTitle="@($"Capacity: {TimeFormat.Minutes(Planning.CapacityMinutes)}")" />
+                                <div class="orbit-sub orbit-gap-row">
+                                    <span>@text</span>
+                                    @if (p.Overloaded)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled"
+                                                 title="More estimated work left than the sprint's working days hold">overloaded</MudChip>
+                                    }
+                                </div>
+                            }
+                            @if (l.Unestimated > 0)
+                            {
+                                <div class="orbit-sub orbit-muted" title="Tasks with no estimate - not counted in the sums">+ @l.Unestimated without an estimate</div>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public SprintPlanning Planning { get; set; } = null!;
+    /// <summary>A person's name was clicked: their id, or null for Unassigned.</summary>
+    [Parameter] public EventCallback<Guid?> PersonPicked { get; set; }
+}

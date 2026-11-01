@@ -14,7 +14,8 @@ whose address still leads there), and **Today**, your tasks planned for today, d
 where the Today page is the team's plan for the morning meeting. In the task tables (bar the Today page's and the Backlog's, which only show them), changing a task's status,
 assignee, due date, sprint or *Today* tick saves at once, with no page reload, and a message at the bottom right
 confirms it. The Tasks list, project and sprint pages also have an **Est.** column, where the estimate is typed in
-minutes and saved on Enter or on leaving the box (empty for none); the Backlog shows the estimate too, read only. Setting *Done* still asks for solution notes. On the task page, comments, time entries, assignees (picked
+minutes and saved on Enter or on leaving the box (empty for none); the Backlog shows the estimate too, read only, and
+the sprint Planning page changes it and a task's assignee in place. Setting *Done* still asks for solution notes. On the task page, comments, time entries, assignees (picked
 by typing a name), dependencies and attachments are added and removed in place, and the clock keeps running while you
 work on the page. On an asset's page, checks, holders and the location change in place too, and Quick check refreshes
 the list when you close it. Only sign-in and the account pages (ASP.NET Identity's own) and the error page are still
@@ -121,7 +122,8 @@ scopes below it, and a role with no grants sees nothing.
 
 The navbar follows the same grants: Today needs **Edit tasks**, Tasks **View tasks**, Projects **Edit
 projects**, Backlog and Sprints **Plan tasks**, Recurring **Create tasks**, My Time **Log time** and Assets **View
-assets**, each at any scope. Hiding a link blocks nothing - the pages keep their own rules.
+assets**, each at any scope. The sprint Planning page has no menu item: its buttons on the Sprints page and a sprint's
+page show with **Plan tasks**. Hiding a link blocks nothing - the pages keep their own rules.
 
 The Dashboard is always there. It has three views, switched under its header: **My work** (your own tasks and your
 day), **Department** (who carries the department's work and what is stuck) and **Company** (which department is under
@@ -184,6 +186,27 @@ the Backlog. Completing a sprint puts its open tasks back on the Backlog. The ta
 Planned existed stayed on the Backlog. The Backlog page is for sprint planning, not day-to-day work, so it only shows
 its tasks: the status as a chip, with no status control, *Today* tick or *Take*, and the estimate as text, to weigh how
 much goes into a sprint. Select tasks and *Plan into sprint* to plan them.
+
+**Sprint planning** has its own page (spec §6.3), opened with the *Planning* button at the top of the Sprints page, or
+from a sprint's page with that sprint chosen. Pick the sprint you are planning at the top: it starts on the next planned
+sprint, or the active one when none is planned. The page shows every open task on a project, wherever it sits - in
+that sprint, another sprint, on the Backlog or Not Planned - so the meeting sees what is already planned beside what
+isn't, plus the standalone tasks on the Backlog or in a sprint (day-to-day support stays out). The tasks are grouped by
+project in panels you open and close (*Expand all*, *Collapse all*), each headed by the project's counts: open, in the
+sprint and on the Backlog with their estimates, in other sprints, and Not Planned. Each row has one button against the
+sprint you are planning: *Plan*, *Remove* (back to the Backlog) or *Move here* (from another sprint); tick rows in any
+panels to move them together. Rows keep their place when planned, so only the button and the sprint chip change. The
+estimate and a single assignee can be changed in place; links open in a new tab. At the top are the sprint's tasks,
+estimate and remaining estimate (the estimate less the time already logged) and the Backlog's tasks and estimate,
+repeated in a bar that stays in view as you scroll. **Load per person** shows each assignee's work in the sprint
+against their capacity: the sprint's working days still to come, skipping the working calendar's holidays, times the
+working day (`CriticalPath:HoursPerWorkingDay`, 8 hours by default). Anyone with more left than that is flagged
+*overloaded*. A shared task counts in full for each assignee, and leave isn't known, so treat the capacity as an upper
+bound. A person's load counts all their tasks in the sprint that you can see, whatever the filters; clicking a name shows
+only that person's tasks. The search, department and assignee filters are remembered for the browser session, and the
+totals and the panels' counts follow them and update as tasks are planned. The sprint you pick isn't remembered: the
+Sprints page's *Planning* always opens on the next sprint. The page needs **Plan tasks**; you see the tasks your **View
+tasks** scope allows, and plan the ones your **Plan tasks** reach allows.
 
 In the Tasks list and on a project page the **Sprint** column is a dropdown too: pick a planned or active sprint
 to plan the task into it, or *Backlog* or *Not Planned* to take it out, without the edit form or the Backlog page. It follows

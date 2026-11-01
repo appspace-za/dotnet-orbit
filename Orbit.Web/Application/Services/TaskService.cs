@@ -57,12 +57,7 @@ public sealed class TaskService(
         if (f.OpenOnly) q = q.Where(t => t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled);
         var plannedFor = f.PlannedFor ?? (f.PlannedToday ? DateOnly.FromDateTime(DateTime.UtcNow) : null);
         if (plannedFor is DateOnly planned) q = q.Where(t => t.PlannedFor == planned);
-        if (!string.IsNullOrWhiteSpace(f.Search))
-        {
-            var pattern = SqlLike.Contains(f.Search.Trim());
-            q = q.Where(t => EF.Functions.ILike(t.Title, pattern, SqlLike.EscapeCharacter) || EF.Functions.ILike(t.Description ?? "", pattern, SqlLike.EscapeCharacter)
-                || EF.Functions.ILike(t.SolutionNotes ?? "", pattern, SqlLike.EscapeCharacter) || EF.Functions.ILike(t.Number, pattern, SqlLike.EscapeCharacter));
-        }
+        q = Matching(q, f.Search);
 
         var page = Math.Max(1, f.Page);
         var pageSize = Math.Clamp(f.PageSize, 1, 500);
@@ -77,6 +72,18 @@ public sealed class TaskService(
             .Take(pageSize)
             .ToListAsync(ct);
         return new PagedResult<TaskItem>(items, page, pageSize, total);
+    }
+
+    /// <summary>
+    /// The tasks whose title, description, solution notes or number contain the typed text, matched literally (<see cref="SqlLike"/>);
+    /// every task for a blank search. The task lists' search, shared by the Tasks list, the Backlog and the Planning page.
+    /// </summary>
+    public static IQueryable<TaskItem> Matching(IQueryable<TaskItem> q, string? search)
+    {
+        if (string.IsNullOrWhiteSpace(search)) return q;
+        var pattern = SqlLike.Contains(search.Trim());
+        return q.Where(t => EF.Functions.ILike(t.Title, pattern, SqlLike.EscapeCharacter) || EF.Functions.ILike(t.Description ?? "", pattern, SqlLike.EscapeCharacter)
+            || EF.Functions.ILike(t.SolutionNotes ?? "", pattern, SqlLike.EscapeCharacter) || EF.Functions.ILike(t.Number, pattern, SqlLike.EscapeCharacter));
     }
 
     /// <summary>The actor's tasks.view scope (§6.5), then the optional department filter within it.</summary>

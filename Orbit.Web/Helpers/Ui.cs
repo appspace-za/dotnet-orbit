@@ -43,6 +43,9 @@ public static class Ui
 
     public static string Day(DateOnly? d) => d?.ToString("yyyy-MM-dd") ?? "-";
 
+    /// <summary>A sprint picker's label (§6.3): its name, status and dates, as on the Backlog and the Planning page.</summary>
+    public static string SprintLabel(Sprint s) => $"{s.Name} ({s.Status}, {Day(s.StartDate)} - {Day(s.EndDate)})";
+
     public static string Ago(DateTime utc)
     {
         var span = DateTime.UtcNow - DateTime.SpecifyKind(utc, DateTimeKind.Utc);

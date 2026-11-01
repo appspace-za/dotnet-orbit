@@ -1,0 +1,40 @@
+@* The routed page behind its doors (spec §6.5, decision 141). AuthorizeRouteView checks a page's [Authorize] and
+   [RequirePermission] doors each time it is handed a route, and the permission check reads the role's grants from the database
+   (PermissionAuthorizationHandler). Meanwhile it shows its Authorizing placeholder, which takes the page off the screen and builds
+   it again, losing its open panels and ticks. A list page's filter change only changes the query string, so this hands the route
+   on only when the page or its route values change: the doors are checked on arriving at a page, not on every filter. The page
+   still gets its new [SupplyParameterFromQuery] values, which the framework supplies from the address itself, and every service
+   call checks the permission again. *@
+<AuthorizeRouteView RouteData="RouteData" DefaultLayout="typeof(MainLayout)">
+    <NotAuthorized>
+        @if (context.User.Identity?.IsAuthenticated != true)
+        {
+            <RedirectToLogin />
+        }
+        else
+        {
+            <AccessDenied />
+        }
+    </NotAuthorized>
+    <Authorizing>
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    </Authorizing>
+</AuthorizeRouteView>
+
+@code {
+    [Parameter, EditorRequired] public RouteData RouteData { get; set; } = null!;
+
+    public override Task SetParametersAsync(ParameterView parameters)
+    {
+        // Only the query string changed: the page picks that up on its own, so the doors aren't checked again.
+        if (RouteData is not null && parameters.TryGetValue<RouteData>(nameof(RouteData), out var next) && SamePage(RouteData, next))
+            return Task.CompletedTask;
+        return base.SetParametersAsync(parameters);
+    }
+
+    /// <summary>Whether two routes are the same page with the same route values, as when only a list page's filters changed.</summary>
+    public static bool SamePage(RouteData shown, RouteData next) =>
+        shown.PageType == next.PageType
+        && shown.RouteValues.Count == next.RouteValues.Count
+        && shown.RouteValues.All(v => next.RouteValues.TryGetValue(v.Key, out var value) && Equals(v.Value, value));
+}

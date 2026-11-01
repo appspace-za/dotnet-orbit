@@ -158,6 +158,7 @@ builder.Services.AddScoped<CommentService>();
 builder.Services.AddScoped<NumberingService>();
 builder.Services.AddScoped<AttachmentService>();
 builder.Services.AddScoped<SprintService>();
+builder.Services.AddScoped<SprintPlanningService>();
 builder.Services.AddScoped<RecurrenceService>();
 builder.Services.AddScoped<TimeEntryService>();
 builder.Services.AddScoped<DepartmentService>();

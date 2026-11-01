@@ -184,7 +184,7 @@ else
     }
 
     private string SprintLabel(Guid id) =>
-        _openSprints.FirstOrDefault(s => s.Id == id) is { } s ? $"{s.Name} ({s.Status}, {Ui.Day(s.StartDate)} - {Ui.Day(s.EndDate)})" : "";
+        _openSprints.FirstOrDefault(s => s.Id == id) is { } s ? Ui.SprintLabel(s) : "";
 
     private async Task PlanAsync()
     {

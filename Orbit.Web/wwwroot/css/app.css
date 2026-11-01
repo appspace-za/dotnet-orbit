@@ -258,6 +258,37 @@ a.orbit-plain:hover { background: var(--mud-palette-table-hover); }
 .orbit-max-42 { max-width: 42rem; }
 .orbit-dl-flush { padding: 0; grid-template-columns: minmax(10rem, 35%) 1fr; }
 .orbit-ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Sprint planning (spec §6.3, decisions 140 and 141): the tiles, a bar that stays under the dense app bar while the panels scroll,
+   and a collapsible panel per project whose header holds the project and its counts and whose body is its task table, edge to
+   edge. The headers' number, title and small print share the task table's rules below; the header's gap spaces the number. */
+.orbit-plan .orbit-plan-title .orbit-number { margin-right: 0; }
+.orbit-plan-bar {
+    position: sticky;
+    top: calc(var(--mud-appbar-height) - var(--mud-appbar-height) / 4);
+    z-index: 5;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: .5rem;
+    min-height: 2.75rem;
+    padding: .25rem 1rem;
+    margin-bottom: 1rem;
+    font-size: .875rem;
+}
+.orbit-plan-bar .mud-button-root { white-space: nowrap; }
+.orbit-plan-flush { border-bottom: 0; }
+.orbit-plan-panels { margin-bottom: 1rem; }
+.orbit-plan-panels .mud-expand-panel-header { padding-top: .5rem; padding-bottom: .5rem; }
+.orbit-plan-panels .mud-expand-panel-header-gutters { padding-left: 1rem; padding-right: 1rem; }
+.orbit-plan-panels .mud-expand-panel-content { padding-bottom: 0; }
+.orbit-plan-panels .mud-expand-panel-content.mud-expand-panel-gutters { padding-left: 0; padding-right: 0; }
+.orbit-plan-panels .mud-expand-panel-content .orbit-empty, .orbit-plan-panels .mud-expand-panel-content .orbit-table-wrap { border-top: 1px solid var(--mud-palette-lines-default); }
+.orbit-plan-title { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .5rem; line-height: 1.4; }
+.orbit-plan-counts { display: flex; flex-wrap: wrap; gap: .25rem; margin-left: auto; padding-right: .5rem; }
+.orbit-plan-title .mud-chip, .orbit-plan-counts .mud-chip { margin: 0; }
+.orbit-plan-tasks tr.orbit-plan-in td { background: rgba(var(--mud-palette-primary-rgb), .06); }
 .orbit-gantt-label-text { flex: 1 1 auto; min-width: 0; overflow: hidden; }
 .orbit-kanban { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
 @media (min-width: 600px) { .orbit-kanban { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -349,13 +380,13 @@ a.orbit-plain:hover { background: var(--mud-palette-table-hover); }
 .orbit-table-wrap { overflow-x: auto; }
 .orbit-tasks th { white-space: nowrap; font-weight: 600; }
 .orbit-tasks td { vertical-align: middle; }
-.orbit-tasks .orbit-number, .orbit-day .orbit-number { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .8rem; color: var(--mud-palette-text-secondary); margin-right: .375rem; }
-.orbit-tasks .orbit-title, .orbit-day .orbit-title { font-weight: 600; text-decoration: none; color: var(--mud-palette-text-primary); }
-.orbit-tasks a.orbit-title:hover, .orbit-day a.orbit-title:hover { color: var(--mud-palette-primary); text-decoration: underline; }
+.orbit-tasks .orbit-number, .orbit-day .orbit-number, .orbit-plan .orbit-number { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .8rem; color: var(--mud-palette-text-secondary); margin-right: .375rem; }
+.orbit-tasks .orbit-title, .orbit-day .orbit-title, .orbit-plan .orbit-title { font-weight: 600; text-decoration: none; color: var(--mud-palette-text-primary); }
+.orbit-tasks a.orbit-title:hover, .orbit-day a.orbit-title:hover, .orbit-plan a.orbit-title:hover { color: var(--mud-palette-primary); text-decoration: underline; }
 .orbit-tasks .orbit-overdue, .orbit-day .orbit-overdue, .orbit-overdue input { color: var(--mud-palette-error) !important; font-weight: 600; }
 /* Small print under a title: a subtask's parent in task tables, and the second line of a picker's option (a number, an email),
    whose dropdown renders in the popover provider, outside .orbit-tasks. */
-.orbit-tasks .orbit-sub, .orbit-day .orbit-sub, .mud-popover .orbit-sub { font-size: .8rem; color: var(--mud-palette-text-secondary); }
+.orbit-tasks .orbit-sub, .orbit-day .orbit-sub, .orbit-plan .orbit-sub, .mud-popover .orbit-sub { font-size: .8rem; color: var(--mud-palette-text-secondary); }
 .orbit-tasks .orbit-check { width: 2.5rem; }
 .orbit-tasks .orbit-today { width: 4rem; text-align: center; }
 /* MudBlazor wraps each chip in a .mud-chip-container, which is display: contents, so the margin goes on the chip. */
