@@ -175,7 +175,9 @@ public static class ParentRollUp
                 .ToLookup(a => a.TaskId);
             var clockRows = containers.Count == 0 ? []
                 : await db.RunningClocks.Where(c => containers.Contains(c.TaskId)).ToListAsync(ct);
-            var clocks = clockRows.ToLookup(c => c.TaskId);
+            // A clock already stopped in this unit of work (the start-up step, whose save runs this hook again) is still in the
+            // database and comes back as its tracked, deleted instance: its time is logged already.
+            var clocks = clockRows.Where(c => db.Entry(c).State != EntityState.Deleted).ToLookup(c => c.TaskId);
 
             foreach (var id in level)
             {
