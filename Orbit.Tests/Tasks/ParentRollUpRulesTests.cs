@@ -134,12 +134,31 @@ public class ParentRollUpRulesTests
     [Fact]
     public void AffectedParents_includes_old_and_new_parent()
     {
-        Guid p1 = Guid.NewGuid(), p2 = Guid.NewGuid(), p3 = Guid.NewGuid();
+        Guid p1 = Guid.NewGuid(), p2 = Guid.NewGuid(), p3 = Guid.NewGuid(), p4 = Guid.NewGuid();
         var set = ParentRollUpRules.AffectedParents([
-            new(Added: false, OriginalParentId: p1, ParentId: p2, RollUpFieldChanged: false),  // moved
-            new(Added: true, OriginalParentId: null, ParentId: p3, RollUpFieldChanged: false), // new subtask
-            new(Added: false, OriginalParentId: null, ParentId: null, RollUpFieldChanged: true), // top-level task: nothing
-            new(Added: false, OriginalParentId: p3, ParentId: p3, RollUpFieldChanged: false)]); // untouched subtask: nothing new
-        Assert.Equal(new HashSet<Guid> { p1, p2, p3 }, set);
+            new(Guid.NewGuid(), Added: false, OriginalParentId: p1, ParentId: p2, RollUpFieldChanged: false, IsParent: false),  // moved
+            new(Guid.NewGuid(), Added: true, OriginalParentId: null, ParentId: p3, RollUpFieldChanged: false, IsParent: false), // new subtask
+            new(Guid.NewGuid(), Added: true, OriginalParentId: null, ParentId: null, RollUpFieldChanged: false, IsParent: false), // new top-level task: nothing
+            new(Guid.NewGuid(), Added: false, OriginalParentId: null, ParentId: null, RollUpFieldChanged: true, IsParent: false), // top-level task: nothing
+            new(Guid.NewGuid(), Added: false, OriginalParentId: p4, ParentId: p4, RollUpFieldChanged: true, IsParent: false),   // changed subtask
+            new(Guid.NewGuid(), Added: false, OriginalParentId: p3, ParentId: p3, RollUpFieldChanged: false, IsParent: false)]); // untouched subtask: nothing new
+        Assert.Equal(new HashSet<Guid> { p1, p2, p3, p4 }, set);
+    }
+
+    /// <summary>
+    /// §3.3, SUB-020: a parent whose own rolled-up field this save writes directly (a write that went round the services'
+    /// refusal, as a request's cancel once did) is recalculated itself, so the stray value is put right in the same save, and its
+    /// own parent with it. A parent's other edits (its title) and a rolled-up field on a task without subtasks don't recalculate
+    /// that task.
+    /// </summary>
+    [Fact]
+    public void AffectedParents_recalculates_a_parent_whose_rolled_up_field_was_written()
+    {
+        Guid parent = Guid.NewGuid(), grandparent = Guid.NewGuid(), titled = Guid.NewGuid(), plain = Guid.NewGuid();
+        var set = ParentRollUpRules.AffectedParents([
+            new(parent, Added: false, OriginalParentId: grandparent, ParentId: grandparent, RollUpFieldChanged: true, IsParent: true),
+            new(titled, Added: false, OriginalParentId: null, ParentId: null, RollUpFieldChanged: false, IsParent: true),
+            new(plain, Added: false, OriginalParentId: null, ParentId: null, RollUpFieldChanged: true, IsParent: false)]);
+        Assert.Equal(new HashSet<Guid> { parent, grandparent }, set);
     }
 }

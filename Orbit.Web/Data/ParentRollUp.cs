@@ -23,8 +23,9 @@ public static class ParentRollUp
     private const int MaxWalk = 10_000;
 
     /// <summary>
-    /// The save hook (§3.3): recalculates the parents of the tasks this save adds, moves or changes a rolled-up field on, then
-    /// their parents while values keep changing. Called by <see cref="ApplicationDbContext"/>'s save before the write.
+    /// The save hook (§3.3): recalculates the parents of the tasks this save adds, moves or changes a rolled-up field on, and any
+    /// parent whose own rolled-up field it writes (put back, decision 149), then their parents while values keep changing. Called
+    /// by <see cref="ApplicationDbContext"/>'s save before the write.
     /// </summary>
     public static Task ApplyAsync(ApplicationDbContext db, CancellationToken ct) =>
         DetectedOnceAsync(db, async () =>
@@ -76,9 +77,9 @@ public static class ParentRollUp
 
     private static SubtaskChange? Change(EntityEntry<TaskItem> entry) => entry.State switch
     {
-        EntityState.Added => new SubtaskChange(true, null, entry.Entity.ParentTaskId, false),
-        EntityState.Modified => new SubtaskChange(false, entry.Property(t => t.ParentTaskId).OriginalValue, entry.Entity.ParentTaskId,
-            ParentRollUpRules.RollUpFields.Any(f => entry.Property(f).IsModified)),
+        EntityState.Added => new SubtaskChange(entry.Entity.Id, true, null, entry.Entity.ParentTaskId, false, false),
+        EntityState.Modified => new SubtaskChange(entry.Entity.Id, false, entry.Property(t => t.ParentTaskId).OriginalValue, entry.Entity.ParentTaskId,
+            ParentRollUpRules.RollUpFields.Any(f => entry.Property(f).IsModified), entry.Entity.HasSubtasks),
         _ => null
     };
 

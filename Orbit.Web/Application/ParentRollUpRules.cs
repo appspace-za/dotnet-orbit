@@ -11,10 +11,10 @@ public sealed record RolledUpValues(TaskItemStatus Status, TaskPriority Priority
     int? EstimateMinutes, SprintPlacement Sprint);
 
 /// <summary>
-/// One task a save writes, as the save hook sees it (design spec 2026-11-02 §3.3): whether it is new, its parent before and
-/// after the save, and whether one of <see cref="ParentRollUpRules.RollUpFields"/> changed.
+/// One task a save writes, as the save hook sees it (design spec 2026-11-02 §3.3): its id, whether it is new, its parent before
+/// and after the save, whether one of <see cref="ParentRollUpRules.RollUpFields"/> changed, and whether it has subtasks itself.
 /// </summary>
-public sealed record SubtaskChange(bool Added, Guid? OriginalParentId, Guid? ParentId, bool RollUpFieldChanged);
+public sealed record SubtaskChange(Guid Id, bool Added, Guid? OriginalParentId, Guid? ParentId, bool RollUpFieldChanged, bool IsParent);
 
 /// <summary>
 /// A task with subtasks is a container: its status, priority, dates, estimate and sprint come from its direct subtasks
@@ -30,8 +30,10 @@ public static class ParentRollUpRules
     ];
 
     /// <summary>
-    /// §3.3: the parents a save must recalculate: a new subtask's parent, both the old and the new parent of a moved task, and
-    /// the parent of a subtask whose rolled-up field changed.
+    /// §3.3: the parents a save must recalculate: a new subtask's parent, both the old and the new parent of a moved task, the
+    /// parent of a subtask whose rolled-up field changed, and a parent whose own rolled-up field this save wrote. The services
+    /// refuse that write (SUB-020), so it can only come from a path that went round them; recalculating the parent puts the
+    /// value back in the same save, instead of leaving it until the next change under it.
     /// </summary>
     public static IReadOnlySet<Guid> AffectedParents(IEnumerable<SubtaskChange> changes)
     {
@@ -45,6 +47,7 @@ public static class ParentRollUpRules
                 if (change.ParentId is Guid to) parents.Add(to);
             }
             if (change.RollUpFieldChanged && change.ParentId is Guid parent) parents.Add(parent);
+            if (change.RollUpFieldChanged && change.IsParent) parents.Add(change.Id);
         }
         return parents;
     }

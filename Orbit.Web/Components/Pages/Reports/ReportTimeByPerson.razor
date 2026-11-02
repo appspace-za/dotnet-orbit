@@ -26,7 +26,8 @@ else
                 {
                     var r = Report.Rows[i];
                     var index = i;
-                    if (r.TaskCount == 0)
+                    @* A person whose only time is on a parent has lines but no counted task (§6.15), so the lines decide. *@
+                    if (r.Tasks.Count == 0)
                     {
                         @* No time in the period: muted, with nothing to expand. The table sets each row's colour, so the class goes on each cell. *@
                         <tr title="No time logged in the period">
@@ -88,7 +89,7 @@ else
                                                         {
                                                             <MudChip T="string" Size="Size.Small" Color="Color.Warning" title="More time has been logged than was estimated">Over estimate</MudChip>
                                                         }
-                                                        else if (ReportText.Marker(t.Status, t.EstimateMinutes, t.IsOver) is { Length: > 0 } note)
+                                                        else if (ReportText.Marker(t) is { Length: > 0 } note)
                                                         {
                                                             <span class="orbit-muted">@note</span>
                                                         }

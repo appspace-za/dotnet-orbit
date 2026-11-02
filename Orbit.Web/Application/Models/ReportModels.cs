@@ -37,9 +37,14 @@ public sealed record MeanTimeReport(IReadOnlyList<PersonAverageRow> Rows, int Ov
 /// <summary>One person's time on one task within a report's date range, summed in SQL (§12 Time by person).</summary>
 public sealed record LoggedTime(Guid UserId, Guid TaskId, int Minutes);
 
-/// <summary>What the time reports need to know about a task. <see cref="TotalMinutes"/> is all time logged on it to date, by anyone.</summary>
+/// <summary>
+/// What the time reports need to know about a task. <see cref="TotalMinutes"/> is all time logged on it to date, by anyone. A task
+/// with subtasks (<see cref="IsParent"/>, §6.15) keeps its time, which counts once on the task it was logged on, but is left out of
+/// task counts and estimate comparisons: its estimate is its subtasks' sum, and they are counted.
+/// </summary>
 public sealed record TaskTimeFacts(
-    Guid Id, string Number, string Title, TaskItemStatus Status, IReadOnlyList<Guid> AssigneeIds, int? EstimateMinutes, int TotalMinutes);
+    Guid Id, string Number, string Title, TaskItemStatus Status, IReadOnlyList<Guid> AssigneeIds, int? EstimateMinutes, int TotalMinutes,
+    bool IsParent = false);
 
 /// <summary>
 /// Estimated against actual effort over a set of tasks. Only tasks with an estimate that aren't Cancelled count
@@ -66,9 +71,13 @@ public sealed record PersonTimeRow(
     Guid UserId, string Name, int LoggedMinutes, int TaskCount, int UnestimatedTasks, EstimateComparison Estimate,
     IReadOnlyList<PersonTaskTimeRow> Tasks);
 
-/// <summary>A task one person worked on: <see cref="LoggedMinutes"/> is their time in the range, <see cref="TotalMinutes"/> everyone's to date.</summary>
+/// <summary>
+/// A task one person worked on: <see cref="LoggedMinutes"/> is their time in the range, <see cref="TotalMinutes"/> everyone's to date.
+/// A task with subtasks (<see cref="IsParent"/>, §6.15) is listed for its time only, with no estimate to compare.
+/// </summary>
 public sealed record PersonTaskTimeRow(
-    Guid TaskId, string Number, string Title, TaskItemStatus Status, int? EstimateMinutes, int LoggedMinutes, int TotalMinutes)
+    Guid TaskId, string Number, string Title, TaskItemStatus Status, int? EstimateMinutes, int LoggedMinutes, int TotalMinutes,
+    bool IsParent = false)
 {
     public bool IsCancelled => Status == TaskItemStatus.Cancelled;
     public bool IsOver => !IsCancelled && EstimateMinutes is int e && TotalMinutes > e;

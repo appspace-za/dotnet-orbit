@@ -217,16 +217,18 @@ them, the Today tick or *Take* saves without reloading the page, so you keep you
 floating in a corner. The Tasks list also has a **Sprint** filter: a planned or active sprint, *Backlog*, or
 *Not Planned*. Its **Project**, **Assignee** and **Requestee** filters each offer *None*: the
 standalone tasks on no project, the tasks nobody is assigned to, and the tasks created for nobody else. Assignee
-*None* replaced the old *Unassigned* tick box. The Planning page's Assignee filter offers *None* too. A **Due**
-filter picks *Overdue* (due before today) or *Due in 7 days* (today to seven days ahead), counted from the day you open
-the list, so a saved link or a remembered filter doesn't freeze an old date; the dashboard's due figures open it.
+*None* (and the *Unassigned* chip) never lists a task with subtasks, which has no assignees of its own: its unassigned
+subtasks are listed, under it. Assignee *None* replaced the old *Unassigned* tick box. The Planning page's Assignee
+filter offers *None* too. A **Due** filter picks *Overdue* (due before today) or *Due in 7 days* (today to seven days
+ahead), counted from the day you open the list, so a saved link or a remembered filter doesn't freeze an old date; the
+dashboard's due figures open it.
 
 **Long lists can be searched by typing** (spec §6.2). The task form's Project, Parent task and Requestee fields, the
 recurring form's Project, the project form's Owner, the time card's *For*, the task page's dependency picker and the
 asset form's Type and Location are dropdowns you can type into: click to see every option, or type part of a name, a
-number (`P-26-0003`, `T-26-00012`) or an email to narrow the list. Parent task searches the project's open tasks as you
+number (`P-26-0003`, `T-26-00012`) or an email to narrow the list. Parent task searches the project's tasks as you
 type, by title, number or department, so it copes with any number of tasks, and never offers the task's own subtasks; a
-closed parent the task already has is shown with its status. A list page's filter with more
+closed task is shown with its status, and an open subtask filed under it reopens it. A list page's filter with more
 than 10 options works the same way, with *All*, *None*, *Me*, *Backlog* and *Not Planned* kept at the top while you
 type. Every search box matches what you type literally: `%` and `_` are ordinary characters, not wildcards.
 
@@ -280,7 +282,8 @@ a card under the description, and the search box finds a task by them. Tasks clo
 have none, and can still be edited without adding any.
 
 A task with subtasks is a container, so the dashboard, project progress, the lists' counts, the sprint pages, Planning, Today
-and the reports count its subtasks instead of it; time logged on it before it gained subtasks still counts.
+and the reports count its subtasks instead of it; time logged on it before it gained subtasks still counts. An asset's
+task history and the Asset status report keep it, since its subtasks aren't linked to its asset.
 
 The task clock (**Start Clock**) runs per task: each task page has its own, and leaving a page stops only that page's
 clock (spec §6.10). On a task page, subtasks and linked tasks (Waiting on, Blocks) open in a new tab, so you can run
@@ -396,10 +399,10 @@ Nothing happens by itself: Orbit follows AD only when you load the directory and
 - A task has any number of assignees (spec §6.2.3): `create_task` / `update_task` take `assigneeIds`, an array of
   user ids from `list_users`. On `update_task` it is the complete new set - `[]` unassigns everyone, and leaving it out
   keeps the assignees as they are. Task results list `assignees` as `{ id, name, active }`; `list_tasks` filters on one
-  `assigneeId` (the tasks that person is on) or on `unassigned`. **This replaced the single `assigneeId`** on
-  `create_task` / `update_task` and the `assigneeId` / `assignee` fields in results. A caller that still passes
-  `assigneeId` to those two tools gets no error: the argument is ignored and the task is saved without the assignment,
-  so update any saved prompt, routine or script that names it.
+  `assigneeId` (the tasks that person is on) or on `unassigned` (which leaves out tasks with subtasks). **This
+  replaced the single `assigneeId`** on `create_task` / `update_task` and the `assigneeId` / `assignee` fields in
+  results. A caller that still passes `assigneeId` to those two tools gets no error: the argument is ignored and the
+  task is saved without the assignment, so update any saved prompt, routine or script that names it.
 - A task can be created on someone's behalf (spec §6.2.2): `create_task` / `update_task` take `requesteeId` (a user
   id from `list_users`; `"none"` clears it on `update_task`), `list_tasks` filters on it (`"none"` for the tasks
   created for nobody else, as `projectId` `"none"` lists the tasks on no project), and task results carry
@@ -496,8 +499,9 @@ open a page, approve or decline. The request is complete when every step is. **N
 page lists the forms, pages and approvals waiting for you (the Dashboard's **My waiting approvals** card repeats the
 approvals); **Your requests** what you logged or were addressed in (at Department scope, your whole department's);
 **Department requests** (needs **Manage requests**) everything filed with your department, where a manager can also
-cancel a request or retry and skip a step that failed. The tasks a flow creates carry the source *Request* and link
-back to their request; the Tasks list and `list_tasks` filter on the source.
+cancel a request or retry and skip a step that failed. Cancelling a request cancels its open tasks; for a task that has
+been given subtasks, its open subtasks are cancelled and it closes with them. The tasks a flow creates carry the source
+*Request* and link back to their request; the Tasks list and `list_tasks` filter on the source.
 
 Each department builds its own flows (**Admin > Request flows**, needs **Configure request flows**): categories with an
 icon and colour, flows, and each flow's steps with their fields, stages, dependencies and settings, with a *Not set
@@ -618,6 +622,8 @@ reports:
 - **Time by person** - the time each person logged in the period, and for the tasks they worked on, each task's
   estimate against all time logged on it to date (cancelled tasks aside). Expand a person to see their tasks, with
   the ones over estimate flagged. A task several people worked on shows under each of them but counts once in the total.
+  Time logged on a task before it had subtasks still counts, on a line marked *Has subtasks*, but that task isn't
+  counted in *Tasks* and its estimate (its subtasks' sum) isn't compared.
   Active people in the department reported on (the project's department when only a project is chosen, everyone when
   neither is) who logged nothing in the period are listed too, with 0, greyed out at the bottom.
 - **Estimate accuracy** - tasks completed in the period, grouped by assignee: estimated against actual time, the

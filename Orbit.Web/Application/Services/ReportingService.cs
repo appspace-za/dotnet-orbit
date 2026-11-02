@@ -223,7 +223,7 @@ public sealed class ReportingService(ApplicationDbContext db, IActorProvider act
             .Where(t => includedIds.Contains(t.ProjectId))
             .Select(t => new ProjectTaskFacts(
                 new TaskTimeFacts(t.Id, t.Number, t.Title, t.Status, t.Assignments.Select(x => x.UserId).ToList(), t.EstimateMinutes,
-                    t.TimeEntries.Sum(e => (int?)e.DurationMinutes) ?? 0),
+                    t.TimeEntries.Sum(e => (int?)e.DurationMinutes) ?? 0, t.HasSubtasks),
                 t.ProjectId!.Value, t.DueDate, t.CreatedAt, t.CompletedAt,
                 t.TimeEntries.Where(e => e.Date >= from && e.Date < to).Sum(e => (int?)e.DurationMinutes) ?? 0))
             .ToListAsync(ct);
@@ -397,7 +397,7 @@ public sealed class ReportingService(ApplicationDbContext db, IActorProvider act
                 || doneInWindow.Contains(t.Id)
                 || loggedInWindow.Contains(t.Id))
             .Select(t => new SprintTaskFacts(
-                new TaskTimeFacts(t.Id, t.Number, t.Title, t.Status, t.Assignments.Select(x => x.UserId).ToList(), t.EstimateMinutes, 0),
+                new TaskTimeFacts(t.Id, t.Number, t.Title, t.Status, t.Assignments.Select(x => x.UserId).ToList(), t.EstimateMinutes, 0, t.HasSubtasks),
                 t.ProjectId, t.SprintId, t.InBacklog, t.CreatedAt, t.CompletedAt, 0, t.HasSubtasks)) // a parent is kept for its time (§6.15)
             .ToListAsync(ct);
 
@@ -442,9 +442,10 @@ public sealed class ReportingService(ApplicationDbContext db, IActorProvider act
             f.ProjectId, f.AssigneeId, asAt) with { Sprints = offered };
     }
 
+    // IsParent (§6.15): a parent keeps its time in Time by person but is left out of its task counts and estimates.
     private static IQueryable<TaskTimeFacts> Facts(IQueryable<TaskItem> q) =>
         q.Select(t => new TaskTimeFacts(t.Id, t.Number, t.Title, t.Status, t.Assignments.Select(x => x.UserId).ToList(), t.EstimateMinutes,
-            t.TimeEntries.Sum(e => (int?)e.DurationMinutes) ?? 0));
+            t.TimeEntries.Sum(e => (int?)e.DurationMinutes) ?? 0, t.HasSubtasks));
 
     private async Task<Actor> RequireReportsAsync(CancellationToken ct)
     {

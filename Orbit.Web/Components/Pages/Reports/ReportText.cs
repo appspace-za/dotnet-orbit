@@ -25,6 +25,12 @@ public static class ReportText
     public static string Marker(TaskItemStatus status, int? estimate, bool isOver) =>
         status == TaskItemStatus.Cancelled ? "Cancelled" : EstimateNote(estimate, isOver);
 
+    /// <summary>
+    /// The note beside a Time by person task line: Has subtasks for a parent, listed for its time only with no estimate to compare
+    /// (§6.15), otherwise <see cref="Marker"/>.
+    /// </summary>
+    public static string Marker(PersonTaskTimeRow t) => t.IsParent ? "Has subtasks" : Marker(t.Status, t.EstimateMinutes, t.IsOver);
+
     /// <summary>The estimate's note on a task that isn't cancelled: No estimate, Over estimate, or nothing.</summary>
     public static string EstimateNote(int? estimate, bool isOver) => estimate is null ? "No estimate" : isOver ? "Over estimate" : "";
 

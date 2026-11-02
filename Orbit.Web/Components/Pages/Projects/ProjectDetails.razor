@@ -312,12 +312,17 @@ else
     private IReadOnlyList<(string Value, string Text)> _departmentOptions = [], _assigneeOptions = [];
     private bool _canEdit, _canAddTasks, _isCrossDepartment, _isSharedView, _canRunAnalysis, _canAttach, _busy;
 
+    /// <summary>
+    /// The collapsed parents, read once, before the first rows are drawn, so they are drawn as they were left (§6.2): no flash of
+    /// open groups. From then on <see cref="CollapseAsync"/> keeps them in step with the browser, so a reload never reads them
+    /// again and can't undo a toggle clicked while it ran.
+    /// </summary>
+    protected override async Task OnInitializedAsync() => _collapsed = await TreeMemory.CollapsedAsync();
+
     protected override Task OnParametersSetAsync() => ReloadAsync();
 
     private async Task ReloadAsync()
     {
-        // The collapsed parents, set with the rows so they are first drawn as they were left (§6.2): no flash of open groups.
-        var collapsed = await TreeMemory.CollapsedAsync();
         await Load(async sp =>
         {
             var actor = await sp.Get<IActorProvider>().GetAsync();
@@ -367,7 +372,6 @@ else
             _rows = rows;
             _tasks = rows.Select(r => r.Task).ToList();
             _summaries = summaries;
-            _collapsed = collapsed;
             _summary = summary;
             _project = project;
         });

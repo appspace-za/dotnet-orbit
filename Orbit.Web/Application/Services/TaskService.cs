@@ -91,7 +91,8 @@ public sealed class TaskService(
         if (f.NoProject) q = q.Where(t => t.ProjectId == null);
         else if (f.ProjectId is Guid projectId) q = q.Where(t => t.ProjectId == projectId);
         if (f.Status is TaskItemStatus status) q = q.Where(t => t.Status == status);
-        if (f.Unassigned) q = q.Where(t => !t.Assignments.Any());
+        // A parent keeps no assignees (§6.15), so it isn't unassigned work: its unassigned subtasks match, with it as their context row.
+        if (f.Unassigned) q = q.Where(t => !t.HasSubtasks && !t.Assignments.Any());
         else if (f.AssigneeId is Guid assigneeId) q = q.Where(t => t.Assignments.Any(x => x.UserId == assigneeId));
         if (f.NoRequestee) q = q.Where(t => t.RequesteeId == null);
         else if (f.RequesteeId is Guid requesteeId) q = q.Where(t => t.RequesteeId == requesteeId);
@@ -276,7 +277,9 @@ public sealed class TaskService(
             AccessPolicy.Require(AccessPolicy.CanPlanTask(actor, task), "You can't plan tasks from another department.");
             await ValidateSprintAsync(placement.SprintId, ct);
         }
-        DependencyRules.RequireDatesInOrder(input.StartDate, input.DueDate);
+        // A parent's dates are its subtasks' earliest start and latest due, taken apart, so they can come out in reverse; the
+        // refusal above leaves them as they are, so they aren't checked (§6.15).
+        if (!task.HasSubtasks) DependencyRules.RequireDatesInOrder(input.StartDate, input.DueDate);
         var solutionNotes = Clean(input.SolutionNotes);
         SolutionNoteRules.Require(task.Status, newStatus, task.SolutionNotes, solutionNotes);
         if (newStatus != task.Status) await structure.EnsureStatusChangeAllowedAsync(task, newStatus, ct);

@@ -61,7 +61,7 @@ public sealed class OrbitTools(
         [Description("The assignees' user ids (GUID, from list_users): one person, or several who share the task. Each must be an active user in the task's department (not necessarily the project's), or a user whose role sees tasks in every department. Omit to leave unassigned.")] string[]? assigneeIds = null,
         [Description("Optional idempotency key. Retrying with the same key returns the already-created task instead of a duplicate.")] string? idempotencyKey = null,
         [Description("Planned start date as yyyy-MM-dd (not after the due date).")] string? startDate = null,
-        [Description("Parent task id (GUID) to create this as a subtask. The parent must be on the same project (or, for a standalone task, be a standalone task in the same department) and still open. Giving a task its first subtask makes it a parent: its own status, priority, dates, estimate and sprint are replaced by values rolled up from its subtasks, and its assignees are removed.")] string? parentTaskId = null,
+        [Description("Parent task id (GUID) to create this as a subtask. The parent must be on the same project (or, for a standalone task, be a standalone task in the same department); it may be closed, and an open subtask reopens it. Giving a task its first subtask makes it a parent: its own status, priority, dates, estimate and sprint are replaced by values rolled up from its subtasks, and its assignees are removed.")] string? parentTaskId = null,
         [Description("Estimated effort in minutes, e.g. 90 for an hour and a half. Omit or 0 for no estimate.")] int? estimateMinutes = null,
         [Description("The asset the task is about - a repair, a service, a replacement: its id (GUID) or ERP asset number. It must be an asset the key can see that isn't disposed; the task then appears in the asset's task history (get_asset).")] string? assetId = null,
         [Description("The requestee: user id (GUID, from list_users) of the person the task is created for. They can open, edit and plan it as their own and are emailed. Needs the key's Create tasks for others permission to reach them - anyone in the key's department at Department, anyone at All; a key at Own can name nobody. Omit when the task is for nobody else.")] string? requesteeId = null,
@@ -140,7 +140,7 @@ public sealed class OrbitTools(
         [Description("Filter by department id (GUID). Only useful for a key that sees every department.")] string? departmentId = null,
         [Description("Todo, InProgress, Waiting, Blocked, Done or Cancelled.")] string? status = null,
         [Description("Filter by assignee user id (GUID): the tasks that person is one of the assignees of.")] string? assigneeId = null,
-        [Description("true = only tasks with no assignee - work nobody has picked up yet. Overrides assigneeId.")] bool? unassigned = null,
+        [Description("true = only tasks with no assignee - work nobody has picked up yet. A task with subtasks never matches: it has no assignees of its own, and its unassigned subtasks do. Overrides assigneeId.")] bool? unassigned = null,
         [Description("Manual, Api, Recurring, Request (logged through a department's request flow) or Nagios (raised for a host or service Nagios reported down) - where the task originated.")] string? source = null,
         [Description("Low, Medium, High or Critical.")] string? priority = null,
         [Description("Meeting, Planning, Task, Training, Audit, Change, Request or Problem.")] string? type = null,
@@ -1343,7 +1343,7 @@ public sealed class OrbitTools(
                     id = t.Id, title = t.Title, status = t.Status, priority = t.Priority, type = t.Type, source = t.Source,
                     departmentId = t.DepartmentId, department = t.Department?.Name,
                     assignees = AssigneesDto(t),
-                    parentTaskId = t.ParentTaskId, startDate = t.StartDate, dueDate = t.DueDate,
+                    parentTaskId = t.ParentTaskId, hasSubtasks = t.HasSubtasks, startDate = t.StartDate, dueDate = t.DueDate,
                     sprintId = t.SprintId, inBacklog = SprintPlacement.Of(t).IsBacklog, notPlanned = SprintPlacement.Of(t).IsNotPlanned,
                     updatedAt = t.UpdatedAt
                 }).ToList()

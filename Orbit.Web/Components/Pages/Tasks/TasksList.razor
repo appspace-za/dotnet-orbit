@@ -218,6 +218,13 @@ else
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// The collapsed parents, read once, before the first rows are drawn, so they are drawn as they were left (§6.2): no flash of
+    /// open groups. From then on <see cref="CollapseAsync"/> keeps them in step with the browser, so a reload never reads them
+    /// again and can't undo a toggle clicked while it ran.
+    /// </summary>
+    protected override async Task OnInitializedAsync() => _collapsed = await TreeMemory.CollapsedAsync();
+
     protected override async Task OnParametersSetAsync()
     {
         if (await GoToRememberedAsync(FilterQuery.Flag(Reset), oneOff: FilterChoice.Id(ParentTaskId) is not null)) return;
@@ -226,8 +233,6 @@ else
 
     private async Task ReloadAsync()
     {
-        // The collapsed parents, set with the rows so they are first drawn as they were left (§6.2): no flash of open groups.
-        var collapsed = await TreeMemory.CollapsedAsync();
         await Load(async s =>
         {
             var actor = await s.Get<IActorProvider>().GetAsync();
@@ -310,7 +315,6 @@ else
             _today = today;
             _actor = actor;
             _summaries = summaries;
-            _collapsed = collapsed;
             _tasks = tree.Rows.Select(r => r.Task).ToList();
             _shown = shown;
             _page = tree;

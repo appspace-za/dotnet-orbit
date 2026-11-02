@@ -3,8 +3,8 @@
 @* The task form (spec §6.2), for a new task (TaskCreate: blank, on a project or sprint, or a subtask, §6.15) or an existing one
    (TaskEdit). The department follows the task form's rule (§6.2.1): picking a project fills it with the project's, and only
    whoever creates tasks everywhere chooses it. The Assignees picker offers the people of the department in force and drops
-   those who don't belong when it changes (§6.2.3); the Parent task picker searches the project's open tasks, or for a standalone
-   task its department's (§6.15). The Requestee is offered with tasks.create_for above Own (§6.2.2), the asset with assets.view
+   those who don't belong when it changes (§6.2.3); the Parent task picker searches the project's tasks, closed ones too, or for a
+   standalone task its department's (§6.15). The Requestee is offered with tasks.create_for above Own (§6.2.2), the asset with assets.view
    (§6.19). Project, Requestee and Parent task are selects you can type into (SearchSelect, §13 item 121). Editing adds Status
    and the Solution notes box (§6.2.4), and asks before you set your own task Done with no time logged on it (§6.10). *@
 
@@ -119,7 +119,7 @@ else
             </MudItem>
             <MudItem xs="12" md="4">
                 <div class="orbit-section-title mt-0 mb-1">Assignees</div>
-                @if (_assignees.Count == 0)
+                @if (_assignees.Count == 0 && !Derived)
                 {
                     <div class="orbit-muted orbit-small mb-1">Nobody - unassigned</div>
                 }
@@ -183,12 +183,13 @@ else
                 <SearchSelect TValue="Guid" Value="@(_form.ParentTaskId ?? Guid.Empty)" ValueChanged="ParentChanged" Options="NoParentOptions"
                               Search="SearchParentsAsync" SelectedText="@ParentLabel(_parent)" Limit="20" Label="Parent task" />
                 <div class="orbit-help">
-                    Makes this a subtask. Type part of a title, a task number or a department. Only open tasks on the same project are
-                    offered (for a standalone task, standalone tasks in its department).
+                    Makes this a subtask. Type part of a title, a task number or a department. Tasks on the same project are offered
+                    (for a standalone task, standalone tasks in its department), a closed one with its status: an open subtask reopens it.
                 </div>
             </MudItem>
             <MudItem xs="12" md="2">
-                <MudNumericField T="int?" @bind-Value="_form.EstimateMinutes" Label="Estimate" Min="0" Max="525600" Step="5" Placeholder="e.g. 90"
+                @* A parent's estimate is its subtasks' uncapped sum (§6.15), so the year's cap doesn't bound it. *@
+                <MudNumericField T="int?" @bind-Value="_form.EstimateMinutes" Label="Estimate" Min="0" Max="@(Derived ? int.MaxValue : 525_600)" Step="5" Placeholder="e.g. 90"
                                  Adornment="Adornment.End" AdornmentText="min" Variant="Variant.Outlined" Disabled="Derived" />
                 <div class="orbit-help">@(Derived ? DerivedHelp : "Expected effort in minutes; blank for none.")</div>
             </MudItem>
@@ -310,9 +311,10 @@ else
         p is null ? null : p.Status.IsClosed() ? $"{p.Title} ({p.Status.Label()})" : p.Title;
 
     /// <summary>
-    /// The Parent task picker's search: up to <paramref name="take"/> open tasks the task could be filed under where the form
-    /// now stands - the chosen project's, or for a standalone task its department's - leaving out the task and its own
-    /// subtasks. Opened without typing, the list starts with the current parent, so a closed one is listed with its status.
+    /// The Parent task picker's search: up to <paramref name="take"/> tasks the task could be filed under where the form now
+    /// stands - the chosen project's, or for a standalone task its department's - leaving out the task and its own subtasks. A
+    /// closed one is listed with its status (an open subtask reopens it, §6.15); opened without typing, the list starts with the
+    /// current parent.
     /// </summary>
     private async Task<IReadOnlyList<PickOption<Guid>>> SearchParentsAsync(IServiceProvider s, string? text, int take, CancellationToken ct)
     {
@@ -504,8 +506,9 @@ else
         // service checks them again.
         if (string.IsNullOrWhiteSpace(_form.Title)) { Error("Title is required."); return; }
         if (_form.Title.Length > 300) { Error("Title must be 300 characters or fewer."); return; }
-        if (_form.EstimateMinutes < 0) { Error("The estimate can't be negative."); return; }
-        if (_form.EstimateMinutes > 525_600) { Error("The estimate must be at most a year (525,600 minutes)."); return; }
+        // A parent's estimate is its subtasks' uncapped sum, sent back unchanged, which the service lets through (§6.15).
+        if (!Derived && _form.EstimateMinutes < 0) { Error("The estimate can't be negative."); return; }
+        if (!Derived && _form.EstimateMinutes > 525_600) { Error("The estimate must be at most a year (525,600 minutes)."); return; }
         if (_task is not null && NotesRequired && string.IsNullOrWhiteSpace(_form.SolutionNotes))
         {
             Error(_task.Status == TaskItemStatus.Done ? SolutionNoteRules.CantClearMessage : SolutionNoteRules.RequiredMessage);

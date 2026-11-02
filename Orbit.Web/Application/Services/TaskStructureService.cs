@@ -315,12 +315,14 @@ public sealed class TaskStructureService(ApplicationDbContext db, IActorProvider
         if (to.IsClosed()) await EnsureParentsMayFinishAsync(task, to, ct);
     }
 
-    // SUB-021: walks up while closing this subtask finishes the parent; each parent's unmet finish links refuse it.
+    // SUB-021: walks up while closing this subtask finishes the parent; each parent's unmet finish links refuse it. A loop in bad
+    // data ends where it comes back round, and the walk stops at MaxDepth, as LoadAncestorsAsync's does.
     private async Task EnsureParentsMayFinishAsync(TaskItem task, TaskItemStatus to, CancellationToken ct)
     {
         var child = task;
         var childTo = to;
-        while (child.ParentTaskId is Guid parentId)
+        var seen = new HashSet<Guid> { task.Id };
+        for (var depth = 0; child.ParentTaskId is Guid parentId && seen.Add(parentId) && depth < MaxDepth; depth++)
         {
             var parent = await db.Tasks.AsNoTracking().FirstOrDefaultAsync(t => t.Id == parentId, ct);
             if (parent is null) return;
