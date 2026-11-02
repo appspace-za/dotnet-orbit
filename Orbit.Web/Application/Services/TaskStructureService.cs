@@ -61,7 +61,7 @@ public sealed class TaskStructureService(ApplicationDbContext db, IActorProvider
         if (parentIds.Count == 0) return new Dictionary<Guid, ParentSummary>();
 
         var facts = new List<DescendantFacts>();
-        var seen = new HashSet<Guid>(parentIds);
+        var seen = new HashSet<Guid>();
         var frontier = parentIds;
         for (var round = 0; frontier.Count > 0 && round < MaxDepth; round++)
         {
