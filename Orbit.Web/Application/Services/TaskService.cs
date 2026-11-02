@@ -176,7 +176,7 @@ public sealed class TaskService(
         task.CreatedById = actor.UserId;
         task.CreatedAt = now;
         task.UpdatedAt = now;
-        ApplyStatus(task, status, now);
+        TaskStatusStamps.Apply(task, status, now);
 
         db.Tasks.Add(task);
         audit.Add(actor, AuditEntity.Task, task.Id, AuditAction.Created, task.DepartmentId, task.Title, new
@@ -280,7 +280,7 @@ public sealed class TaskService(
         task.StartDate = input.StartDate;
         task.DueDate = input.DueDate;
         placement.ApplyTo(task);
-        if (newStatus != task.Status) ApplyStatus(task, newStatus, now);
+        if (newStatus != task.Status) TaskStatusStamps.Apply(task, newStatus, now);
         task.UpdatedAt = now;
 
         // A parent takes its subtree along when it changes project (or, standalone, department) - §6.15.
@@ -338,7 +338,7 @@ public sealed class TaskService(
         var changes = new ChangeSet()
             .Track("status", previous, status)
             .TrackText("solutionNotes", task.SolutionNotes, notes);
-        ApplyStatus(task, status, now);
+        TaskStatusStamps.Apply(task, status, now);
         task.SolutionNotes = notes;
         task.UpdatedAt = now;
         audit.Add(actor, AuditEntity.Task, task.Id,
@@ -748,14 +748,6 @@ public sealed class TaskService(
     }
 
     private static string? Clean(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
-
-    private static void ApplyStatus(TaskItem task, TaskItemStatus status, DateTime now)
-    {
-        if (task.Status == TaskItemStatus.Todo && status != TaskItemStatus.Todo && task.FirstRespondedAt is null)
-            task.FirstRespondedAt = now;
-        task.CompletedAt = status == TaskItemStatus.Done ? now : null;
-        task.Status = status;
-    }
 
     /// <summary>
     /// Which department a task belongs to (§5.1, §6.2.1):
