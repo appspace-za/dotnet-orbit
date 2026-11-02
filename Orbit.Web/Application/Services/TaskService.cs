@@ -226,7 +226,9 @@ public sealed class TaskService(
         var placement = SprintPlacement.Choose(input.SprintId, input.Backlog,
             task.HasSubtasks ? SprintPlacement.Of(task) : SprintPlacement.Of(task).WithoutSprint);
         // SUB-020: a parent's status, priority, dates, estimate, sprint and assignees come from its subtasks.
-        var estimate = TimeRules.CleanEstimate(input.EstimateMinutes);
+        // A parent's estimate is the uncapped sum of its subtasks', sent back unchanged: it skips the one-year cap (SUB-020).
+        var estimate = task.HasSubtasks && input.EstimateMinutes == task.EstimateMinutes
+            ? task.EstimateMinutes : TimeRules.CleanEstimate(input.EstimateMinutes);
         if (ParentRules.DerivedChange(task, newStatus, input.Priority, input.StartDate, input.DueDate, estimate, placement, !assignees.IsEmpty) is { } derived)
             throw new ValidationException(ParentRules.DerivedMessage(task, derived));
         if (placement != SprintPlacement.Of(task))
