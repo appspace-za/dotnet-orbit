@@ -67,6 +67,13 @@ public static class ParentRollUpRules
         return TaskItemStatus.InProgress;
     }
 
+    /// <summary>
+    /// SUB-021: whether closing a subtask (to <paramref name="childTo"/>) leaves every subtask closed with at least one Done, so
+    /// the parent finishes. False when the parent is already Done.
+    /// </summary>
+    public static bool FinishesParent(IEnumerable<TaskItemStatus> otherSubtasks, TaskItemStatus childTo, TaskItemStatus parentStatus) =>
+        parentStatus != TaskItemStatus.Done && Status(otherSubtasks.Append(childTo)) == TaskItemStatus.Done;
+
     /// <summary>SUB-006 to SUB-009: every rolled-up value.</summary>
     public static RolledUpValues Of(IReadOnlyCollection<SubtaskFacts> subtasks)
     {

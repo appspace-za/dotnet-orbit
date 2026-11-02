@@ -134,7 +134,7 @@ public sealed class TaskService(
         var solutionNotes = Clean(input.SolutionNotes);
         SolutionNoteRules.Require(TaskItemStatus.Todo, status, null, solutionNotes);
         DependencyRules.RequireDatesInOrder(input.StartDate, input.DueDate);
-        var parent = await structure.ValidateParentAsync(null, input.ParentTaskId, input.ProjectId, departmentId, childOpen: !status.IsClosed(), ct);
+        var parent = await structure.ValidateParentAsync(null, input.ParentTaskId, input.ProjectId, departmentId, ct);
 
         var task = new TaskItem
         {
@@ -222,7 +222,13 @@ public sealed class TaskService(
         var newStatus = input.Status ?? task.Status; // any status: the §6.5 status rule is the edit right required above
         // §6.3: with no sprint and no backlog flag given, a task in no sprint keeps its place and one leaving a sprint goes to
         // the Backlog, as completing a sprint sends it (§13 item 117).
-        var placement = SprintPlacement.Choose(input.SprintId, input.Backlog, SprintPlacement.Of(task).WithoutSprint);
+        // A parent's sprint comes from its subtasks, so leaving it unnamed keeps it where it is (SUB-020).
+        var placement = SprintPlacement.Choose(input.SprintId, input.Backlog,
+            task.HasSubtasks ? SprintPlacement.Of(task) : SprintPlacement.Of(task).WithoutSprint);
+        // SUB-020: a parent's status, priority, dates, estimate, sprint and assignees come from its subtasks.
+        var estimate = TimeRules.CleanEstimate(input.EstimateMinutes);
+        if (ParentRules.DerivedChange(task, newStatus, input.Priority, input.StartDate, input.DueDate, estimate, placement, !assignees.IsEmpty) is { } derived)
+            throw new ValidationException(ParentRules.DerivedMessage(task, derived));
         if (placement != SprintPlacement.Of(task))
         {
             AccessPolicy.Require(AccessPolicy.CanPlanTask(actor, task), "You can't plan tasks from another department.");
@@ -234,10 +240,9 @@ public sealed class TaskService(
         if (newStatus != task.Status) await structure.EnsureStatusChangeAllowedAsync(task, newStatus, ct);
         // §6.15: a child can't leave its parent's project on its own, a parent takes its subtree along, and no link may end up crossing projects.
         var subtree = await structure.PrepareMoveAsync(task, input.ProjectId, departmentId, input.ParentTaskId, actor, ct);
-        var parent = await structure.ValidateParentAsync(task, input.ParentTaskId, input.ProjectId, departmentId, childOpen: !newStatus.IsClosed(), ct);
+        var parent = await structure.ValidateParentAsync(task, input.ParentTaskId, input.ProjectId, departmentId, ct);
 
         var previousParentId = task.ParentTaskId;
-        var estimate = TimeRules.CleanEstimate(input.EstimateMinutes);
         var changes = new ChangeSet()
             .TrackText("title", task.Title, title)
             .TrackText("description", task.Description, input.Description)
@@ -327,6 +332,7 @@ public sealed class TaskService(
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == id, ct)
             ?? throw new NotFoundException("Task not found.");
         AccessPolicy.Require(AccessPolicy.CanViewTask(actor, task), "This task belongs to another department.");
+        ParentRules.RequireNotParent(task, "status");
         AccessPolicy.Require(AccessPolicy.CanChangeStatus(actor, task), "You don't have permission to change this task's status.");
         if (task.Status == status) return task;
         var notes = Clean(solutionNotes) ?? task.SolutionNotes;
@@ -361,6 +367,7 @@ public sealed class TaskService(
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == id, ct)
             ?? throw new NotFoundException("Task not found.");
         AccessPolicy.Require(AccessPolicy.CanViewTask(actor, task), "This task belongs to another department.");
+        ParentRules.RequireNotParent(task, "assignees");
         // Taking an unassigned task for yourself (§6.5) needs no edit rights, only tasks.take in its department.
         if (assigneeId is not null && assigneeId == actor.UserId && !AccessPolicy.CanEditTask(actor, task) && AccessPolicy.CanTakeTask(actor, task))
             return await TakeAsync(id, ct);
@@ -390,6 +397,7 @@ public sealed class TaskService(
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == id, ct)
             ?? throw new NotFoundException("Task not found.");
         AccessPolicy.Require(AccessPolicy.CanViewTask(actor, task), "This task belongs to another department.");
+        ParentRules.RequireNotParent(task, "assignees");
         AccessPolicy.Require(AccessPolicy.CanEditTask(actor, task), "You don't have permission to edit this task.");
         return (actor, task);
     }
@@ -442,6 +450,7 @@ public sealed class TaskService(
         var task = await db.Tasks.AsNoTracking().FirstOrDefaultAsync(t => t.Id == id, ct)
             ?? throw new NotFoundException("Task not found.");
         AccessPolicy.Require(AccessPolicy.CanViewTask(actor, task), "This task belongs to another department.");
+        ParentRules.RequireNotParent(task, "assignees");
         if (task.IsAssignedTo(me)) return await GetAsync(id, ct);
         if (!task.IsUnassigned)
             throw new ValidationException($"\"{task.Title}\" is already assigned to {task.AssigneeNames}.");
@@ -479,6 +488,7 @@ public sealed class TaskService(
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == id, ct)
             ?? throw new NotFoundException("Task not found.");
         AccessPolicy.Require(AccessPolicy.CanViewTask(actor, task), "This task belongs to another department.");
+        ParentRules.RequireNotParent(task, "due date");
         AccessPolicy.Require(AccessPolicy.CanEditTask(actor, task), "You don't have permission to edit this task.");
         if (task.DueDate == dueDate) return task;
         DependencyRules.RequireDatesInOrder(task.StartDate, dueDate);
@@ -499,6 +509,7 @@ public sealed class TaskService(
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == id, ct)
             ?? throw new NotFoundException("Task not found.");
         AccessPolicy.Require(AccessPolicy.CanViewTask(actor, task), "This task belongs to another department.");
+        ParentRules.RequireNotParent(task, "estimate");
         AccessPolicy.Require(AccessPolicy.CanEditTask(actor, task), "You don't have permission to edit this task.");
         var estimate = TimeRules.CleanEstimate(estimateMinutes);
         if (task.EstimateMinutes == estimate) return task;
@@ -521,6 +532,7 @@ public sealed class TaskService(
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == id, ct)
             ?? throw new NotFoundException("Task not found.");
         AccessPolicy.Require(AccessPolicy.CanViewTask(actor, task), "This task belongs to another department.");
+        ParentRules.RequireNotParent(task, "due date");
         AccessPolicy.Require(AccessPolicy.CanEditTask(actor, task), "You don't have permission to edit this task.");
         DependencyRules.RequireDatesInOrder(startDate, dueDate);
 
@@ -550,6 +562,7 @@ public sealed class TaskService(
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == id, ct)
             ?? throw new NotFoundException("Task not found.");
         AccessPolicy.Require(AccessPolicy.CanViewTask(actor, task), "This task belongs to another department.");
+        ParentRules.RequireNotParent(task, "day plan");
         AccessPolicy.Require(AccessPolicy.CanPlanTask(actor, task), "You can't plan tasks from another department.");
         if (date is not null && !task.IsOpen) throw new ValidationException("Closed tasks can't be put on a day plan.");
         if (task.PlannedFor == date) return task;
@@ -567,7 +580,7 @@ public sealed class TaskService(
     public async Task<int> CarryOverAsync(IReadOnlyCollection<Guid> taskIds, DateOnly to, CancellationToken ct = default)
     {
         var actor = await actors.GetAsync(ct);
-        var tasks = await db.Tasks.Where(t => taskIds.Contains(t.Id)).ToListAsync(ct);
+        var tasks = await db.Tasks.Where(t => taskIds.Contains(t.Id) && !t.HasSubtasks).ToListAsync(ct); // a parent has no day plan (SUB-020)
         var moved = 0;
         var now = DateTime.UtcNow;
         foreach (var task in tasks)
@@ -595,7 +608,7 @@ public sealed class TaskService(
         var inScope = DayPlanScope(actor, departmentId);
         var (_, previous) = await EarlierPlansAsync(inScope, to, ct);
         if (previous is not DateOnly day) return 0;
-        var ids = await LeftOn(inScope, day).Select(t => t.Id).ToListAsync(ct);
+        var ids = await LeftOn(inScope, day).Where(t => !t.HasSubtasks).Select(t => t.Id).ToListAsync(ct);
         return await CarryOverAsync(ids, to, ct);
     }
 
@@ -687,6 +700,7 @@ public sealed class TaskService(
         var actor = await actors.GetAsync(ct);
         var sprint = await ValidateSprintAsync(target.SprintId, ct);
         var tasks = await db.Tasks.Where(t => taskIds.Contains(t.Id)).ToListAsync(ct);
+        if (tasks.FirstOrDefault(t => t.HasSubtasks) is { } parent) throw new ValidationException(ParentRules.DerivedMessage(parent, "sprint"));
         var moved = 0;
         var now = DateTime.UtcNow;
         foreach (var task in tasks)
@@ -713,6 +727,7 @@ public sealed class TaskService(
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == id, ct)
             ?? throw new NotFoundException("Task not found.");
         AccessPolicy.Require(AccessPolicy.CanViewTask(actor, task), "This task belongs to another department.");
+        ParentRules.RequireNotParent(task, "sprint");
         AccessPolicy.Require(AccessPolicy.CanPlanTask(actor, task), "You can't plan tasks from another department.");
         if (SprintPlacement.Of(task) == target) return await GetAsync(id, ct);
         if (target.IsSprint && task.Status.IsClosed()) throw new ValidationException("A closed task can't be planned into a sprint.");

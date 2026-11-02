@@ -157,9 +157,9 @@ public static class Ui
         _ => action.ToLowerInvariant()
     };
 
-    /// <summary>Status options the actor may pick for this task in an inline control: every status if they may change it (§6.5), otherwise only the current one.</summary>
+    /// <summary>Status options the actor may pick for this task in an inline control: every status if they may change it (§6.5), otherwise only the current one. A parent's status comes from its subtasks (SUB-020), so it is always only the current one.</summary>
     public static IReadOnlyList<TaskItemStatus> AllowedStatuses(Actor actor, TaskItem task) =>
-        AccessPolicy.CanChangeStatus(actor, task) ? Enum.GetValues<TaskItemStatus>() : [task.Status];
+        !task.HasSubtasks && AccessPolicy.CanChangeStatus(actor, task) ? Enum.GetValues<TaskItemStatus>() : [task.Status];
 
     /// <summary>A lag in days as "+2 d" / "-1 d", or "-" for none.</summary>
     public static string Lag(int lagDays) => lagDays == 0 ? "-" : $"{(lagDays > 0 ? "+" : "")}{lagDays} d";

@@ -146,7 +146,7 @@ public sealed class SprintService(ApplicationDbContext db, IActorProvider actors
         var current = await db.Sprints.FirstOrDefaultAsync(s => s.Status == SprintStatus.Active, ct);
         if (current is not null)
         {
-            var open = await db.Tasks.Where(t => t.SprintId == current.Id
+            var open = await db.Tasks.Where(t => t.SprintId == current.Id && !t.HasSubtasks
                 && t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled).ToListAsync(ct);
             foreach (var task in open)
             {
@@ -180,7 +180,7 @@ public sealed class SprintService(ApplicationDbContext db, IActorProvider actors
             throw new ValidationException("Only the active sprint can be completed.");
 
         var now = DateTime.UtcNow;
-        var open = await db.Tasks.Where(t => t.SprintId == sprint.Id
+        var open = await db.Tasks.Where(t => t.SprintId == sprint.Id && !t.HasSubtasks
             && t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled).ToListAsync(ct);
         foreach (var task in open)
         {

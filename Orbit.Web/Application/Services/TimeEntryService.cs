@@ -68,6 +68,7 @@ public sealed class TimeEntryService(ApplicationDbContext db, IActorProvider act
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == input.TaskId, ct)
             ?? throw new NotFoundException("Task not found.");
         AccessPolicy.Require(AccessPolicy.CanViewTask(actor, task), "This task belongs to another department.");
+        if (task.HasSubtasks) throw new ValidationException(ParentRules.NoTimeMessage); // SUB-020
 
         var userId = input.UserId ?? actor.UserId ?? throw new ValidationException("A user is required.");
         AccessPolicy.Require(AccessPolicy.CanLogTimeFor(actor, task, userId),
@@ -172,6 +173,7 @@ public sealed class TimeEntryService(ApplicationDbContext db, IActorProvider act
         var task = await db.Tasks.AsNoTracking().FirstOrDefaultAsync(t => t.Id == taskId, ct)
             ?? throw new NotFoundException("Task not found.");
         AccessPolicy.Require(AccessPolicy.CanViewTask(actor, task), "This task belongs to another department.");
+        if (task.HasSubtasks) throw new ValidationException(ParentRules.NoTimeMessage); // SUB-020
         AccessPolicy.Require(AccessPolicy.CanLogTimeFor(actor, task, me), "You can only run the clock on tasks assigned to you.");
 
         var now = DateTime.UtcNow;
