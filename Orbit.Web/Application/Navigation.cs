@@ -39,6 +39,13 @@ public static class Navigation
     public static string MyTasksToday(Guid me) =>
         new FilterQuery().Add(TaskListKeys.Assignee, me).Add(TaskListKeys.PlannedToday, true).At(TaskListKeys.Path);
 
+    /// <summary>
+    /// The Tasks list's Unassigned filter (§6.2, decision 144): the open tasks nobody is assigned to, the Assignee filter's
+    /// <i>None</i> with <i>Open only</i>. It is the same for every viewer, so an actor with no user gets it too.
+    /// </summary>
+    public static string UnassignedTasks =>
+        new FilterQuery().Add(TaskListKeys.Assignee, FilterChoice.None).Add(TaskListKeys.OpenOnly, true).At(TaskListKeys.Path);
+
     /// <summary>The Tasks list: tasks.view at any scope (without it the list is empty).</summary>
     public static bool ShowsTasks(Actor a) => a.Has(Permission.TasksView);
 

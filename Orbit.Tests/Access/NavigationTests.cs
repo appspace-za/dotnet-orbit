@@ -133,4 +133,16 @@ public class NavigationTests
         Assert.Equal("/Tasks", Navigation.MyTasksToday(Actor.System));
         Assert.Contains(Navigation.Main, i => i.Href == "/Today");
     }
+
+    /// <summary>
+    /// NAV-008: Unassigned is the Tasks list filtered to the open tasks nobody is assigned to - the Assignee filter's None with Open
+    /// only (§6.2, decision 144) - the same address for every viewer, in keys the list reads and remembers.
+    /// </summary>
+    [Fact]
+    public void Unassigned_is_the_Tasks_list_filtered_to_open_tasks_nobody_is_assigned_to()
+    {
+        Assert.Equal("/Tasks?AssigneeId=none&OpenOnly=true", Navigation.UnassignedTasks);
+        var query = Navigation.UnassignedTasks.Split('?')[1];
+        Assert.All(query.Split('&'), pair => Assert.Contains(pair.Split('=')[0], TaskListKeys.Remembered));
+    }
 }
