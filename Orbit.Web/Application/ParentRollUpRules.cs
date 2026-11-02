@@ -11,11 +11,44 @@ public sealed record RolledUpValues(TaskItemStatus Status, TaskPriority Priority
     int? EstimateMinutes, SprintPlacement Sprint);
 
 /// <summary>
+/// One task a save writes, as the save hook sees it (design spec 2026-11-02 §3.3): whether it is new, its parent before and
+/// after the save, and whether one of <see cref="ParentRollUpRules.RollUpFields"/> changed.
+/// </summary>
+public sealed record SubtaskChange(bool Added, Guid? OriginalParentId, Guid? ParentId, bool RollUpFieldChanged);
+
+/// <summary>
 /// A task with subtasks is a container: its status, priority, dates, estimate and sprint come from its direct subtasks
 /// (design spec 2026-11-02 §3.1 and §3.2). Cancelled subtasks are ignored unless every subtask is cancelled.
 /// </summary>
 public static class ParentRollUpRules
 {
+    /// <summary>The <see cref="TaskItem"/> properties a parent takes from its subtasks; a change to one on a subtask recalculates its parent.</summary>
+    public static readonly IReadOnlyList<string> RollUpFields =
+    [
+        nameof(TaskItem.Status), nameof(TaskItem.Priority), nameof(TaskItem.StartDate), nameof(TaskItem.DueDate),
+        nameof(TaskItem.EstimateMinutes), nameof(TaskItem.SprintId), nameof(TaskItem.InBacklog)
+    ];
+
+    /// <summary>
+    /// §3.3: the parents a save must recalculate: a new subtask's parent, both the old and the new parent of a moved task, and
+    /// the parent of a subtask whose rolled-up field changed.
+    /// </summary>
+    public static IReadOnlySet<Guid> AffectedParents(IEnumerable<SubtaskChange> changes)
+    {
+        var parents = new HashSet<Guid>();
+        foreach (var change in changes)
+        {
+            if (change.Added && change.ParentId is Guid added) parents.Add(added);
+            if (change.OriginalParentId != change.ParentId)
+            {
+                if (change.OriginalParentId is Guid from) parents.Add(from);
+                if (change.ParentId is Guid to) parents.Add(to);
+            }
+            if (change.RollUpFieldChanged && change.ParentId is Guid parent) parents.Add(parent);
+        }
+        return parents;
+    }
+
     /// <summary>SUB-001 to SUB-005, SUB-010, SUB-022: the parent's status. Rolling up groups equals rolling up their leaves.</summary>
     public static TaskItemStatus Status(IEnumerable<TaskItemStatus> subtasks)
     {

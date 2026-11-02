@@ -21,6 +21,12 @@ public class TaskItem
     public Guid? ParentTaskId { get; set; }
     public TaskItem? ParentTask { get; set; }
     public ICollection<TaskItem> Children { get; set; } = new List<TaskItem>();
+    /// <summary>
+    /// True while any task names this one as its <see cref="ParentTaskId"/>: the task is a container whose status, priority,
+    /// dates, estimate and sprint are rolled up from its subtasks (spec §5.1, §6.15; design spec 2026-11-02 §2). Maintained by
+    /// <see cref="Orbit.Data.ParentRollUp"/> inside every save, never set by hand.
+    /// </summary>
+    public bool HasSubtasks { get; set; }
     /// <summary>The human-readable id, T-26-00012 (spec §5.1): assigned once at creation, unique, shown wherever the task is named.</summary>
     public string Number { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;

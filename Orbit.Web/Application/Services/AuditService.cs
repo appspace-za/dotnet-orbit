@@ -11,7 +11,17 @@ public sealed class AuditService(ApplicationDbContext db, IActorProvider actors)
     /// <summary>Queues an audit row on the current unit of work; the caller's SaveChanges persists it atomically with the change.</summary>
     public AuditLog Add(Actor actor, string entityType, Guid entityId, string action, Guid? departmentId, string? summary, object? details = null)
     {
-        var log = new AuditLog
+        var log = Row(actor, entityType, entityId, action, departmentId, summary, details);
+        db.AuditLogs.Add(log);
+        return log;
+    }
+
+    /// <summary>
+    /// Builds an audit row without queuing it, for code that has the context but no service: the save hook's roll-up
+    /// (<see cref="ParentRollUp"/>) adds its own rows as the system.
+    /// </summary>
+    public static AuditLog Row(Actor actor, string entityType, Guid entityId, string action, Guid? departmentId, string? summary, object? details = null) =>
+        new()
         {
             EntityType = entityType,
             EntityId = entityId,
@@ -24,9 +34,6 @@ public sealed class AuditService(ApplicationDbContext db, IActorProvider actors)
             Details = details is null ? "{}" : JsonSerializer.Serialize(details, OrbitJson.Options),
             Timestamp = DateTime.UtcNow
         };
-        db.AuditLogs.Add(log);
-        return log;
-    }
 
     /// <summary>
     /// The log within the caller's audit.view scope (§6.5). One task's or project's own activity is instead open to

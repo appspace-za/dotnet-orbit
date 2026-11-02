@@ -126,4 +126,20 @@ public class ParentRollUpRulesTests
         Assert.Null(t.CompletedAt);
         Assert.Equal(now, t.FirstRespondedAt);
     }
+
+    /// <summary>
+    /// §3.3: the save hook recalculates the parent of a new subtask, both parents of a moved one and the parent of a subtask
+    /// whose rolled-up field changed; a top-level task or an untouched subtask asks for nothing.
+    /// </summary>
+    [Fact]
+    public void AffectedParents_includes_old_and_new_parent()
+    {
+        Guid p1 = Guid.NewGuid(), p2 = Guid.NewGuid(), p3 = Guid.NewGuid();
+        var set = ParentRollUpRules.AffectedParents([
+            new(Added: false, OriginalParentId: p1, ParentId: p2, RollUpFieldChanged: false),  // moved
+            new(Added: true, OriginalParentId: null, ParentId: p3, RollUpFieldChanged: false), // new subtask
+            new(Added: false, OriginalParentId: null, ParentId: null, RollUpFieldChanged: true), // top-level task: nothing
+            new(Added: false, OriginalParentId: p3, ParentId: p3, RollUpFieldChanged: false)]); // untouched subtask: nothing new
+        Assert.Equal(new HashSet<Guid> { p1, p2, p3 }, set);
+    }
 }

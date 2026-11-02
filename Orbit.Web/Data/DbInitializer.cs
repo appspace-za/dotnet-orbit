@@ -31,6 +31,16 @@ public static class DbInitializer
             }
         }
 
+        // Parents roll up from their subtasks (design spec 2026-11-02 §3.4): the first run after the migration rolls up every
+        // existing parent and removes its assignees; later runs write nothing unless something drifted.
+        var rolled = await ParentRollUp.RecalculateAllAsync(db, ct);
+        if (rolled > 0)
+        {
+            await db.SaveChangesAsync(ct);
+            logger.LogInformation("Rolled up {Count} parent task(s) from their subtasks.", rolled);
+        }
+        db.ChangeTracker.Clear(); // the tasks the roll-up loaded aren't needed by the seeding below
+
         var roleManager = sp.GetRequiredService<RoleManager<ApplicationRole>>();
         var builtIn = await EnsureBuiltInRoleAsync(db, roleManager, logger, ct);
         // The two shipped roles are created once, with their default grants, and never re-applied: an admin's edits stick.

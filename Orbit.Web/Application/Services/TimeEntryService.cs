@@ -281,18 +281,9 @@ public sealed class TimeEntryService(ApplicationDbContext db, IActorProvider act
         var task = clock.Task;
 
         db.RunningClocks.Remove(clock);
-        TimeEntry? entry = null;
-        if (minutes >= 1)
+        var entry = TimeRules.StoppedClockEntry(clock, now);
+        if (entry is not null)
         {
-            entry = new TimeEntry
-            {
-                TaskId = task.Id,
-                UserId = clock.UserId,
-                Date = DateOnly.FromDateTime(startedAt),
-                DurationMinutes = minutes,
-                Note = $"Clock {startedAt.ToLocalTime():HH:mm}-{stoppedAt.ToLocalTime():HH:mm}",
-                CreatedAt = now
-            };
             db.TimeEntries.Add(entry);
             audit.Add(actor, AuditEntity.Task, task.Id, AuditAction.TimeLogged, task.DepartmentId, task.Title,
                 new { timeEntryId = entry.Id, entry.UserId, entry.Date, entry.DurationMinutes, clock = true });
