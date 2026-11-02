@@ -33,9 +33,10 @@ public sealed class ProjectService(NumberingService numbering, ApplicationDbCont
         var rows = await q.OrderBy(p => p.Name).Select(p => new
         {
             Project = p,
-            Total = p.Tasks.Count(),
-            Open = p.Tasks.Count(t => t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled),
-            Done = p.Tasks.Count(t => t.Status == TaskItemStatus.Done)
+            // WorkOnly (§6.15): a parent isn't counted beside its subtasks.
+            Total = p.Tasks.Count(t => !t.HasSubtasks),
+            Open = p.Tasks.Count(t => !t.HasSubtasks && t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled),
+            Done = p.Tasks.Count(t => !t.HasSubtasks && t.Status == TaskItemStatus.Done)
         }).ToListAsync(ct);
 
         return rows.Select(r => new ProjectListItem(r.Project, r.Total, r.Open, r.Done)).ToList();
@@ -106,10 +107,10 @@ public sealed class ProjectService(NumberingService numbering, ApplicationDbCont
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var minutes = await db.TimeEntries.Where(e => e.Task.ProjectId == id).SumAsync(e => (int?)e.DurationMinutes, ct) ?? 0;
-        var estimated = await db.Tasks.Where(t => t.ProjectId == id && t.Status != TaskItemStatus.Cancelled)
+        var estimated = await db.Tasks.WorkOnly().Where(t => t.ProjectId == id && t.Status != TaskItemStatus.Cancelled)
             .SumAsync(t => t.EstimateMinutes, ct) ?? 0;
         // One grouped query gives the per-department breakdown; the project-wide counts are its sums.
-        var byDepartment = (await db.Tasks.Where(t => t.ProjectId == id)
+        var byDepartment = (await db.Tasks.WorkOnly().Where(t => t.ProjectId == id)
             .GroupBy(t => new { t.DepartmentId, t.Department.Name })
             .Select(g => new
             {

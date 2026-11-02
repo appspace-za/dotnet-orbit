@@ -213,7 +213,8 @@ else
 
     <MudPaper Outlined="true" Class="orbit-card">
         <div class="orbit-card-header">
-            <span><b>Tasks</b> <span class="orbit-muted">(@_tasks.Count of @p.Tasks.Count)</span></span>
+            @* WorkOnly (§6.15): the count leaves parents out; the table lists them. *@
+            <span><b>Tasks</b> <span class="orbit-muted">(@_tasks.Count(t => !t.HasSubtasks) of @p.Tasks.Count(t => !t.HasSubtasks))</span></span>
             <div class="orbit-gap-row">
                 @if (_isCrossDepartment)
                 {

@@ -609,7 +609,7 @@ public sealed class TaskService(
     {
         var actor = await actors.GetAsync(ct);
         var inScope = DayPlanScope(actor, departmentId);
-        var (_, previous) = await EarlierPlansAsync(inScope, to, ct);
+        var (_, previous) = await EarlierPlansAsync(inScope.WorkOnly(), to, ct); // as the Today page counts them (§6.15)
         if (previous is not DateOnly day) return 0;
         var ids = await LeftOn(inScope, day).Where(t => !t.HasSubtasks).Select(t => t.Id).ToListAsync(ct);
         return await CarryOverAsync(ids, to, ct);
@@ -620,7 +620,8 @@ public sealed class TaskService(
     {
         var actor = await actors.GetAsync(ct);
         var inScope = DayPlanScope(actor, departmentId);
-        var scoped = WithIncludes(inScope);
+        var work = inScope.WorkOnly(); // the plan lists work, not the parents that hold it (§6.15); time below still counts every task
+        var scoped = WithIncludes(work);
 
         var planned = await scoped.Where(t => t.PlannedFor == date)
             .OrderBy(t => t.Status == TaskItemStatus.Done || t.Status == TaskItemStatus.Cancelled)
@@ -630,7 +631,7 @@ public sealed class TaskService(
 
         // Whatever is still open on the most recent earlier plan that has any - "what didn't get finished last time". It keeps
         // its own rule, apart from the last plan's, so stranded tasks still surface (decision 136).
-        var (latestEarlier, previous) = await EarlierPlansAsync(inScope, date, ct);
+        var (latestEarlier, previous) = await EarlierPlansAsync(work, date, ct);
         List<TaskItem> unfinished = previous is DateOnly left ? await ByPerson(LeftOn(scoped, left)).ToListAsync(ct) : [];
 
         // How often each of them has slipped to a later day, and which of today's came over from an earlier plan, from their

@@ -98,6 +98,20 @@ public class SprintPlanningRulesTests
             SprintPlanningRules.Shown(tasks.AsQueryable()).Select(t => t.Title).ToList());
     }
 
+    /// <summary>SUB-019: a parent is a container for its subtasks, so the page leaves it out and lists the subtasks it holds.</summary>
+    [Fact]
+    public void Shown_leaves_parents_out()
+    {
+        var project = Project("Rollout", "P-26-001", It);
+        var parent = Task("parent", project, backlog: true);
+        parent.HasSubtasks = true;
+        var child = Task("child", project, backlog: true);
+        var plain = Task("plain", project, backlog: true);
+
+        Assert.Equal(["child", "plain"],
+            SprintPlanningRules.Shown(new[] { parent, child, plain }.AsQueryable()).Select(t => t.Title).ToList());
+    }
+
     /// <summary>
     /// PLN-003: a row's button. On the Backlog or Not Planned it plans the task into the sprint being planned; in that sprint it
     /// takes it back to the Backlog; in another sprint, a completed one included, it moves it here.

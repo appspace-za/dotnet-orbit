@@ -16,7 +16,7 @@ public sealed class SprintService(ApplicationDbContext db, IActorProvider actors
             .ThenByDescending(s => s.StartDate)
             .ToListAsync(ct);
 
-        var counts = await db.Tasks.AsNoTracking().Where(t => t.SprintId != null)
+        var counts = await db.Tasks.AsNoTracking().WorkOnly().Where(t => t.SprintId != null)
             .GroupBy(t => new { t.SprintId, DepartmentName = t.Department.Name })
             .Select(g => new
             {
@@ -43,13 +43,13 @@ public sealed class SprintService(ApplicationDbContext db, IActorProvider actors
             .OrderBy(s => s.Status == SprintStatus.Active ? 0 : 1).ThenBy(s => s.StartDate).ToListAsync(ct);
     }
 
-    /// <summary>The sprint with the tasks in it that the caller may see (tasks.view, §6.5).</summary>
+    /// <summary>The sprint with the work in it that the caller may see (tasks.view, §6.5); parents are left out, their subtasks are listed (§6.15).</summary>
     public async Task<Sprint> GetAsync(Guid id, CancellationToken ct = default)
     {
         var actor = await actors.GetAsync(ct);
         var sprint = await db.Sprints.AsNoTracking().FirstOrDefaultAsync(s => s.Id == id, ct)
             ?? throw new NotFoundException("Sprint not found.");
-        sprint.Tasks = await Scoping.Tasks(db.Tasks.AsNoTracking().Where(t => t.SprintId == id), actor)
+        sprint.Tasks = await Scoping.Tasks(db.Tasks.AsNoTracking().WorkOnly().Where(t => t.SprintId == id), actor)
             .Include(t => t.Department).Include(t => t.Project).Include(t => t.ParentTask).Include(t => t.Asset)
             .ToListAsync(ct);
         return sprint;

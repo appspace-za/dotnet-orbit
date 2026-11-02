@@ -1317,6 +1317,7 @@ public sealed class OrbitTools(
         int? commentCount = null)
     {
         var all = p.Tasks ?? [];
+        var work = all.Where(t => !t.HasSubtasks).ToList(); // WorkOnly (§6.15): the counts leave parents out, the tasks list keeps them
         return new
         {
             id = p.Id,
@@ -1332,9 +1333,9 @@ public sealed class OrbitTools(
             requiredBufferWorkingDays = p.RequiredBufferWorkingDays,
             createdAt = p.CreatedAt,
             updatedAt = p.UpdatedAt,
-            totalTasks = all.Count,
-            openTasks = all.Count(t => !t.Status.IsClosed()),
-            doneTasks = all.Count(t => t.Status == TaskItemStatus.Done),
+            totalTasks = work.Count,
+            openTasks = work.Count(t => !t.Status.IsClosed()),
+            doneTasks = work.Count(t => t.Status == TaskItemStatus.Done),
             crossDepartment = all.Any(t => t.DepartmentId != p.DepartmentId),
             tasks = includeTasks
                 ? all.OrderBy(t => t.Status.IsClosed()).ThenBy(t => t.DueDate).Select(t => new
