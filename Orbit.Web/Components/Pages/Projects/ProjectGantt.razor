@@ -217,7 +217,7 @@ else
                             var hint = canEdit ? " - drag to reschedule" : "";
                             if (r.Summary is not null)
                             {
-                                <div class="gantt-summary" style="left:@(r.Summary.Left)px;top:@(r.Y + GanttChart.SummaryTop)px;width:@(r.Summary.Width)px"
+                                <div class="gantt-summary @cpClass" style="left:@(r.Summary.Left)px;top:@(r.Y + GanttChart.SummaryTop)px;width:@(r.Summary.Width)px"
                                      title="@($"Subtasks of {t.Title}: {When(r.Summary.Start)} to {When(r.Summary.End)}")"></div>
                             }
                             if (r.Bar is not null)
@@ -266,7 +266,7 @@ else
         @if (g.UndrawnLinks.Count > 0)
         {
             <div class="orbit-small orbit-muted mt-2">
-                <b>Not drawn</b> (a task has no dates):
+                <b>Not drawn</b> (a task has no dates, or a parent's subtasks have none):
                 @foreach (var l in g.UndrawnLinks)
                 {
                     <span class="mr-2">"@l.Successor.Title" waits on "@l.Predecessor.Title" (@l.Type.Code())</span>

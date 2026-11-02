@@ -147,7 +147,7 @@ public sealed class GanttChart
         foreach (var link in linkList)
         {
             if (!rowById.TryGetValue(link.PredecessorTaskId, out var pred) || !rowById.TryGetValue(link.SuccessorTaskId, out var succ)
-                || (pred.Bar ?? pred.Milestone) is null || (succ.Bar ?? succ.Milestone) is null)
+                || pred.Mark is null || succ.Mark is null)
             {
                 if (byId.ContainsKey(link.PredecessorTaskId) && byId.ContainsKey(link.SuccessorTaskId)) undrawn.Add(link);
                 continue;
@@ -193,8 +193,10 @@ public sealed class GanttChart
 
         static (int X, int Y) End(GanttRow r, bool finish)
         {
-            var b = (r.Bar ?? r.Milestone)!;
-            return (finish ? b.Left + b.Width : b.Left, RowY(r.Index) + BarTop + BarHeight / 2);
+            var b = r.Mark!;
+            // A parent has only its summary span (§6.16): the arrow meets that thin line, not the empty bar position above it.
+            var y = r.Bar is null && r.Milestone is null ? SummaryTop + SummaryHeight / 2 : BarTop + BarHeight / 2;
+            return (finish ? b.Left + b.Width : b.Left, RowY(r.Index) + y);
         }
 
         /// The row edge an arrow detours along when the successor's end lies left of the predecessor's.
@@ -206,6 +208,8 @@ public sealed class GanttChart
 public sealed record GanttRow(TaskItem Task, int Depth, int Index, GanttBar? Bar, GanttBar? Milestone, GanttBar? Summary, bool Overdue, int ChildCount, string StatusClass)
 {
     public int Y => GanttChart.RowY(Index);
+    /// <summary>What the row draws and a link attaches to: its bar, milestone or, for a parent, its summary span.</summary>
+    public GanttBar? Mark => Bar ?? Milestone ?? Summary;
     /// <summary>On the critical path in the last analysis (§6.17).</summary>
     public bool Critical { get; init; }
     /// <summary>Within the near-critical threshold in the last analysis (§6.17).</summary>
