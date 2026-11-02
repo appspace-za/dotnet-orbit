@@ -95,8 +95,16 @@ public sealed class TaskForm
         Priority = parent.Priority;
         DueDate = parent.DueDate;
         EstimateMinutes = parent.EstimateMinutes;
-        if (parent.Sprint?.Status != SprintStatus.Completed) Sprint = SprintPlacement.Of(parent);
+        if (InheritedSprint(parent) is { } sprint) Sprint = sprint;
     }
+
+    /// <summary>The sprint "Add subtask" carries from a task without subtasks; null for a container or a completed sprint (§6.15, SUB-023).</summary>
+    public static SprintPlacement? InheritedSprint(TaskItem parent) =>
+        parent.HasSubtasks || parent.Sprint?.Status == SprintStatus.Completed ? null : SprintPlacement.Of(parent);
+
+    /// <summary>A new task's Sprint: what the address asked for, else what Add subtask inherited, else the project's default (§6.3).</summary>
+    public static SprintPlacement SprintForNew(SprintPlacement? asked, SprintPlacement? inherited, Guid? projectId) =>
+        asked ?? inherited ?? SprintPlacement.DefaultFor(projectId);
 
     public static TaskForm From(TaskItem t) => new()
     {

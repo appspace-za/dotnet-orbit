@@ -339,6 +339,7 @@ else
         var form = new TaskForm();
         TaskItem? task = null;
         var asked = TaskId is null ? SprintPlacement.Read(InitialSprint) : null;
+        SprintPlacement? inherited = null;
         if (TaskId is Guid id)
         {
             task = await s.Get<TaskService>().GetAsync(id);
@@ -357,6 +358,7 @@ else
                 projectId = parent.ProjectId;
                 form.DepartmentId = parent.DepartmentId;
                 form.PrefillFromParent(parent);
+                inherited = TaskForm.InheritedSprint(parent);
             }
             form.ProjectId = projectId;
             // A task defaults to its project's department; someone with tasks.create everywhere can change that on the form (§6.2.1).
@@ -394,7 +396,7 @@ else
         if (_canChooseDepartment && form.DepartmentId is Guid chosenDepartment && _departments.All(d => d.Id != chosenDepartment)) form.DepartmentId = null;
         // A new task's Sprint is worked out once its project is settled, so a project the form can't offer doesn't leave it
         // on the Backlog as a standalone task (§13 item 117).
-        if (task is null) form.Sprint = asked ?? SprintPlacement.DefaultFor(form.ProjectId);
+        if (task is null) form.Sprint = TaskForm.SprintForNew(asked, inherited, form.ProjectId);
         if (_sprints.All(x => x.Value != form.Sprint)) form.Sprint = SprintPlacement.DefaultFor(form.ProjectId);
         // A parent that no longer exists is dropped; any other is kept and named, closed or not (§6.15).
         if (form.ParentTaskId is not null && _parent is null) form.ParentTaskId = null;
@@ -402,8 +404,8 @@ else
 
         _form = form;
         _task = task;
-        // Only a ?sprintId= the form kept counts as picked; one it couldn't offer fell back to the default, which follows the project.
-        _sprintPicked = task is not null || (asked is { } wanted && form.Sprint == wanted);
+        // Only a ?sprintId= or an inherited sprint the form kept counts as picked; one it couldn't offer fell back to the default, which follows the project.
+        _sprintPicked = task is not null || ((asked ?? inherited) is { } wanted && form.Sprint == wanted);
         _requiredForDone = !(task is { Status: TaskItemStatus.Done } && string.IsNullOrWhiteSpace(task.SolutionNotes));
         _showNotes = form.Status.IsClosed() || !string.IsNullOrWhiteSpace(form.SolutionNotes);
     });

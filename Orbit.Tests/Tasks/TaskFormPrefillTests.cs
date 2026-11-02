@@ -37,4 +37,21 @@ public class TaskFormPrefillTests
         none.PrefillFromParent(parent);
         Assert.Equal((Medium, (DateOnly?)null), (none.Priority, none.DueDate));
     }
+
+    /// <summary>SUB-023: the inherited sprint beats the project default, an explicit ?sprintId= beats both, and none inherited falls back.</summary>
+    [Fact]
+    public void A_new_subtask_keeps_the_inherited_sprint()
+    {
+        var project = Guid.NewGuid();
+        var sprint = new Sprint { Id = Guid.NewGuid(), Status = SprintStatus.Active };
+        var parent = new TaskItem { SprintId = sprint.Id, Sprint = sprint, Assignments = Assigned.To() };
+        var inherited = TaskForm.InheritedSprint(parent);
+        Assert.Equal(SprintPlacement.In(sprint.Id), TaskForm.SprintForNew(null, inherited, project));
+        Assert.Equal(SprintPlacement.Backlog, TaskForm.SprintForNew(SprintPlacement.Backlog, inherited, project));
+        sprint.Status = SprintStatus.Completed;
+        Assert.Null(TaskForm.InheritedSprint(parent));
+        Assert.Equal(SprintPlacement.DefaultFor(project), TaskForm.SprintForNew(null, TaskForm.InheritedSprint(parent), project));
+        parent.HasSubtasks = true;
+        Assert.Null(TaskForm.InheritedSprint(parent));
+    }
 }
