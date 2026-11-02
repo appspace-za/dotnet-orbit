@@ -61,7 +61,7 @@ Evaluated top to bottom over the non-cancelled subtasks:
 | DueDate | Latest `DueDate`; subtasks without one are skipped; null if none has one. |
 | EstimateMinutes | Sum of the subtasks' estimates; null if no subtask has one. |
 | Sprint (`SprintId`, `InBacklog`) | The earliest sprint, by `Sprint.StartDate`, that an open subtask is in. If no open subtask is in a sprint: Backlog if any open subtask is on the Backlog, else Not Planned. If no subtask is open, the same rule over all non-cancelled subtasks. |
-| CompletedAt | Set to now when the rolled-up status becomes Done or Cancelled; cleared when it reopens (as a manual change does today). |
+| CompletedAt | Stamped exactly as a manual status change stamps it today (`TaskService.ApplyStatus`): set to now on Done, cleared on any other status. |
 | FirstRespondedAt | Set to now the first time the rolled-up status leaves Todo; never cleared. |
 
 ### 3.3 When it runs
@@ -74,8 +74,8 @@ Evaluated top to bottom over the non-cancelled subtasks:
   when nothing changes or the top is reached.
 - When a task's `HasSubtasks` goes false → true, its `TaskAssignment` rows are removed and any running clock on it is stopped,
   logging its time as the clock's own stop does today.
-- Each parent whose values change gets an `Updated` audit row as **System** (`Actor.System`), with a `ChangeSet`
-  field-by-field diff and the summary "Rolled up from subtasks". Removed assignments are in the same diff.
+- Each parent whose values change gets an `Updated` audit row as **System** (`Actor.System`), with the parent's title as
+  summary and a `ChangeSet` field-by-field diff marked `fromSubtasks: true`. Removed assignments are in the same diff.
 - Derived changes send **no emails**.
 - Known limit: two saves on sibling subtasks at the same moment could each recalculate the parent from what it saw. The next
   change under that parent, or the startup step (§3.4), corrects it.
@@ -216,11 +216,13 @@ Unit tests in `Orbit.Tests` (pure code only, per the project's convention), citi
 | SUB-016 | Tree order and greyed context parents for a filtered match |
 | SUB-017 | Paging never splits a group; an oversized group gets its own page |
 | SUB-018 | Indent capped at four levels |
-| SUB-019 | Dashboard, planning, day plan and report rules leave a parent out of counts and estimate sums |
+| SUB-019 | `WorkOnly()` and the Planning page's query (`SprintPlanningRules.Shown`) leave parents out; the services apply `WorkOnly()` at every count (checked by running) |
 | SUB-020 | Derived fields refused on a parent; no Today tick, Take, clock or time on a parent |
 | SUB-021 | A finish gate on a parent applies to its last open subtask |
 | SUB-022 | An open subtask under a closed parent reopens it |
 | SUB-023 | Add subtask pre-fills from a parent with no subtasks, skipping a closed sprint |
+| SUB-024 | A clock running on a task when it becomes a parent is stopped and its time logged |
+| SUB-025 | The critical path's critical and near-critical counts leave parents out |
 
 Checked by running the app (no DB tests exist): the save hook through the form, inline controls, sprint completion, MCP and
 moving a subtask between parents; the startup recalculation; the migration forward, back and forward; both
