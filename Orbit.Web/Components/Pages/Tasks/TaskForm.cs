@@ -83,6 +83,21 @@ public sealed class TaskForm
         AssetId = AssetId
     };
 
+    /// <summary>
+    /// "Add subtask" (§6.15): the new subtask starts from the task it is added to - its assignees, priority, due date, estimate and
+    /// sprint (not a completed one) - which the parent's roll-up would otherwise overwrite. A task that already has subtasks is a
+    /// container with none of its own to copy, so nothing is carried (§13 item 146).
+    /// </summary>
+    public void PrefillFromParent(TaskItem parent)
+    {
+        if (parent.HasSubtasks) return;
+        AssigneeIds = [.. parent.AssigneeIds];
+        Priority = parent.Priority;
+        DueDate = parent.DueDate;
+        EstimateMinutes = parent.EstimateMinutes;
+        if (parent.Sprint?.Status != SprintStatus.Completed) Sprint = SprintPlacement.Of(parent);
+    }
+
     public static TaskForm From(TaskItem t) => new()
     {
         Title = t.Title,

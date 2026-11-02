@@ -64,9 +64,15 @@
         {
             <dt>Requestee</dt><dd>@Task.Requestee.DisplayName@(Task.Requestee.IsActive ? "" : " (deactivated)")</dd>
         }
-        <dt>Start</dt><dd>@Ui.Day(Task.StartDate)</dd>
-        <dt>Due</dt><dd class="@(Task.IsOverdue(Today) ? "orbit-overdue" : null)">@Ui.Day(Task.DueDate)</dd>
-        <dt>Estimate</dt><dd>@(Task.EstimateMinutes is int estimate ? TimeFormat.Minutes(estimate) : "-")</dd>
+        @if (Task.HasSubtasks)
+        {
+            @* A container's own fields come from its subtasks (§6.15). *@
+            <dt>Priority</dt><dd>@Task.Priority@FromSubtasks</dd>
+            <dt>Sprint</dt><dd>@(Task.Sprint?.Name ?? SprintPlacement.Of(Task).Label())@FromSubtasks</dd>
+        }
+        <dt>Start</dt><dd>@Ui.Day(Task.StartDate)@FromSubtasks</dd>
+        <dt>Due</dt><dd class="@(Task.IsOverdue(Today) ? "orbit-overdue" : null)">@Ui.Day(Task.DueDate)@FromSubtasks</dd>
+        <dt>Estimate</dt><dd>@(Task.EstimateMinutes is int estimate ? TimeFormat.Minutes(estimate) : "-")@FromSubtasks</dd>
         <dt>Planned for</dt><dd>@Ui.Day(Task.PlannedFor)@(Task.PlannedFor == Today ? " (today)" : "")</dd>
         <dt>Created by</dt><dd>@Ui.AuthorName(Task.CreatedBy) <span class="orbit-muted">@Ui.When(Task.CreatedAt)</span></dd>
         <dt>Updated</dt><dd>@Ui.When(Task.UpdatedAt)</dd>
@@ -128,4 +134,7 @@
     [Parameter] public DateOnly Today { get; set; }
     /// <summary>The Nagios problem the task was raised for, when it was (§6.21).</summary>
     [Parameter] public NagiosTaskLink? Nagios { get; set; }
+
+    /// <summary>A task with subtasks takes this from them (§6.15).</summary>
+    private RenderFragment? FromSubtasks => Task.HasSubtasks ? @<span class="orbit-muted"> (from subtasks)</span> : null;
 }

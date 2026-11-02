@@ -230,6 +230,14 @@ closed parent the task already has is shown with its status. A list page's filte
 than 10 options works the same way, with *All*, *None*, *Me*, *Backlog* and *Not Planned* kept at the top while you
 type. Every search box matches what you type literally: `%` and `_` are ordinary characters, not wildcards.
 
+A task with subtasks is a **container** (spec §6.15). Its status, priority, start and due dates, estimate and sprint come
+from its subtasks and are shown but not editable, on the edit form (*From subtasks*) and on the task page (*(from
+subtasks)*); `update_task` refuses to change them and says so. Its own assignees are removed (the task page says
+*Assignees are on the subtasks*), and it takes no time, day plan, Today tick or *Take*: log time, plan and take on a
+subtask. A parent closes by itself when its last open subtask closes, and an open subtask reopens a closed parent.
+*Add subtask* on a task without subtasks starts the new form from that task's assignees, priority, due date, estimate
+and sprint (not a completed sprint); on a task that already has subtasks it starts blank.
+
 A task has a **type**, the kind of work it is: Meeting, Planning, Task (the default), Training, Audit, Change, Request
 or Problem. It is chosen on the task form, shown as a coloured badge beside the title (a plain Task has none in the
 lists) and is a filter on the Tasks list. A request flow's task step sets the type of the task it
@@ -395,7 +403,7 @@ Nothing happens by itself: Orbit follows AD only when you load the directory and
   `solutionNotes`, and `list_tasks search` matches them.
 - Tasks can be subtasks (`parentTaskId`) and can depend on each other (`add_dependency`: FS, SS, FF or SF
   plus a lag in days, spec §6.15). Links gate status changes - the successor can't start / finish until the
-  predecessor has - and a parent can't close while a subtask is open; `get_task` reports what a task is
+  predecessor has - and a parent closes by itself when its last open subtask closes; `get_task` reports what a task is
   waiting on, and `get_project` returns the whole dependency list.
 - Files attached to tasks and projects (spec §6.18) are listed by `get_task` / `get_project` and read with
   `get_attachment` - text as text, images as images, anything else as base64 - up to `Attachments:MaxMcpFileSizeMb`
