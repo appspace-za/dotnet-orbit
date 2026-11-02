@@ -29,7 +29,7 @@ public sealed class DueDateNotificationJob(
             var horizon = today.AddDays(Math.Max(0, options.Value.DueDateNotifications.LeadDays));
             var due = await db.Tasks
                 .Where(t => t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled
-                    && t.DueSoonNotifiedAt == null
+                    && t.DueSoonNotifiedAt == null && !t.HasSubtasks // a parent's date is its subtasks' (§6.15)
                     && t.DueDate != null && t.DueDate >= today && t.DueDate <= horizon)
                 .ToListAsync(ct);
 

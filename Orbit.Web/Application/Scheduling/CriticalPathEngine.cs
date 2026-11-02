@@ -269,26 +269,6 @@ public static class CriticalPathEngine
                 $"{Count(wide.Count, "task")} {(wide.Count == 1 ? "has" : "have")} an unusually wide planning window for {(wide.Count == 1 ? "its" : "their")} estimate: {string.Join("; ", wide.Select(t => $"\"{t.Title}\" ({nodes[t.Id].Span} working days for {TimeFormatMinutes(t.EstimateMinutes!.Value)})"))}.",
                 Ids(wide), []));
 
-        var children = live.Where(t => t.ParentTaskId is Guid p && byId.ContainsKey(p)).ToLookup(t => t.ParentTaskId!.Value);
-        var spans = new Dictionary<Guid, (DateOnly? Start, DateOnly? End)>();
-        (DateOnly? Start, DateOnly? End) ChildSpan(TaskItem t)
-        {
-            if (spans.TryGetValue(t.Id, out var known)) return known;
-            DateOnly? s = null, e = null;
-            foreach (var c in children[t.Id])
-            {
-                var (cs, ce) = ChildSpan(c);
-                foreach (var v in new[] { c.StartDate ?? c.DueDate, cs }) if (v is DateOnly x && (s is null || x < s)) s = x;
-                foreach (var v in new[] { c.DueDate ?? c.StartDate, ce }) if (v is DateOnly x && (e is null || x > e)) e = x;
-            }
-            return spans[t.Id] = (s, e);
-        }
-        var parentsOff = scheduled.Where(t => children.Contains(t.Id) && t.StartDate is DateOnly ps && t.DueDate is DateOnly pe
-                && ChildSpan(t) is var (cs, ce) && ((cs is DateOnly a && a < ps) || (ce is DateOnly b && b > pe))).ToList();
-        if (parentsOff.Count > 0)
-            warnings.Add(new PlanIssue(PlanIssueCodes.ParentWindow,
-                $"{Count(parentsOff.Count, "parent task")} {(parentsOff.Count == 1 ? "has" : "have")} subtasks planned outside {(parentsOff.Count == 1 ? "its" : "their")} own dates: {Titles(parentsOff)}.", Ids(parentsOff), []));
-
         // ---- 11. Early completion and recovery opportunities (informational; nothing moves).
         var opportunities = new List<EarlyCompletionOpportunity>();
         for (var u = 0; u < n; u++)
@@ -342,13 +322,13 @@ public static class CriticalPathEngine
         {
             var t = network[u];
             rows.Add(new TaskAnalysis(t.Id, t.Title, t.Status, t.AssigneeNames, t.StartDate, t.DueDate,
-                cal.Date(es[u]), cal.Date(ef[u]), cal.Date(ls[u]), cal.Date(lf[u]), tf[u], ff[u], span[u], true, critical[u], near[u]));
+                cal.Date(es[u]), cal.Date(ef[u]), cal.Date(ls[u]), cal.Date(lf[u]), tf[u], ff[u], span[u], true, critical[u], near[u], t.HasSubtasks));
         }
         foreach (var t in standalone)
         {
             var node = nodes[t.Id];
             rows.Add(new TaskAnalysis(t.Id, t.Title, t.Status, t.AssigneeNames, t.StartDate, t.DueDate,
-                node.First, node.Last, null, null, null, null, node.Span, false, false, false));
+                node.First, node.Last, null, null, null, null, node.Span, false, false, false, t.HasSubtasks));
         }
         rows = rows.OrderBy(r => r.EarlyStart).ThenBy(r => r.EarlyFinish).ThenBy(r => r.Title).ToList();
 

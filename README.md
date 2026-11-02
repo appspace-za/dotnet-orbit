@@ -404,7 +404,10 @@ Nothing happens by itself: Orbit follows AD only when you load the directory and
 - Tasks can be subtasks (`parentTaskId`) and can depend on each other (`add_dependency`: FS, SS, FF or SF
   plus a lag in days, spec §6.15). Links gate status changes - the successor can't start / finish until the
   predecessor has - and a parent closes by itself when its last open subtask closes; `get_task` reports what a task is
-  waiting on, and `get_project` returns the whole dependency list.
+  waiting on, and `get_project` returns the whole dependency list. A task with subtasks is a parent (`hasSubtasks`
+  on every task result): its status, priority, dates, estimate, sprint and assignees come from its subtasks, so
+  `update_task` refuses to change them, and giving a task its first subtask (`parentTaskId`) replaces its own values
+  and removes its assignees. `list_tasks hasSubtasks=false` lists only the work itself, `true` only the parents.
 - Files attached to tasks and projects (spec §6.18) are listed by `get_task` / `get_project` and read with
   `get_attachment` - text as text, images as images, anything else as base64 - up to `Attachments:MaxMcpFileSizeMb`
   (default 5 MB); uploading is web-UI only.

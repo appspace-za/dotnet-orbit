@@ -50,6 +50,7 @@ public sealed class TaskService(
         if (f.Due is DueWindow window) q = DueWindowRules.Within(q, window, DateOnly.FromDateTime(DateTime.UtcNow));
         if (f.SprintId is Guid sprintId) q = q.Where(t => t.SprintId == sprintId);
         if (f.RecurringTaskDefinitionId is Guid defId) q = q.Where(t => t.RecurringTaskDefinitionId == defId);
+        if (f.HasSubtasks is bool hasSubtasks) q = q.Where(t => t.HasSubtasks == hasSubtasks);
         if (f.ParentTaskId is Guid parentId) q = q.Where(t => t.ParentTaskId == parentId);
         if (f.AssetId is Guid assetId) q = q.Where(t => t.AssetId == assetId);
         if (f.BacklogOnly) q = q.Where(t => t.SprintId == null && t.InBacklog);

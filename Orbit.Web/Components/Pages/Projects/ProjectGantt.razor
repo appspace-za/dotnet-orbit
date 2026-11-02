@@ -213,7 +213,7 @@ else
                             var overdue = r.Overdue ? ", overdue" : "";
                             var critical = r.Critical ? ", on the critical path" : r.NearCritical ? ", near-critical" : "";
                             var cpClass = r.Critical ? "gantt-critical" : r.NearCritical ? "gantt-near-critical" : "";
-                            var canEdit = AccessPolicy.CanEditTask(_actor!, t);
+                            var canEdit = !t.HasSubtasks && AccessPolicy.CanEditTask(_actor!, t); // a parent's dates come from its subtasks: never dragged (§6.16)
                             var hint = canEdit ? " - drag to reschedule" : "";
                             if (r.Summary is not null)
                             {

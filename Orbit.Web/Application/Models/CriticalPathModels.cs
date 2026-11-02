@@ -30,7 +30,6 @@ public static class PlanIssueCodes
     public const string NonWorkingDay = "NonWorkingDay";
     public const string HolidayInWindow = "HolidayInWindow";
     public const string WideWindow = "WideWindow";
-    public const string ParentWindow = "ParentWindow";
     public const string StandaloneAfterNetwork = "StandaloneAfterNetwork";
     public const string TargetNonWorkingDay = "TargetNonWorkingDay";
     // Informational
@@ -89,7 +88,8 @@ public sealed record TaskAnalysis(
     int SpanWorkingDays,
     bool InNetwork,
     bool IsCritical,
-    bool IsNearCritical);
+    bool IsNearCritical,
+    bool IsParent = false);
 
 /// <summary>A connected driving sequence of critical tasks, first to last.</summary>
 public sealed record CriticalPathChain(IReadOnlyList<Guid> TaskIds, IReadOnlyList<string> Titles, DateOnly Start, DateOnly End);
@@ -150,8 +150,8 @@ public sealed class CriticalPathResult
     public string InputFingerprint { get; init; } = string.Empty;
 
     [JsonIgnore] public bool Blocked => Errors.Count > 0;
-    [JsonIgnore] public int CriticalTaskCount => Tasks.Count(t => t.IsCritical);
-    [JsonIgnore] public int NearCriticalTaskCount => Tasks.Count(t => t.IsNearCritical);
+    [JsonIgnore] public int CriticalTaskCount => Tasks.Count(t => t.IsCritical && !t.IsParent);
+    [JsonIgnore] public int NearCriticalTaskCount => Tasks.Count(t => t.IsNearCritical && !t.IsParent);
     [JsonIgnore] public int WarningCount => Warnings.Count(w => !w.Informational);
     [JsonIgnore] public IReadOnlySet<Guid> CriticalIds => Tasks.Where(t => t.IsCritical).Select(t => t.TaskId).ToHashSet();
     [JsonIgnore] public IReadOnlySet<Guid> NearCriticalIds => Tasks.Where(t => t.IsNearCritical).Select(t => t.TaskId).ToHashSet();

@@ -125,7 +125,9 @@ public sealed class GanttChart
         foreach (var (t, depth) in ordered)
         {
             GanttBar? bar = null, milestone = null, summary = null;
-            if (t.StartDate is DateOnly s1 && t.DueDate is DateOnly e1) bar = Bar(s1, e1 < s1 ? s1 : e1);
+            // A parent's own dates are its subtasks' span (§6.15), so it draws only that summary span, never a bar of its own.
+            if (t.HasSubtasks) { }
+            else if (t.StartDate is DateOnly s1 && t.DueDate is DateOnly e1) bar = Bar(s1, e1 < s1 ? s1 : e1);
             else if (t.StartDate is DateOnly s2) bar = Bar(s2, s2);
             else if (t.DueDate is DateOnly e2) milestone = Bar(e2, e2);
             var childCount = children[t.Id].Count();
