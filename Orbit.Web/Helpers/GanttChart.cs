@@ -71,16 +71,8 @@ public sealed class GanttChart
         var linkList = links.ToList();
 
         // Tree order: a parent before its subtasks, siblings by first planned date then title.
-        var ordered = new List<(TaskItem Task, int Depth)>();
-        var visited = new HashSet<Guid>();
-        void Visit(TaskItem t, int depth)
-        {
-            if (!visited.Add(t.Id) || depth > 64) return;
-            ordered.Add((t, depth));
-            foreach (var c in Sorted(children[t.Id])) Visit(c, depth + 1);
-        }
-        foreach (var root in Sorted(all.Where(t => t.ParentTaskId is null || !byId.ContainsKey(t.ParentTaskId.Value))))
-            Visit(root, 0);
+        var ordered = TaskTreeRules.Build(all, t => t.Id, t => t.ParentTaskId, _ => true, Comparer<TaskItem>.Create(SiblingOrder))
+            .Select(r => (Task: byId[r.Id], r.Depth)).ToList();
 
         // Summary spans: the earliest and latest planned date anywhere below a parent, derived from its children.
         var spans = new Dictionary<Guid, (DateOnly? Start, DateOnly? End)>();
@@ -188,8 +180,15 @@ public sealed class GanttChart
             Overlay = overlay
         };
 
-        static IEnumerable<TaskItem> Sorted(IEnumerable<TaskItem> ts) => ts
-            .OrderBy(t => (t.StartDate ?? t.DueDate) is null).ThenBy(t => t.StartDate ?? t.DueDate).ThenBy(t => t.Title);
+        // First planned date (undated last), then title.
+        static int SiblingOrder(TaskItem x, TaskItem y)
+        {
+            var dx = x.StartDate ?? x.DueDate;
+            var dy = y.StartDate ?? y.DueDate;
+            var c = (dx is null).CompareTo(dy is null);
+            if (c == 0 && dx is DateOnly a && dy is DateOnly b) c = a.CompareTo(b);
+            return c != 0 ? c : Comparer<string>.Default.Compare(x.Title, y.Title);
+        }
 
         static (int X, int Y) End(GanttRow r, bool finish)
         {
