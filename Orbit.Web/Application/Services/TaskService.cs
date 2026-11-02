@@ -32,7 +32,60 @@ public sealed class TaskService(
     public async Task<PagedResult<TaskItem>> ListAsync(TaskFilter f, CancellationToken ct = default)
     {
         var actor = await actors.GetAsync(ct);
-        var q = WithIncludes(db.Tasks.AsNoTracking());
+        var q = Filtered(WithIncludes(db.Tasks.AsNoTracking()), actor, f);
+
+        var page = Math.Max(1, f.Page);
+        var pageSize = Math.Clamp(f.PageSize, 1, 500);
+        var total = await q.CountAsync(ct);
+        var items = await q
+            .OrderBy(t => t.Status == TaskItemStatus.Done || t.Status == TaskItemStatus.Cancelled)
+            .ThenBy(t => t.DueDate == null)
+            .ThenBy(t => t.DueDate)
+            .ThenByDescending(EnumOrder.ByTaskPriority)
+            .ThenByDescending(t => t.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
+        return new PagedResult<TaskItem>(items, page, pageSize, total);
+    }
+
+    /// <summary>
+    /// The Tasks list as a tree (design spec 2026-11-02 §6): every match, with its ancestors as context rows, paged by whole
+    /// top-level groups. Ancestors and the page's tasks are loaded without the view scope, as the task page's subtasks are.
+    /// </summary>
+    public async Task<TaskTreePage> ListTreeAsync(TaskFilter f, CancellationToken ct = default)
+    {
+        var actor = await actors.GetAsync(ct);
+        var keys = await Filtered(db.Tasks.AsNoTracking(), actor, f)
+            .Select(t => new TaskTreeKey(t.Id, t.ParentTaskId, true, t.HasSubtasks, t.Status, t.DueDate, t.Priority, t.CreatedAt))
+            .ToListAsync(ct);
+        var count = keys.Count(k => !k.HasSubtasks);
+
+        var loaded = keys.Select(k => k.Id).ToHashSet();
+        var frontier = keys.Where(k => k.ParentTaskId is not null).Select(k => k.ParentTaskId!.Value).Distinct().Where(id => !loaded.Contains(id)).ToList();
+        for (var round = 0; frontier.Count > 0 && round < TaskTreeRules.MaxDepth; round++)
+        {
+            var ids = frontier;
+            var parents = await db.Tasks.AsNoTracking().Where(t => ids.Contains(t.Id))
+                .Select(t => new TaskTreeKey(t.Id, t.ParentTaskId, false, t.HasSubtasks, t.Status, t.DueDate, t.Priority, t.CreatedAt))
+                .ToListAsync(ct);
+            keys.AddRange(parents);
+            foreach (var p in parents) loaded.Add(p.Id);
+            frontier = parents.Where(p => p.ParentTaskId is not null).Select(p => p.ParentTaskId!.Value).Distinct().Where(id => !loaded.Contains(id)).ToList();
+        }
+
+        var rows = TaskTreeRules.Build(keys, k => k.Id, k => k.ParentTaskId, k => k.IsMatch, TaskTreeRules.ListOrder);
+        var (pageRows, totalPages) = TaskTreeRules.Page(rows, f.Page, Math.Clamp(f.PageSize, 1, 500));
+        var pageIds = pageRows.Select(r => r.Id).ToList();
+        var tasks = (await WithIncludes(db.Tasks.AsNoTracking()).Where(t => pageIds.Contains(t.Id)).ToListAsync(ct)).ToDictionary(t => t.Id);
+        var result = pageRows.Where(r => tasks.ContainsKey(r.Id))
+            .Select(r => new TaskTreeRow(tasks[r.Id], r.Depth, r.IsContext, r.HasShownChildren)).ToList();
+        return new TaskTreePage(result, Math.Clamp(f.Page, 1, totalPages), totalPages, count);
+    }
+
+    /// <summary>The actor's view scope and every filter of <paramref name="f"/> except paging, shared by the flat and the tree list.</summary>
+    private static IQueryable<TaskItem> Filtered(IQueryable<TaskItem> q, Actor actor, TaskFilter f)
+    {
         q = Scope(q, actor, f);
 
         if (f.NoProject) q = q.Where(t => t.ProjectId == null);
@@ -58,21 +111,7 @@ public sealed class TaskService(
         if (f.OpenOnly) q = q.Where(t => t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled);
         var plannedFor = f.PlannedFor ?? (f.PlannedToday ? DateOnly.FromDateTime(DateTime.UtcNow) : null);
         if (plannedFor is DateOnly planned) q = q.Where(t => t.PlannedFor == planned);
-        q = Matching(q, f.Search);
-
-        var page = Math.Max(1, f.Page);
-        var pageSize = Math.Clamp(f.PageSize, 1, 500);
-        var total = await q.CountAsync(ct);
-        var items = await q
-            .OrderBy(t => t.Status == TaskItemStatus.Done || t.Status == TaskItemStatus.Cancelled)
-            .ThenBy(t => t.DueDate == null)
-            .ThenBy(t => t.DueDate)
-            .ThenByDescending(EnumOrder.ByTaskPriority)
-            .ThenByDescending(t => t.CreatedAt)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .ToListAsync(ct);
-        return new PagedResult<TaskItem>(items, page, pageSize, total);
+        return Matching(q, f.Search);
     }
 
     /// <summary>

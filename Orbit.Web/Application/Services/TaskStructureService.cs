@@ -52,6 +52,36 @@ public sealed class TaskStructureService(ApplicationDbContext db, IActorProvider
     }
 
     /// <summary>
+    /// For parent rows (design spec 2026-11-02 §4): what the parents among these tasks show in place of values of their own,
+    /// worked out from their bottom-level descendants. One query per level of subtasks, unscoped like the task page's Subtasks section.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<Guid, ParentSummary>> GetParentSummariesAsync(IEnumerable<TaskItem> tasks, DateOnly today, CancellationToken ct = default)
+    {
+        var parentIds = tasks.Where(t => t.HasSubtasks).Select(t => t.Id).Distinct().ToList();
+        if (parentIds.Count == 0) return new Dictionary<Guid, ParentSummary>();
+
+        var facts = new List<DescendantFacts>();
+        var seen = new HashSet<Guid>(parentIds);
+        var frontier = parentIds;
+        for (var round = 0; frontier.Count > 0 && round < MaxDepth; round++)
+        {
+            var ids = frontier;
+            var level = await db.Tasks.AsNoTracking().Where(t => t.ParentTaskId != null && ids.Contains(t.ParentTaskId.Value))
+                .Select(t => new
+                {
+                    t.Id, ParentId = t.ParentTaskId!.Value, t.HasSubtasks, t.Status, t.DueDate, t.SprintId,
+                    SprintName = t.Sprint != null ? t.Sprint.Name : null,
+                    SprintStart = t.Sprint != null ? (DateOnly?)t.Sprint.StartDate : null,
+                    Names = t.Assignments.Select(a => a.User.DisplayName).ToList()
+                }).ToListAsync(ct);
+            level = level.Where(d => seen.Add(d.Id)).ToList();
+            facts.AddRange(level.Select(d => new DescendantFacts(d.Id, d.ParentId, d.HasSubtasks, d.Status, d.DueDate, d.SprintId, d.SprintName, d.SprintStart, d.Names)));
+            frontier = level.Where(d => d.HasSubtasks).Select(d => d.Id).ToList();
+        }
+        return ParentDisplayRules.Summarise(parentIds, facts, today);
+    }
+
+    /// <summary>
     /// For task tables: which of these tasks are waiting, with a one-line reason. One query for the links (plus one per
     /// level of parents for the Todo tasks, which inherit their ancestors' start gates), not one per row.
     /// </summary>

@@ -104,4 +104,31 @@ public class TaskTreeRulesTests
         Assert.True(o.Compare(K(Guid.NewGuid(), priority: TaskPriority.Critical), K(Guid.NewGuid(), priority: TaskPriority.Low)) < 0);
         Assert.True(o.Compare(K(Guid.NewGuid(), created: Now.AddDays(1)), K(Guid.NewGuid(), created: Now)) < 0);
     }
+
+    private static TaskItem T(Guid id, Guid? parent = null, bool hasSubtasks = false, DateOnly? due = null) =>
+        new() { Id = id, ParentTaskId = parent, HasSubtasks = hasSubtasks, DueDate = due, Status = TaskItemStatus.Todo, Priority = TaskPriority.Medium, CreatedAt = Now };
+
+    /// <summary>SUB-016: a match's ancestors from the full set become context rows; tasks with no matching descendant are left out; rows map back to their task.</summary>
+    [Fact]
+    public void ForTasks_adds_ancestors_as_context_and_drops_unrelated_tasks()
+    {
+        Guid r = Guid.NewGuid(), p = Guid.NewGuid(), c = Guid.NewGuid(), other = Guid.NewGuid(), sibling = Guid.NewGuid();
+        var all = new[] { T(r, hasSubtasks: true), T(p, r, true), T(c, p), T(sibling, p), T(other) };
+        var rows = TaskTreeRules.ForTasks(all, t => t.Id == c);
+        Assert.Equal([r, p, c], rows.Select(x => x.Task.Id));
+        Assert.Equal([0, 1, 2], rows.Select(x => x.Depth));
+        Assert.Equal([true, true, false], rows.Select(x => x.IsContext));
+        Assert.Equal([true, true, false], rows.Select(x => x.HasShownChildren));
+        Assert.Same(all[2], rows[2].Task);
+    }
+
+    /// <summary>SUB-016: a match whose parent is absent from the set is a root.</summary>
+    [Fact]
+    public void ForTasks_treats_a_match_with_an_unknown_parent_as_a_root()
+    {
+        var c = Guid.NewGuid();
+        var row = Assert.Single(TaskTreeRules.ForTasks([T(c, Guid.NewGuid())], _ => true));
+        Assert.Equal(0, row.Depth);
+        Assert.False(row.IsContext);
+    }
 }

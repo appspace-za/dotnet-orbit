@@ -81,6 +81,27 @@ public static class TaskTreeRules
         return (pages[Math.Clamp(page, 1, pages.Count) - 1], pages.Count);
     }
 
+    /// <summary>Matches plus their ancestors found in <paramref name="all"/>, as tree rows in <see cref="ListOrder"/>.</summary>
+    public static IReadOnlyList<TaskTreeRow> ForTasks(IReadOnlyList<TaskItem> all, Func<TaskItem, bool> isMatch)
+    {
+        var byId = all.GroupBy(t => t.Id).ToDictionary(g => g.Key, g => g.First());
+        var matches = all.Where(isMatch).Select(t => t.Id).ToHashSet();
+        var included = new HashSet<Guid>(matches);
+        foreach (var id in matches)
+        {
+            var cursor = byId[id].ParentTaskId;
+            for (var guard = 0; cursor is Guid p && byId.ContainsKey(p) && guard < MaxDepth; guard++)
+            {
+                included.Add(p);
+                cursor = byId[p].ParentTaskId;
+            }
+        }
+        var keys = byId.Values.Where(t => included.Contains(t.Id))
+            .Select(t => new TaskTreeKey(t.Id, t.ParentTaskId, matches.Contains(t.Id), t.HasSubtasks, t.Status, t.DueDate, t.Priority, t.CreatedAt));
+        return Build(keys, k => k.Id, k => k.ParentTaskId, k => k.IsMatch, ListOrder)
+            .Select(row => new TaskTreeRow(byId[row.Id], row.Depth, row.IsContext, row.HasShownChildren)).ToList();
+    }
+
     /// <summary>Drops every row below a collapsed row.</summary>
     public static IReadOnlyList<TreeRow> Visible(IReadOnlyList<TreeRow> rows, IReadOnlySet<Guid> collapsed)
     {
