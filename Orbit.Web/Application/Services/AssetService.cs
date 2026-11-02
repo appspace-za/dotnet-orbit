@@ -177,7 +177,7 @@ public sealed class AssetService(ApplicationDbContext db, IActorProvider actors,
     public async Task<AssetTaskHistory> TaskHistoryAsync(Asset asset, int take = 20, CancellationToken ct = default)
     {
         var actor = await actors.GetAsync(ct);
-        var linked = db.Tasks.AsNoTracking().WorkOnly().Where(t => t.AssetId == asset.Id); // a parent is left out, its subtasks listed (§6.15)
+        var linked = db.Tasks.AsNoTracking().Where(t => t.AssetId == asset.Id); // parents stay: subtasks don't inherit the asset (decision 147)
         var total = await linked.CountAsync(ct);
         var visible = Scoping.Tasks(linked, actor);
         var visibleCount = await visible.CountAsync(ct);

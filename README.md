@@ -268,9 +268,13 @@ need them. A reopened task keeps its notes, and they are offered again when it i
 a card under the description, and the search box finds a task by them. Tasks closed before solution notes existed
 have none, and can still be edited without adding any.
 
+A task with subtasks is a container, so the dashboard, project progress, the lists' counts, the sprint pages, Planning, Today
+and the reports count its subtasks instead of it; time logged on it before it gained subtasks still counts.
+
 The task clock (**Start Clock**) runs per task: each task page has its own, and leaving a page stops only that page's
 clock (spec §6.10). On a task page, subtasks and linked tasks (Waiting on, Blocks) open in a new tab, so you can run
-a clock on the task and on a subtask at the same time; overlapping time is logged on both. The page checks in every
+a clock on the task and on a linked task at the same time; overlapping time is logged on both. A task with subtasks takes
+no clock and no time: log it on a subtask. The page checks in every
 minute; a clock whose page stops checking in (a crashed tab, a computer asleep) is stopped and logged up to its last
 check-in.
 

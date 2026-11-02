@@ -176,11 +176,14 @@ On narrow screens a range wraps to two lines (start, then "→ end" in small pri
   - `SprintService` list and board counts, `SprintDetails` figures; `SprintPlanningService` / `SprintPlanningRules`
     capacity and committed effort.
   - Today (`TaskService.GetDayPlanAsync`, `DayPlanRules`, `DayPlanModels`).
-  - `ReportingService` and the report rules (`TimeReportRules` estimate accuracy, `ProjectReportRules`, `SprintReportRules`,
-    `AssetReportRules`): closed and created by person, response and resolve times, estimate sums, task counts. The PDFs use
-    the same DTOs.
+  - `ReportingService` and the report rules (`TimeReportRules` estimate accuracy, `ProjectReportRules`, `SprintReportRules`):
+    closed and created by person, response and resolve times, estimate sums, task counts. The PDFs use the same DTOs. Time
+    sums in them keep every task (a parent's time stays in the project's, sprint's and person's figures).
   - MCP counts in `list_projects`, `get_project` and `get_project_status`.
   - Critical path counts (§5).
+- **Asset-linked lists and counts keep parents** (ruling R10): the asset page's task history, `get_asset` and the Asset status
+  report are unchanged, because subtasks don't inherit `AssetId`, so filtering parents would make the work about an asset
+  vanish. `AssetService` and `AssetReportRules` are therefore not in the list above.
 - Parents have no assignees, so without this rule they would count as "up for grabs" and match the Unassigned filter; with
   it they don't.
 

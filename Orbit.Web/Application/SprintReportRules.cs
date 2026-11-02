@@ -285,7 +285,8 @@ public static class SprintReportRules
         SprintGroupRow Group(SprintProjectFacts? project, IReadOnlyList<(SprintTaskFacts Facts, SprintWorkKind Kind)> tasks)
         {
             var facts = tasks.Select(x => x.Facts).ToList();
-            var rows = tasks.Select(x => Row(x.Facts, x.Kind)).ToList();
+            var workFacts = facts.Where(t => !t.IsParent).ToList(); // WorkOnly (§6.15): counts and estimates; time keeps `facts`
+            var rows = tasks.Where(x => !x.Facts.IsParent).Select(x => Row(x.Facts, x.Kind)).ToList();
             List<SprintTaskRow> Part(bool isPlanned) => rows.Where(r => (r.Work == SprintWorkKind.Planned) == isPlanned)
                 .OrderBy(r => r.Outcome)
                 .ThenBy(r => r.Status)
@@ -293,10 +294,10 @@ public static class SprintReportRules
                 .ToList();
             var inPlan = Part(true);
             var offPlan = Part(false);
-            var byKind = rows.ToLookup(r => r.Work);
+            var byKind = tasks.ToLookup(x => x.Kind);
             return new SprintGroupRow(project, Count(inPlan), Count(offPlan),
-                SprintKindCounts.From(k => byKind[k].Sum(r => r.SprintMinutes)), facts.Sum(t => t.Task.TotalMinutes),
-                TimeReportRules.Compare(facts.Select(t => t.Task)), People(rows, facts, timeByTask, Name), inPlan, offPlan);
+                SprintKindCounts.From(k => byKind[k].Sum(x => x.Facts.SprintMinutes)), facts.Sum(t => t.Task.TotalMinutes),
+                TimeReportRules.Compare(workFacts.Select(t => t.Task)), People(rows, facts, timeByTask, Name), inPlan, offPlan);
         }
 
         var groups = InProjectOrder(
@@ -315,11 +316,11 @@ public static class SprintReportRules
         {
             var facts = work[kind];
             return new(Count(rowsByKind[kind].ToList()), facts.Sum(t => t.SprintMinutes), facts.Sum(t => t.Task.TotalMinutes),
-                TimeReportRules.Compare(facts.Select(t => t.Task)));
+                TimeReportRules.Compare(facts.Where(t => !t.IsParent).Select(t => t.Task)));
         }
         var summary = new SprintStatusSummary(
             Totals(SprintWorkKind.Planned), Totals(SprintWorkKind.NotPlanned), Totals(SprintWorkKind.Backlog),
-            Totals(SprintWorkKind.OtherSprint), TimeReportRules.Compare(Kinds.SelectMany(k => work[k]).Select(t => t.Task)));
+            Totals(SprintWorkKind.OtherSprint), TimeReportRules.Compare(Kinds.SelectMany(k => work[k]).Where(t => !t.IsParent).Select(t => t.Task)));
 
         var outcomes = taskRows.ToDictionary(r => r.TaskId, r => r.Outcome);
         var impact = Impact(work, outcomes, timeByTask, Name);
@@ -328,6 +329,7 @@ public static class SprintReportRules
         var byDay = days.Where(d => d.Date >= sprint.StartDate && d.Date <= sprint.EndDate).ToLookup(d => d.Date);
         // Tasks per day: each task once, on the last day it was set to Done in the window.
         var finished = Kinds.ToDictionary(k => k, k => work[k]
+            .Where(t => !t.IsParent)
             .Select(t => (t.Task.Id, Day: FinishedOn(t, changesByTask[t.Task.Id], sprint, asAt)))
             .Where(x => x.Day is not null)
             .ToLookup(x => x.Day!.Value, x => x.Id));
@@ -343,7 +345,7 @@ public static class SprintReportRules
 
         return new SprintStatusReport(sprint, asAt, summary, impact, groups, dayRows, leftOpenTo, projectOptions, assigneeOptions)
         {
-            PersonTasks = PersonTasks(Kinds.SelectMany(k => work[k]), outcomes, impact, Name)
+            PersonTasks = PersonTasks(Kinds.SelectMany(k => work[k]).Where(t => !t.IsParent), outcomes, impact, Name)
         };
     }
 
@@ -409,7 +411,7 @@ public static class SprintReportRules
             .GroupBy(t => t.UserId)
             .ToDictionary(g => g.Key, g => (Sprint: g.Sum(t => t.SprintMinutes), Total: g.Sum(t => t.TotalMinutes)));
         var rowById = rows.ToDictionary(r => r.TaskId);
-        var assigned = facts.Where(t => !rowById[t.Task.Id].IsCancelled)
+        var assigned = facts.Where(t => rowById.TryGetValue(t.Task.Id, out var row) && !row.IsCancelled) // a parent has no row
             .SelectMany(t => TimeReportRules.AssigneesOrNone(t.Task.AssigneeIds).Select(id => (UserId: id, Row: rowById[t.Task.Id])))
             .ToLookup(x => x.UserId, x => x.Row);
 
@@ -445,7 +447,7 @@ public static class SprintReportRules
         var minutes = work.ToDictionary(w => w.Key, w => w.Value.SelectMany(t => timeByTask[t.Task.Id])
             .GroupBy(t => t.UserId)
             .ToDictionary(g => g.Key, g => g.Sum(t => t.SprintMinutes)));
-        var assigned = work.ToDictionary(w => w.Key, w => w.Value.Where(t => outcomes[t.Task.Id] != SprintTaskOutcome.Cancelled)
+        var assigned = work.ToDictionary(w => w.Key, w => w.Value.Where(t => !t.IsParent && outcomes[t.Task.Id] != SprintTaskOutcome.Cancelled)
             .SelectMany(t => TimeReportRules.AssigneesOrNone(t.Task.AssigneeIds).Select(id => (UserId: id, Task: t)))
             .ToLookup(x => x.UserId, x => x.Task));
 

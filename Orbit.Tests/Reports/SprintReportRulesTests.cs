@@ -89,6 +89,32 @@ public class SprintReportRulesTests
     private static string Json(object details) => JsonSerializer.Serialize(details, OrbitJson.Options);
 
     /// <summary>
+    /// SUB-019: a parent is kept in the facts for its time but is not counted, listed, estimated or given to anyone, while the time
+    /// logged on it still counts in the sprint's, the project's and the person's figures.
+    /// </summary>
+    [Fact]
+    public void A_parents_time_counts_though_the_parent_does_not()
+    {
+        var plain = Task(project: Alpha, assignees: [Alice], estimate: 60, total: 20, sprint: 20);
+        var parent = Task(project: Alpha, estimate: 300, total: 40, sprint: 40) with { IsParent = true };
+        var report = Build(Sprint(), [plain, parent],
+            [new SprintPersonTime(plain.Task.Id, Alice, 20, 20), new SprintPersonTime(parent.Task.Id, Bob, 40, 40)]);
+
+        var s = report.Summary;
+        Assert.Equal(1, s.Planned.Tasks.Total);
+        Assert.Equal(60, s.Planned.SprintMinutes);
+        Assert.Equal(60, s.Planned.ToDateMinutes);
+        Assert.Equal(new EstimateComparison(1, 60, 20, 0), s.AllEstimate);
+        var group = Assert.Single(report.Rows);
+        Assert.Equal(60, group.Minutes.Planned);
+        Assert.Equal(1, group.PlannedTasks.Total);
+        Assert.Equal(plain.Task.Id, Assert.Single(group.PlannedTaskRows).TaskId);
+        Assert.Equal(60, group.People.Sum(x => x.SprintMinutes)); // Bob's time on the parent has a row, though he has no task
+        Assert.Equal(60, report.People.Sum(x => x.SprintMinutes));
+        Assert.Equal(1, report.PersonTasks.Sum(x => x.Done + x.LeftOpen + x.Cancelled));
+    }
+
+    /// <summary>
     /// RPT-022: a sprint's Completed audit row is read in both shapes SprintService writes (<see cref="SprintCompletedDetails"/>), which
     /// are those of the rows already written, and nothing else.
     /// </summary>

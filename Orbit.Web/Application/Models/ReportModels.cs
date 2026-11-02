@@ -303,10 +303,12 @@ public sealed record SprintCompletion(Guid SprintId, DateTime At, Guid? RolledFo
 /// <summary>
 /// A task the sprint status report may count: planned into the sprint, or Not Planned, on the Backlog or in another sprint with
 /// work in its window (<c>SprintReportRules.UnplannedKind</c>). <see cref="SprintMinutes"/> is everyone's time on it dated in the
-/// sprint's window; <c>Task.TotalMinutes</c> all to date.
+/// sprint's window; <c>Task.TotalMinutes</c> all to date. A task with subtasks (<see cref="IsParent"/>, §6.15) is kept for its time, which
+/// counts once on the task it was logged on, but is left out of the task counts, rows and estimates: its subtasks are counted.
 /// </summary>
 public sealed record SprintTaskFacts(
-    TaskTimeFacts Task, Guid? ProjectId, Guid? SprintId, bool InBacklog, DateTime CreatedAt, DateTime? CompletedAt, int SprintMinutes);
+    TaskTimeFacts Task, Guid? ProjectId, Guid? SprintId, bool InBacklog, DateTime CreatedAt, DateTime? CompletedAt, int SprintMinutes,
+    bool IsParent = false);
 
 /// <summary>
 /// A project with work of any kind in the sprint: planned, Not Planned, from the Backlog or from another sprint. <see cref="Status"/>
