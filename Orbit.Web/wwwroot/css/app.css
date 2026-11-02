@@ -394,6 +394,29 @@ a.orbit-plain:hover { background: var(--mud-palette-table-hover); }
 .orbit-tasks .orbit-title + .mud-chip-container > .mud-chip { margin-left: .5rem; }
 .orbit-empty { padding: .75rem 1rem; margin: 0; color: var(--mud-palette-text-secondary); font-style: italic; }
 
+/* The task tree on the Tasks list and the project page (§6.2, §6.15, decision 148). TaskTable indents a row's Task cell by
+   --orbit-tree-step per level, capped at four, after a gutter of the cell's own padding (MudBlazor's dense 16px) and the toggle's
+   slot, which hangs in that gutter so a title and the small print under it line up with or without a toggle. */
+.orbit-tasks { --orbit-tree-step: 1.25rem; --orbit-tree-slot: 1.5rem; --orbit-tree-gutter: calc(16px + var(--orbit-tree-slot)); }
+.orbit-tree-slot { display: inline-flex; align-items: center; justify-content: center; width: var(--orbit-tree-slot); margin-left: calc(-1 * var(--orbit-tree-slot)); vertical-align: middle; }
+.orbit-tasks .orbit-tree-toggle.mud-icon-button { padding: 0; color: var(--mud-palette-text-secondary); }
+.orbit-tasks .orbit-tree-count { margin: 0 .5rem 0 .375rem; }
+.orbit-tree-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: .25rem; padding: .25rem .5rem; border-bottom: 1px solid var(--mud-palette-lines-default); }
+/* A context row: an ancestor shown only to place a match under it, greyed, with no controls and no hover. */
+.orbit-tasks tr.orbit-tree-context td, .orbit-tasks tr.orbit-tree-context .orbit-title { color: var(--mud-palette-text-secondary); }
+.orbit-tasks tr.orbit-tree-context .mud-chip { opacity: .7; }
+.orbit-tasks tr.orbit-tree-context a.orbit-title:hover { color: var(--mud-palette-primary); }
+@media (hover: hover) and (pointer: fine) {
+    .mud-simple-table.mud-table-hover.orbit-tasks .mud-table-container table tbody tr.orbit-tree-context:hover { background-color: transparent; }
+}
+/* A parent's due and sprint ranges: on one line, or on a narrow screen "→ end" on a line of its own in small print (as .orbit-sub). */
+.orbit-range { white-space: nowrap; }
+.orbit-range-end { margin-left: .3em; }
+@media (max-width: 599.98px) {
+    .orbit-range { white-space: normal; }
+    .orbit-range-end { display: block; margin-left: 0; font-size: .8rem; color: var(--mud-palette-text-secondary); }
+}
+
 /* Inline controls in a row: compact, and wide enough for their longest option and a full date. */
 .orbit-tasks .orbit-inline { width: 11rem; }
 .orbit-inline { min-width: 9rem; }

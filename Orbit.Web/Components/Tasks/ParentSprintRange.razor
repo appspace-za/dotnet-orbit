@@ -1,0 +1,32 @@
+@* A parent's Sprint cell in the task tables (spec §6.15, design spec 2026-11-02 §4): the first and last sprint its open subtasks are
+   in, or one name when they share one, then "+N unplanned" for the open ones in no sprint (SUB-014). With no open subtask in a
+   sprint it shows what a plain row would: the sprint its closed subtasks were in, the Backlog or Not Planned. *@
+@if (ParentLook.Sprints(Summary) is { } range)
+{
+    <span class="orbit-range" title="From its subtasks: the sprints its open ones are in">
+        <span>@range.Start</span>
+        @if (range.End is not null)
+        {
+            <span class="orbit-range-end">@($"→ {range.End}")</span>
+        }
+    </span>
+    @if (ParentLook.Unplanned(Summary) is { } unplanned)
+    {
+        <div class="orbit-sub" title="Open subtasks in no sprint">@unplanned</div>
+    }
+}
+else if (Task.Sprint is not null)
+{
+    <MudLink Href="@($"/Sprints/Details/{Task.SprintId}")" Target="@(NewTab ? "_blank" : null)" Underline="Underline.Hover">@Task.Sprint.Name</MudLink>
+}
+else
+{
+    <span class="orbit-muted">@SprintPlacement.Of(Task).Label()</span>
+}
+
+@code {
+    [Parameter, EditorRequired] public TaskItem Task { get; set; } = null!;
+    [Parameter, EditorRequired] public ParentSummary Summary { get; set; } = null!;
+    /// <summary>The sprint link opens in a new tab, as the table's other links do (<see cref="TaskTable.NewTab"/>).</summary>
+    [Parameter] public bool NewTab { get; set; }
+}

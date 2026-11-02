@@ -120,5 +120,20 @@ public static class TaskTreeRules
         return result;
     }
 
+    /// <summary>The task rows left showing under <paramref name="collapsed"/> parents, as <see cref="Visible(IReadOnlyList{TreeRow}, IReadOnlySet{Guid})"/> drops them.</summary>
+    public static IReadOnlyList<TaskTreeRow> Visible(IReadOnlyList<TaskTreeRow> rows, IReadOnlySet<Guid> collapsed)
+    {
+        var shown = Visible(rows.Select(r => new TreeRow(r.Task.Id, r.Task.ParentTaskId, r.Depth, r.IsContext, r.HasShownChildren)).ToList(), collapsed);
+        var kept = shown.Select(r => r.Id).ToHashSet();
+        return rows.Where(r => kept.Contains(r.Task.Id)).ToList();
+    }
+
+    /// <summary>
+    /// A context row the viewer may not view: an ancestor loaded only to place a match under it, outside the viewer's scope (§6.5).
+    /// It shows its number and title and nothing else, as the old "in: Parent" line did (controller ruling R13). A row that
+    /// matched the page's own filter keeps what the page always showed of it.
+    /// </summary>
+    public static bool TitleOnly(Actor actor, TaskTreeRow row) => row.IsContext && !AccessPolicy.CanViewTask(actor, row.Task);
+
     public static int Indent(int depth) => Math.Min(depth, MaxIndent);
 }

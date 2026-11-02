@@ -1,0 +1,17 @@
+@* A parent's Status cell in the task tables (spec §6.15, design spec 2026-11-02 §4): one chip per status among its bottom-level
+   subtasks, with the count, coloured as the status chips are, in place of a status chip or control of its own (SUB-012). *@
+<div class="orbit-gap-row" title="@($"From its subtasks: {Task.Status.Label()}")">
+    @if (Summary.Statuses.Count == 0)
+    {
+        <MudChip T="string" Size="Size.Small" Color="TaskLook.Status(Task.Status)">@Task.Status.Label()</MudChip>
+    }
+    @foreach (var c in Summary.Statuses)
+    {
+        <MudChip T="string" Size="Size.Small" Color="TaskLook.Status(c.Status)">@ParentLook.StatusChip(c)</MudChip>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public TaskItem Task { get; set; } = null!;
+    [Parameter, EditorRequired] public ParentSummary Summary { get; set; } = null!;
+}

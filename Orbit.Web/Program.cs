@@ -136,6 +136,7 @@ builder.Services.AddScoped<CircuitHandler, CircuitScopeMarker>();
 builder.Services.AddScoped<ActorPrincipal>();
 builder.Services.AddScoped<OrbitRunner>();
 builder.Services.AddScoped<BrowserFilterMemory>();
+builder.Services.AddScoped<BrowserTreeMemory>();
 builder.Services.AddMudServices(o =>
 {
     o.SnackbarConfiguration.PositionClass = Defaults.Classes.Position.BottomRight;

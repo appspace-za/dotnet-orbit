@@ -131,4 +131,48 @@ public class TaskTreeRulesTests
         Assert.Equal(0, row.Depth);
         Assert.False(row.IsContext);
     }
+
+    /// <summary>
+    /// Review Focus 3, for the task tables' rows: collapsing a parent hides every task row under it and nothing else, the rows
+    /// staying the same objects in the same order.
+    /// </summary>
+    [Fact]
+    public void Visible_task_rows_hide_everything_under_a_collapsed_parent()
+    {
+        Guid r = Guid.NewGuid(), p = Guid.NewGuid(), c = Guid.NewGuid(), s = Guid.NewGuid();
+        var rows = TaskTreeRules.ForTasks([T(r, hasSubtasks: true), T(p, r, true), T(c, p), T(s)], _ => true);
+        Assert.Equal([r, p, c, s], rows.Select(x => x.Task.Id));
+
+        Assert.Equal([r, p, s], TaskTreeRules.Visible(rows, new HashSet<Guid> { p }).Select(x => x.Task.Id));
+        Assert.Equal([r, s], TaskTreeRules.Visible(rows, new HashSet<Guid> { r, p }).Select(x => x.Task.Id));
+        var all = TaskTreeRules.Visible(rows, new HashSet<Guid> { c, s });
+        Assert.Equal(rows, all);
+    }
+
+    private static TaskItem In(Guid department, Guid? parent = null, bool hasSubtasks = false) =>
+        new()
+        {
+            Id = Guid.NewGuid(), DepartmentId = department, ParentTaskId = parent, HasSubtasks = hasSubtasks, Status = TaskItemStatus.Todo,
+            CreatedAt = Now, Assignments = Assigned.To()
+        };
+
+    /// <summary>
+    /// SUB-016 with §6.5 scoping (ruling R13): a context ancestor the viewer may not view shows its title only; one they may
+    /// view, and any row that matched, keeps its cells.
+    /// </summary>
+    [Fact]
+    public void TitleOnly_is_a_context_row_the_viewer_may_not_view()
+    {
+        Guid mine = Guid.NewGuid(), theirs = Guid.NewGuid();
+        var viewer = Access.TestActors.Member(mine);
+        var hidden = In(theirs, hasSubtasks: true);
+        var visible = In(mine, hasSubtasks: true);
+        var child = In(mine, hidden.Id);
+
+        Assert.True(TaskTreeRules.TitleOnly(viewer, new TaskTreeRow(hidden, 0, true, true)));
+        Assert.False(TaskTreeRules.TitleOnly(viewer, new TaskTreeRow(visible, 0, true, true)));
+        Assert.False(TaskTreeRules.TitleOnly(viewer, new TaskTreeRow(hidden, 0, false, false)));
+        Assert.False(TaskTreeRules.TitleOnly(viewer, new TaskTreeRow(child, 1, false, false)));
+        Assert.False(TaskTreeRules.TitleOnly(Access.TestActors.SystemAdmin(), new TaskTreeRow(hidden, 0, true, true)));
+    }
 }

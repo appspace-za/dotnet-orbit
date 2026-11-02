@@ -2,12 +2,15 @@
 @page "/Tasks/Index"
 @inherits OrbitListPage
 @using Orbit.Application.Assets
+@inject BrowserTreeMemory TreeMemory
 @* The Tasks list (spec §6.2): every task the viewer may see, filtered and paged, with the rows' live controls. The filters
    live in the address, in the Razor page's keys (old links and bookmarks still work), and are remembered for the browser
    session (OrbitListPage). Changing a filter applies it at once. The header's chips are quick filters, each in place of whatever
    was filtered: My tasks, the viewer's open tasks, which replaced the My Tasks page (decision 132, Navigation.MyTasks), Today,
    the viewer's tasks on today's plan, done ones included (decision 133, Navigation.MyTasksToday), and Unassigned, the open
-   tasks nobody is assigned to (decision 144, Navigation.UnassignedTasks). *@
+   tasks nobody is assigned to (decision 144, Navigation.UnassignedTasks). The list is a tree (decision 148): each match under
+   its parents, a page holding whole top-level groups, the header counting the matches without subtasks, and the collapsed
+   parents remembered in the browser (BrowserTreeMemory), read before the rows are first drawn. *@
 
 <PageTitle>Tasks - Orbit</PageTitle>
 
@@ -15,7 +18,7 @@
 {
     <AccessDenied Message="@Refusal" />
 }
-else if (_result is null)
+else if (_page is null)
 {
     <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
 }
@@ -24,7 +27,7 @@ else
     <div class="orbit-page-header">
         <div class="orbit-gap-row">
             <MudText Typo="Typo.h5" HtmlTag="h1">
-                Tasks <span class="orbit-subtitle">@_result.TotalCount</span>
+                Tasks <span class="orbit-subtitle" title="The tasks that match, not counting those with subtasks, whose subtasks are counted instead">@_page.Count</span>
                 @if (FilterChoice.Id(ParentTaskId) is not null)
                 {
                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Href="/Tasks" title="Show the whole list again">Subtasks of one task · clear</MudChip>
@@ -93,16 +96,17 @@ else
     </MudPaper>
 
     <MudPaper Outlined="true" Class="orbit-card">
-        <TaskTable Tasks="_result.Items" Actor="_actor" Today="_today" ShowDepartment="TaskLook.MixesDepartments(_actor, _result.Items)"
+        <TaskTable Tasks="_tasks" TreeRows="_page.Rows" ParentSummaries="_summaries" Collapsed="_collapsed" CollapseChanged="CollapseAsync"
+                   Actor="_actor" Today="_today" ShowDepartment="TaskLook.MixesDepartments(_actor, _shown)"
                    ShowSprint="true" ShowEstimate="true" ShowPlanToday="true" QuickEditAssignees="_quickEditAssignees" QuickEditSprints="_openSprints"
                    Waiting="_waiting" EmptyMessage="No tasks match these filters." Changed="ReloadAsync" />
-        @if (_result.TotalPages > 1)
+        @if (_page.TotalPages > 1)
         {
             <div class="orbit-card-footer orbit-list-row">
-                <span>Page @_result.Page of @_result.TotalPages</span>
+                <span>Page @_page.Page of @_page.TotalPages</span>
                 <MudStack Row="true" Spacing="1">
-                    @if (_result.HasPrevious) { <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@PageUrl(_result.Page - 1)">Previous</MudButton> }
-                    @if (_result.HasNext) { <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@PageUrl(_result.Page + 1)">Next</MudButton> }
+                    @if (_page.Page > 1) { <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@PageUrl(_page.Page - 1)">Previous</MudButton> }
+                    @if (_page.Page < _page.TotalPages) { <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@PageUrl(_page.Page + 1)">Next</MudButton> }
                 </MudStack>
             </div>
         }
@@ -152,7 +156,11 @@ else
 
     private Actor? _actor;
     private DateOnly _today;
-    private PagedResult<TaskItem>? _result;
+    /// <summary>The page of the tree (§6.2, decision 148); <see cref="_tasks"/> are its rows' tasks, <see cref="_shown"/> those not shown as a title only.</summary>
+    private TaskTreePage? _page;
+    private IReadOnlyList<TaskItem> _tasks = [], _shown = [];
+    private IReadOnlyDictionary<Guid, ParentSummary> _summaries = new Dictionary<Guid, ParentSummary>();
+    private HashSet<Guid> _collapsed = [];
     private IReadOnlyDictionary<Guid, WaitingSummary> _waiting = new Dictionary<Guid, WaitingSummary>();
     private IReadOnlyList<UserSummary> _quickEditAssignees = [];
     private IReadOnlyList<Sprint> _openSprints = [];
@@ -218,6 +226,8 @@ else
 
     private async Task ReloadAsync()
     {
+        // The collapsed parents, set with the rows so they are first drawn as they were left (§6.2): no flash of open groups.
+        var collapsed = await TreeMemory.CollapsedAsync();
         await Load(async s =>
         {
             var actor = await s.Get<IActorProvider>().GetAsync();
@@ -254,8 +264,13 @@ else
                 Page = int.TryParse(PageNumber, out var page) && page > 0 ? page : 1,
                 PageSize = 50
             };
-            var result = await s.Get<TaskService>().ListAsync(filter);
-            _waiting = await s.Get<TaskStructureService>().GetWaitingAsync(result.Items);
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var tree = await s.Get<TaskService>().ListTreeAsync(filter);
+            var structure = s.Get<TaskStructureService>();
+            // A context row the viewer may not view shows its title only (TaskTreeRules.TitleOnly), so nothing more is worked out for it.
+            var shown = tree.Rows.Where(r => !TaskTreeRules.TitleOnly(actor, r)).Select(r => r.Task).ToList();
+            var summaries = await structure.GetParentSummariesAsync(shown, today);
+            _waiting = await structure.GetWaitingAsync(shown);
 
             _departments = canSeeAll
                 ? [("", "All"), .. (await s.Get<DepartmentService>().ListAsync(true)).Select(d => (d.Id.ToString(), d.Name))]
@@ -292,9 +307,22 @@ else
                 : null;
 
             _canSeeAll = canSeeAll;
-            _today = DateOnly.FromDateTime(DateTime.UtcNow);
+            _today = today;
             _actor = actor;
-            _result = result;
+            _summaries = summaries;
+            _collapsed = collapsed;
+            _tasks = tree.Rows.Select(r => r.Task).ToList();
+            _shown = shown;
+            _page = tree;
         });
+    }
+
+    /// <summary>A parent's toggle, or Expand all / Collapse all: redrawn at once from the rows in hand, then remembered (§6.2).</summary>
+    private async Task CollapseAsync((IReadOnlyCollection<Guid> Ids, bool Collapsed) change)
+    {
+        if (change.Collapsed) _collapsed.UnionWith(change.Ids);
+        else _collapsed.ExceptWith(change.Ids);
+        StateHasChanged();
+        await TreeMemory.SetAsync(change.Ids, change.Collapsed);
     }
 }

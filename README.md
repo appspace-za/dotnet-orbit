@@ -238,6 +238,17 @@ subtask. A parent closes by itself when its last open subtask closes, and an ope
 *Add subtask* on a task without subtasks starts the new form from that task's assignees, priority, due date, estimate
 and sprint (not a completed sprint); on a task that already has subtasks it starts blank.
 
+The Tasks list and a project page show the tasks as a **tree** (spec §6.2): each subtask under its parent, indented, with
+a ▸/▾ toggle on the parent to fold its subtasks away and their number beside its title. A parent's row shows its
+subtasks instead of controls: a chip per status with its count (*3 Done*, *2 In Progress*), its due dates from the next
+open subtask's to the last (in red when an open one is overdue), its sprints from the first to the last with *+N
+unplanned*, and the people on its open subtasks. A filter picks tasks as before and shows each match under its parents,
+greyed when they didn't match themselves; such a parent that you aren't allowed to open shows only its number and title. The Tasks
+list pages by whole groups, so a parent is never parted from its subtasks, and its header counts the matching tasks
+without subtasks, as the dashboard does. The parents you fold are remembered in your browser, on both pages, and *Expand
+all* / *Collapse all* sit above the table. The other task lists (Planning, the sprint pages, Today) stay flat, a
+subtask there showing its parent's title under its own.
+
 A task has a **type**, the kind of work it is: Meeting, Planning, Task (the default), Training, Audit, Change, Request
 or Problem. It is chosen on the task form, shown as a coloured badge beside the title (a plain Task has none in the
 lists) and is a filter on the Tasks list. A request flow's task step sets the type of the task it

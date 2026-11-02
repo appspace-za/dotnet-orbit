@@ -2,9 +2,11 @@
 @inherits OrbitComponentBase
 @using Microsoft.Extensions.Options
 @inject IOptions<AttachmentOptions> AttachmentOptions
+@inject BrowserTreeMemory TreeMemory
 @* A project's page (spec §6.1): its progress overall and by department (§6.2.1), the headline of its last critical path
    analysis (§6.17), its tasks (filtered by department, status and assignee in the address), recurring tasks, attachments
-   (§6.18) and comments. A department that only shares the project sees it read-only, apart from its own tasks and comments. *@
+   (§6.18) and comments. A department that only shares the project sees it read-only, apart from its own tasks and comments.
+   The tasks are a tree, as on the Tasks list (§6.2, decision 148), unpaged, with the same collapsed parents (BrowserTreeMemory). *@
 
 <PageTitle>@(_project?.Name ?? "Project") - Orbit</PageTitle>
 
@@ -213,8 +215,8 @@ else
 
     <MudPaper Outlined="true" Class="orbit-card">
         <div class="orbit-card-header">
-            @* WorkOnly (§6.15): the count leaves parents out; the table lists them. *@
-            <span><b>Tasks</b> <span class="orbit-muted">(@_tasks.Count(t => !t.HasSubtasks) of @p.Tasks.Count(t => !t.HasSubtasks))</span></span>
+            @* WorkOnly (§6.15): the count is the matches without subtasks, of all the tasks without subtasks; the tree lists the parents. *@
+            <span><b>Tasks</b> <span class="orbit-muted">(@_rows.Count(r => !r.IsContext && !r.Task.HasSubtasks) of @p.Tasks.Count(t => !t.HasSubtasks))</span></span>
             <div class="orbit-gap-row">
                 @if (_isCrossDepartment)
                 {
@@ -224,7 +226,8 @@ else
                 <FilterSelect Label="Assignee" Value="@AssigneeId" ValueChanged="v => Go(nameof(AssigneeId), v)" Options="_assigneeOptions" Class="orbit-field-sm" />
             </div>
         </div>
-        <TaskTable Tasks="_tasks" Actor="_actor!" Today="_today" ShowProject="false" ShowDepartment="_isCrossDepartment" ShowSprint="true" ShowEstimate="true" ShowPlanToday="true"
+        <TaskTable Tasks="_tasks" TreeRows="_rows" ParentSummaries="_summaries" Collapsed="_collapsed" CollapseChanged="CollapseAsync"
+                   Actor="_actor!" Today="_today" ShowProject="false" ShowDepartment="_isCrossDepartment" ShowSprint="true" ShowEstimate="true" ShowPlanToday="true"
                    QuickEditAssignees="_quickEditAssignees" QuickEditSprints="_openSprints" Waiting="_waiting" EmptyMessage="No tasks match." Changed="ReloadAsync" />
     </MudPaper>
 
@@ -296,7 +299,11 @@ else
     private ProjectStatusSummary? _summary;
     private CriticalPathSummary? _criticalPath;
     private DateOnly _today;
+    /// <summary>The task tree (§6.1, decision 148): the filter's matches under their parents; <see cref="_tasks"/> are the rows' tasks.</summary>
+    private IReadOnlyList<TaskTreeRow> _rows = [];
     private IReadOnlyList<TaskItem> _tasks = [];
+    private IReadOnlyDictionary<Guid, ParentSummary> _summaries = new Dictionary<Guid, ParentSummary>();
+    private HashSet<Guid> _collapsed = [];
     private IReadOnlyDictionary<Guid, WaitingSummary> _waiting = new Dictionary<Guid, WaitingSummary>();
     private IReadOnlyList<UserSummary> _quickEditAssignees = [];
     private IReadOnlyList<Sprint> _openSprints = [];
@@ -307,53 +314,73 @@ else
 
     protected override Task OnParametersSetAsync() => ReloadAsync();
 
-    private async Task ReloadAsync() => await Load(async sp =>
+    private async Task ReloadAsync()
     {
-        var actor = await sp.Get<IActorProvider>().GetAsync();
-        var projects = sp.Get<ProjectService>();
-        var project = await projects.GetAsync(Id);
-        var summary = await projects.GetStatusAsync(Id);
-        _canEdit = AccessPolicy.CanEditProject(actor, project);
-        _canAddTasks = project.Status != ProjectStatus.Archived && AccessPolicy.CanAddTaskToProject(actor, project);
-        _isSharedView = !AccessPolicy.CanViewProject(actor, project);
-        _isCrossDepartment = summary.IsCrossDepartment || project.RecurringTaskDefinitions.Any(r => r.DepartmentId != project.DepartmentId);
-        foreach (var t in project.Tasks) t.Project = project;
+        // The collapsed parents, set with the rows so they are first drawn as they were left (§6.2): no flash of open groups.
+        var collapsed = await TreeMemory.CollapsedAsync();
+        await Load(async sp =>
+        {
+            var actor = await sp.Get<IActorProvider>().GetAsync();
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var projects = sp.Get<ProjectService>();
+            var project = await projects.GetAsync(Id);
+            var summary = await projects.GetStatusAsync(Id);
+            _canEdit = AccessPolicy.CanEditProject(actor, project);
+            _canAddTasks = project.Status != ProjectStatus.Archived && AccessPolicy.CanAddTaskToProject(actor, project);
+            _isSharedView = !AccessPolicy.CanViewProject(actor, project);
+            _isCrossDepartment = summary.IsCrossDepartment || project.RecurringTaskDefinitions.Any(r => r.DepartmentId != project.DepartmentId);
+            foreach (var t in project.Tasks) t.Project = project;
 
-        var status = FilterQuery.Enum<TaskItemStatus>(StatusChoice);
-        var assigneeId = FilterChoice.Id(AssigneeId);
-        var departmentId = FilterChoice.Id(DepartmentId);
-        var tasks = project.Tasks.AsEnumerable();
-        if (status is TaskItemStatus st) tasks = tasks.Where(t => t.Status == st);
-        if (assigneeId is Guid a) tasks = tasks.Where(t => t.IsAssignedTo(a));
-        if (departmentId is Guid d) tasks = tasks.Where(t => t.DepartmentId == d);
-        var list = tasks
-            .OrderBy(t => t.Status.IsClosed()).ThenBy(t => t.DueDate == null).ThenBy(t => t.DueDate)
-            .ThenByDescending(t => t.Priority).ThenByDescending(t => t.CreatedAt).ToList();
-        _assigneeOptions =
-        [
-            ("", "All assignees"),
-            .. project.Tasks.SelectMany(t => t.Assignees).DistinctBy(u => u.Id).OrderBy(u => u.DisplayName).Select(u => (u.Id.ToString(), u.DisplayName))
-        ];
-        _departmentOptions =
-        [
-            ("", "All departments"),
-            .. project.Tasks.Select(t => t.Department).DistinctBy(x => x.Id).OrderBy(x => x.Name).Select(x => (x.Id.ToString(), x.Name))
-        ];
-        _quickEditAssignees = await sp.Get<UserDirectoryService>().GetQuickEditCandidatesAsync();
-        _openSprints = await sp.Get<SprintService>().ListOpenAsync();
-        _waiting = await sp.Get<TaskStructureService>().GetWaitingAsync(list);
-        _criticalPath = await sp.Get<CriticalPathService>().GetSummaryAsync(project);
-        _canRunAnalysis = AccessPolicy.CanRunCriticalPath(actor, project);
-        _attachments = await sp.Get<AttachmentService>().ListForProjectAsync(Id);
-        _canAttach = project.Status != ProjectStatus.Archived && AccessPolicy.CanAttachToProject(actor, project);
-        _comments = await sp.Get<CommentService>().ListForProjectAsync(Id);
+            var status = FilterQuery.Enum<TaskItemStatus>(StatusChoice);
+            var assigneeId = FilterChoice.Id(AssigneeId);
+            var departmentId = FilterChoice.Id(DepartmentId);
+            // The filter's matches under their parents, in the Tasks list's order (§6.1, §6.2, decision 148).
+            var rows = TaskTreeRules.ForTasks(project.Tasks.ToList(), t =>
+                (status is not TaskItemStatus st || t.Status == st)
+                && (assigneeId is not Guid a || t.IsAssignedTo(a))
+                && (departmentId is not Guid d || t.DepartmentId == d));
+            // A context row the viewer may not view shows its title only (TaskTreeRules.TitleOnly), so nothing more is worked out for it.
+            var shown = rows.Where(r => !TaskTreeRules.TitleOnly(actor, r)).Select(r => r.Task).ToList();
+            _assigneeOptions =
+            [
+                ("", "All assignees"),
+                .. project.Tasks.SelectMany(t => t.Assignees).DistinctBy(u => u.Id).OrderBy(u => u.DisplayName).Select(u => (u.Id.ToString(), u.DisplayName))
+            ];
+            _departmentOptions =
+            [
+                ("", "All departments"),
+                .. project.Tasks.Select(t => t.Department).DistinctBy(x => x.Id).OrderBy(x => x.Name).Select(x => (x.Id.ToString(), x.Name))
+            ];
+            _quickEditAssignees = await sp.Get<UserDirectoryService>().GetQuickEditCandidatesAsync();
+            _openSprints = await sp.Get<SprintService>().ListOpenAsync();
+            var structure = sp.Get<TaskStructureService>();
+            _waiting = await structure.GetWaitingAsync(shown);
+            var summaries = await structure.GetParentSummariesAsync(shown, today);
+            _criticalPath = await sp.Get<CriticalPathService>().GetSummaryAsync(project);
+            _canRunAnalysis = AccessPolicy.CanRunCriticalPath(actor, project);
+            _attachments = await sp.Get<AttachmentService>().ListForProjectAsync(Id);
+            _canAttach = project.Status != ProjectStatus.Archived && AccessPolicy.CanAttachToProject(actor, project);
+            _comments = await sp.Get<CommentService>().ListForProjectAsync(Id);
 
-        _actor = actor;
-        _today = DateOnly.FromDateTime(DateTime.UtcNow);
-        _tasks = list;
-        _summary = summary;
-        _project = project;
-    });
+            _actor = actor;
+            _today = today;
+            _rows = rows;
+            _tasks = rows.Select(r => r.Task).ToList();
+            _summaries = summaries;
+            _collapsed = collapsed;
+            _summary = summary;
+            _project = project;
+        });
+    }
+
+    /// <summary>A parent's toggle, or Expand all / Collapse all: redrawn at once from the rows in hand, then remembered (§6.2).</summary>
+    private async Task CollapseAsync((IReadOnlyCollection<Guid> Ids, bool Collapsed) change)
+    {
+        if (change.Collapsed) _collapsed.UnionWith(change.Ids);
+        else _collapsed.ExceptWith(change.Ids);
+        StateHasChanged();
+        await TreeMemory.SetAsync(change.Ids, change.Collapsed);
+    }
 
     private string DepartmentUrl(Guid departmentId, TaskItemStatus? status = null) =>
         $"/Projects/Details/{Id}?" + new FilterQuery().Add(nameof(DepartmentId), departmentId).Add(StatusKey, status?.ToString());
