@@ -1,0 +1,19 @@
+@* A parent's Due cell in the task tables (spec §6.15, design spec 2026-11-02 §4): the next due date of an open subtask, then the
+   last one (the parent's own), or one date when they agree or nothing is open (SUB-013). A narrow screen puts "→ end" on a line
+   of its own in small print. In the overdue colour when an open subtask is overdue. *@
+@{
+    var range = ParentLook.Due(Summary, Task.DueDate);
+}
+<span class="@(Summary.Overdue ? "orbit-range orbit-overdue" : "orbit-range")"
+      title="@(Summary.Overdue ? "An open subtask is overdue" : "From its subtasks: the next due date of an open one, then the last")">
+    <span>@range.Start</span>
+    @if (range.End is not null)
+    {
+        <span class="orbit-range-end">@($"→ {range.End}")</span>
+    }
+</span>
+
+@code {
+    [Parameter, EditorRequired] public TaskItem Task { get; set; } = null!;
+    [Parameter, EditorRequired] public ParentSummary Summary { get; set; } = null!;
+}

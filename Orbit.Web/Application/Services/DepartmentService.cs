@@ -31,7 +31,7 @@ public sealed class DepartmentService(ApplicationDbContext db, IActorProvider ac
                 d,
                 d.Users.Count(u => u.IsActive && !u.IsSystemAccount),
                 d.Projects.Count(p => p.Status == ProjectStatus.Active),
-                d.Tasks.Count(t => t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled),
+                d.Tasks.Count(t => !t.HasSubtasks /* WorkOnly (§6.15) */ && t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled),
                 d.Manager != null ? d.Manager.DisplayName : null))
             .ToListAsync(ct);
     }
@@ -49,12 +49,13 @@ public sealed class DepartmentService(ApplicationDbContext db, IActorProvider ac
             .Select(p => new
             {
                 Project = p,
-                Total = p.Tasks.Count(),
-                Open = p.Tasks.Count(t => t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled),
-                Done = p.Tasks.Count(t => t.Status == TaskItemStatus.Done)
+                // WorkOnly (§6.15): a parent isn't counted beside its subtasks.
+                Total = p.Tasks.Count(t => !t.HasSubtasks),
+                Open = p.Tasks.Count(t => !t.HasSubtasks && t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled),
+                Done = p.Tasks.Count(t => !t.HasSubtasks && t.Status == TaskItemStatus.Done)
             }).ToListAsync(ct);
-        var open = await db.Tasks.CountAsync(t => t.DepartmentId == id && t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled, ct);
-        var total = await db.Tasks.CountAsync(t => t.DepartmentId == id, ct);
+        var open = await db.Tasks.WorkOnly().CountAsync(t => t.DepartmentId == id && t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled, ct);
+        var total = await db.Tasks.WorkOnly().CountAsync(t => t.DepartmentId == id, ct);
         return new DepartmentDetail(dept, members,
             projects.Select(r => new ProjectListItem(r.Project, r.Total, r.Open, r.Done)).ToList(), open, total);
     }

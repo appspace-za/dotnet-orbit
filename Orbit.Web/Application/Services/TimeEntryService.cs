@@ -68,6 +68,7 @@ public sealed class TimeEntryService(ApplicationDbContext db, IActorProvider act
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == input.TaskId, ct)
             ?? throw new NotFoundException("Task not found.");
         AccessPolicy.Require(AccessPolicy.CanViewTask(actor, task), "This task belongs to another department.");
+        if (task.HasSubtasks) throw new ValidationException(ParentRules.NoTimeMessage); // SUB-020
 
         var userId = input.UserId ?? actor.UserId ?? throw new ValidationException("A user is required.");
         AccessPolicy.Require(AccessPolicy.CanLogTimeFor(actor, task, userId),
@@ -172,6 +173,7 @@ public sealed class TimeEntryService(ApplicationDbContext db, IActorProvider act
         var task = await db.Tasks.AsNoTracking().FirstOrDefaultAsync(t => t.Id == taskId, ct)
             ?? throw new NotFoundException("Task not found.");
         AccessPolicy.Require(AccessPolicy.CanViewTask(actor, task), "This task belongs to another department.");
+        if (task.HasSubtasks) throw new ValidationException(ParentRules.NoTimeMessage); // SUB-020
         AccessPolicy.Require(AccessPolicy.CanLogTimeFor(actor, task, me), "You can only run the clock on tasks assigned to you.");
 
         var now = DateTime.UtcNow;
@@ -281,18 +283,9 @@ public sealed class TimeEntryService(ApplicationDbContext db, IActorProvider act
         var task = clock.Task;
 
         db.RunningClocks.Remove(clock);
-        TimeEntry? entry = null;
-        if (minutes >= 1)
+        var entry = TimeRules.StoppedClockEntry(clock, now);
+        if (entry is not null)
         {
-            entry = new TimeEntry
-            {
-                TaskId = task.Id,
-                UserId = clock.UserId,
-                Date = DateOnly.FromDateTime(startedAt),
-                DurationMinutes = minutes,
-                Note = $"Clock {startedAt.ToLocalTime():HH:mm}-{stoppedAt.ToLocalTime():HH:mm}",
-                CreatedAt = now
-            };
             db.TimeEntries.Add(entry);
             audit.Add(actor, AuditEntity.Task, task.Id, AuditAction.TimeLogged, task.DepartmentId, task.Title,
                 new { timeEntryId = entry.Id, entry.UserId, entry.Date, entry.DurationMinutes, clock = true });

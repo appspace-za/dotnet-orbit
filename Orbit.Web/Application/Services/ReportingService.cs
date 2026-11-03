@@ -5,7 +5,10 @@ using Orbit.Data.Entities;
 
 namespace Orbit.Application.Services;
 
-/// <summary>Operational reports (§12). Aggregates are computed in SQL and returned as plain DTOs.</summary>
+/// <summary>
+/// Operational reports (§12). Aggregates are computed in SQL and returned as plain DTOs. Task counts and estimates leave out a task
+/// with subtasks (<see cref="TaskQueries.WorkOnly"/>, §6.15); time sums keep every task, as each entry counts once, where it was logged. Asset-linked tasks keep parents (decision 147).
+/// </summary>
 public sealed class ReportingService(ApplicationDbContext db, IActorProvider actors, CriticalPathService criticalPath)
 {
     private const string ClaudeName = "Claude";
@@ -17,7 +20,7 @@ public sealed class ReportingService(ApplicationDbContext db, IActorProvider act
     public async Task<PersonCountReport> ClosedByPersonAsync(ReportFilter f, CancellationToken ct = default)
     {
         var actor = await RequireReportsAsync(ct);
-        var done = Apply(db.Tasks.AsNoTracking(), f, actor)
+        var done = Apply(db.Tasks.AsNoTracking().WorkOnly(), f, actor)
             .Where(t => t.Status == TaskItemStatus.Done && t.CompletedAt >= f.FromUtc && t.CompletedAt < f.ToUtc);
         var rows = await done.SelectMany(t => t.Assignments)
             .GroupBy(x => x.UserId)
@@ -36,7 +39,7 @@ public sealed class ReportingService(ApplicationDbContext db, IActorProvider act
     public async Task<PersonCountReport> CreatedByPersonAsync(ReportFilter f, CancellationToken ct = default)
     {
         var actor = await RequireReportsAsync(ct);
-        var rows = await Apply(db.Tasks.AsNoTracking(), f, actor)
+        var rows = await Apply(db.Tasks.AsNoTracking().WorkOnly(), f, actor)
             .Where(t => t.CreatedAt >= f.FromUtc && t.CreatedAt < f.ToUtc)
             .GroupBy(t => t.CreatedById)
             .Select(g => new { UserId = g.Key, Count = g.Count() })
@@ -55,7 +58,7 @@ public sealed class ReportingService(ApplicationDbContext db, IActorProvider act
     public async Task<MeanTimeReport> MeanTimeToRespondAsync(ReportFilter f, CancellationToken ct = default)
     {
         var actor = await RequireReportsAsync(ct);
-        var q = Apply(db.Tasks.AsNoTracking(), f, actor)
+        var q = Apply(db.Tasks.AsNoTracking().WorkOnly(), f, actor)
             .Where(t => t.FirstRespondedAt != null && t.CreatedAt >= f.FromUtc && t.CreatedAt < f.ToUtc);
         var rows = await q.SelectMany(t => t.Assignments, (t, x) => new { x.UserId, t.CreatedAt, t.FirstRespondedAt })
             .GroupBy(x => x.UserId)
@@ -88,7 +91,7 @@ public sealed class ReportingService(ApplicationDbContext db, IActorProvider act
     public async Task<MeanTimeReport> MeanTimeToResolveAsync(ReportFilter f, CancellationToken ct = default)
     {
         var actor = await RequireReportsAsync(ct);
-        var q = Apply(db.Tasks.AsNoTracking(), f, actor)
+        var q = Apply(db.Tasks.AsNoTracking().WorkOnly(), f, actor)
             .Where(t => t.Status == TaskItemStatus.Done && t.CompletedAt >= f.FromUtc && t.CompletedAt < f.ToUtc);
         var rows = await q.SelectMany(t => t.Assignments, (t, x) => new { x.UserId, t.CreatedAt, t.CompletedAt })
             .GroupBy(x => x.UserId)
@@ -159,7 +162,7 @@ public sealed class ReportingService(ApplicationDbContext db, IActorProvider act
     public async Task<EstimateAccuracyReport> EstimateAccuracyAsync(ReportFilter f, CancellationToken ct = default)
     {
         var actor = await RequireReportsAsync(ct);
-        var done = await Facts(Apply(db.Tasks.AsNoTracking(), f, actor)
+        var done = await Facts(Apply(db.Tasks.AsNoTracking().WorkOnly(), f, actor)
                 .Where(t => t.Status == TaskItemStatus.Done && t.CompletedAt >= f.FromUtc && t.CompletedAt < f.ToUtc))
             .ToListAsync(ct);
         var names = await NamesAsync(done.SelectMany(t => t.AssigneeIds).Select(id => (Guid?)id), ct);
@@ -216,11 +219,11 @@ public sealed class ReportingService(ApplicationDbContext db, IActorProvider act
         var included = projects.Where(p => ProjectReportRules.Includes(histories[p.Id], active.Contains(p.Id))).ToList();
         var includedIds = included.Select(p => (Guid?)p.Id).ToList();
 
-        var tasks = await db.Tasks.AsNoTracking()
+        var tasks = await db.Tasks.AsNoTracking().WorkOnly()
             .Where(t => includedIds.Contains(t.ProjectId))
             .Select(t => new ProjectTaskFacts(
                 new TaskTimeFacts(t.Id, t.Number, t.Title, t.Status, t.Assignments.Select(x => x.UserId).ToList(), t.EstimateMinutes,
-                    t.TimeEntries.Sum(e => (int?)e.DurationMinutes) ?? 0),
+                    t.TimeEntries.Sum(e => (int?)e.DurationMinutes) ?? 0, t.HasSubtasks),
                 t.ProjectId!.Value, t.DueDate, t.CreatedAt, t.CompletedAt,
                 t.TimeEntries.Where(e => e.Date >= from && e.Date < to).Sum(e => (int?)e.DurationMinutes) ?? 0))
             .ToListAsync(ct);
@@ -319,6 +322,7 @@ public sealed class ReportingService(ApplicationDbContext db, IActorProvider act
             .ToList();
         var includedIds = included.Select(a => (Guid?)a.Id).ToList();
 
+        // Asset-linked tasks keep their parents (decision 147): subtasks don't inherit the asset, so the work about it would vanish.
         var tasks = await db.Tasks.AsNoTracking()
             .Where(t => includedIds.Contains(t.AssetId))
             .Select(t => new AssetTaskFacts(t.Id, t.Number, t.Title, t.Status, t.Assignments.Select(x => x.UserId).ToList(), t.AssetId!.Value, t.DueDate,
@@ -393,8 +397,8 @@ public sealed class ReportingService(ApplicationDbContext db, IActorProvider act
                 || doneInWindow.Contains(t.Id)
                 || loggedInWindow.Contains(t.Id))
             .Select(t => new SprintTaskFacts(
-                new TaskTimeFacts(t.Id, t.Number, t.Title, t.Status, t.Assignments.Select(x => x.UserId).ToList(), t.EstimateMinutes, 0),
-                t.ProjectId, t.SprintId, t.InBacklog, t.CreatedAt, t.CompletedAt, 0))
+                new TaskTimeFacts(t.Id, t.Number, t.Title, t.Status, t.Assignments.Select(x => x.UserId).ToList(), t.EstimateMinutes, 0, t.HasSubtasks),
+                t.ProjectId, t.SprintId, t.InBacklog, t.CreatedAt, t.CompletedAt, 0, t.HasSubtasks)) // a parent is kept for its time (§6.15)
             .ToListAsync(ct);
 
         var taskIds = candidates.Select(t => t.Task.Id).ToList();
@@ -438,9 +442,10 @@ public sealed class ReportingService(ApplicationDbContext db, IActorProvider act
             f.ProjectId, f.AssigneeId, asAt) with { Sprints = offered };
     }
 
+    // IsParent (§6.15): a parent keeps its time in Time by person but is left out of its task counts and estimates.
     private static IQueryable<TaskTimeFacts> Facts(IQueryable<TaskItem> q) =>
         q.Select(t => new TaskTimeFacts(t.Id, t.Number, t.Title, t.Status, t.Assignments.Select(x => x.UserId).ToList(), t.EstimateMinutes,
-            t.TimeEntries.Sum(e => (int?)e.DurationMinutes) ?? 0));
+            t.TimeEntries.Sum(e => (int?)e.DurationMinutes) ?? 0, t.HasSubtasks));
 
     private async Task<Actor> RequireReportsAsync(CancellationToken ct)
     {

@@ -177,7 +177,7 @@ public sealed class AssetService(ApplicationDbContext db, IActorProvider actors,
     public async Task<AssetTaskHistory> TaskHistoryAsync(Asset asset, int take = 20, CancellationToken ct = default)
     {
         var actor = await actors.GetAsync(ct);
-        var linked = db.Tasks.AsNoTracking().Where(t => t.AssetId == asset.Id);
+        var linked = db.Tasks.AsNoTracking().Where(t => t.AssetId == asset.Id); // parents stay: subtasks don't inherit the asset (decision 147)
         var total = await linked.CountAsync(ct);
         var visible = Scoping.Tasks(linked, actor);
         var visibleCount = await visible.CountAsync(ct);
@@ -194,6 +194,7 @@ public sealed class AssetService(ApplicationDbContext db, IActorProvider actors,
     public async Task<(int Tasks, int Recurring)> LinkCountsAsync(Guid assetId, CancellationToken ct = default)
     {
         await actors.GetAsync(ct);
+        // Every task, parents too: the foreign key restricts deleting the asset while any task points at it (so not WorkOnly, §6.15).
         var tasks = await db.Tasks.CountAsync(t => t.AssetId == assetId, ct);
         var recurring = await db.RecurringTaskDefinitions.CountAsync(r => r.AssetId == assetId, ct);
         return (tasks, recurring);

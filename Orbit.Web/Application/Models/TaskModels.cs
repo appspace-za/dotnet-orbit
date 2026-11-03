@@ -28,6 +28,8 @@ public sealed class TaskFilter
     /// <summary>Only tasks due in this window, counted from today (UTC date, <see cref="DueWindowRules"/>); on top of the dates above.</summary>
     public DueWindow? Due { get; set; }
     public Guid? SprintId { get; set; }
+    /// <summary>true = only parent tasks (those with subtasks), false = only the tasks without (§6.15).</summary>
+    public bool? HasSubtasks { get; set; }
     public Guid? RecurringTaskDefinitionId { get; set; }
     /// <summary>Only the direct subtasks of this task (§6.15).</summary>
     public Guid? ParentTaskId { get; set; }

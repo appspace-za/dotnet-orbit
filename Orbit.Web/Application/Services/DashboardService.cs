@@ -87,7 +87,8 @@ public sealed class DashboardService(ApplicationDbContext db, IActorProvider act
             _ => myWork ? "Your open tasks" : "Open tasks you raised, requested or are assigned"
         };
 
-        var all = InView(db.Tasks.AsNoTracking());
+        // Parents are left out of every figure: their subtasks are counted instead (§6.15, SUB-019), as the Tasks list's header will.
+        var all = InView(db.Tasks.AsNoTracking().WorkOnly());
         var open = all.Where(t => t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled);
 
         // The tiles and both donuts, from one grouping.
@@ -105,7 +106,7 @@ public sealed class DashboardService(ApplicationDbContext db, IActorProvider act
         UpForGrabsLine? upForGrabs = null;
         if (myWork && actor.DepartmentId is Guid ownDept && actor.CanInDepartment(Permission.TasksTake, ownDept))
         {
-            var grabs = await Scoping.Tasks(db.Tasks.AsNoTracking(), actor).CountAsync(t => t.DepartmentId == ownDept
+            var grabs = await Scoping.Tasks(db.Tasks.AsNoTracking().WorkOnly(), actor).CountAsync(t => t.DepartmentId == ownDept
                 && t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled && !t.Assignments.Any(), ct);
             upForGrabs = new UpForGrabsLine(grabs, DashboardLinks.UpForGrabs(seesAll ? ownDept : null));
         }
@@ -135,7 +136,7 @@ public sealed class DashboardService(ApplicationDbContext db, IActorProvider act
         }
 
         // The Last 14 days chart, bucketed by UTC day in memory rather than relying on a date translation in SQL. CompletedAt is set
-        // only when a task is done (TaskService.ApplyStatus), so the done series is tasks done.
+        // only when a task is done (TaskStatusStamps.Apply), so the done series is tasks done.
         var from = DashboardRules.TrendStartUtc(today);
         var created = await all.Where(t => t.CreatedAt >= from).Select(t => t.CreatedAt).ToListAsync(ct);
         var done = await all.Where(t => t.Status == TaskItemStatus.Done && t.CompletedAt != null && t.CompletedAt >= from)
@@ -149,7 +150,7 @@ public sealed class DashboardService(ApplicationDbContext db, IActorProvider act
         IReadOnlyList<DepartmentSprintProgress> sprintByDept = [];
         if (sprint is not null)
         {
-            var inSprint = db.Tasks.AsNoTracking().Where(t => t.SprintId == sprint.Id);
+            var inSprint = db.Tasks.AsNoTracking().WorkOnly().Where(t => t.SprintId == sprint.Id);
             sprintDay = DashboardRules.SprintDayOf(sprint.StartDate, sprint.EndDate, today);
             if (view == DashboardView.Company)
             {
@@ -177,9 +178,10 @@ public sealed class DashboardService(ApplicationDbContext db, IActorProvider act
         var projectRows = await projects.OrderBy(p => p.Name).Take(12).Select(p => new
         {
             Project = p,
-            Total = p.Tasks.Count(),
-            Open = p.Tasks.Count(t => t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled),
-            Done = p.Tasks.Count(t => t.Status == TaskItemStatus.Done)
+            // WorkOnly (§6.15): a parent isn't counted beside its subtasks.
+            Total = p.Tasks.Count(t => !t.HasSubtasks),
+            Open = p.Tasks.Count(t => !t.HasSubtasks && t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled),
+            Done = p.Tasks.Count(t => !t.HasSubtasks && t.Status == TaskItemStatus.Done)
         }).ToListAsync(ct);
 
         return new DashboardModel

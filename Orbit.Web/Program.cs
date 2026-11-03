@@ -136,6 +136,7 @@ builder.Services.AddScoped<CircuitHandler, CircuitScopeMarker>();
 builder.Services.AddScoped<ActorPrincipal>();
 builder.Services.AddScoped<OrbitRunner>();
 builder.Services.AddScoped<BrowserFilterMemory>();
+builder.Services.AddScoped<BrowserTreeMemory>();
 builder.Services.AddMudServices(o =>
 {
     o.SnackbarConfiguration.PositionClass = Defaults.Classes.Position.BottomRight;
@@ -266,6 +267,9 @@ builder.Services.AddMcpServer(o =>
             "Planning a task into a sprint, on create_task as on update_task, needs the key's Plan tasks permission. " +
             "Setting a task Done needs solutionNotes on update_task - how it was resolved, kept apart from the comment thread - unless " +
             "it already has them; they are optional for Cancelled, and every task result carries them as solutionNotes. " +
+            "A task with subtasks (hasSubtasks true in a task result) is a parent: its status, priority, dates, estimate, sprint and assignees " +
+            "come from its subtasks and update_task refuses to change them - change the subtasks instead; giving a task its first subtask " +
+            "(parentTaskId) replaces those values and removes its assignees, and list_tasks hasSubtasks=false lists only the work itself. " +
             "A task with source Nagios was raised by Orbit's monitoring for a host or service Nagios reported down (list_tasks filters on " +
             "source); Orbit adds a comment, author System, when Nagios reports it well again, and leaves closing the task to a person.";
     })

@@ -36,6 +36,28 @@ public static class TimeRules
     public static int ClockMinutes(DateTime startedAt, DateTime stoppedAt) =>
         Math.Clamp((int)Math.Round((stoppedAt - startedAt).TotalMinutes, MidpointRounding.AwayFromZero), 0, MaxEntryMinutes);
 
+    /// <summary>
+    /// The time entry a clock stopped at <paramref name="now"/> logs for its user on its task: dated the day it started, ending
+    /// now or at its last heartbeat when stale. Null when the run rounds to under a minute, so nothing is logged. Used by the
+    /// clock's own stop and when its task becomes a parent (SUB-024, design spec 2026-11-02 §3.3).
+    /// </summary>
+    public static TimeEntry? StoppedClockEntry(RunningClock clock, DateTime now)
+    {
+        var startedAt = DateTime.SpecifyKind(clock.StartedAt, DateTimeKind.Utc);
+        var stoppedAt = ClockStoppedAt(DateTime.SpecifyKind(clock.LastSeenAt, DateTimeKind.Utc), now);
+        var minutes = ClockMinutes(startedAt, stoppedAt);
+        if (minutes < 1) return null;
+        return new TimeEntry
+        {
+            TaskId = clock.TaskId,
+            UserId = clock.UserId,
+            Date = DateOnly.FromDateTime(startedAt),
+            DurationMinutes = minutes,
+            Note = $"Clock {startedAt.ToLocalTime():HH:mm}-{stoppedAt.ToLocalTime():HH:mm}",
+            CreatedAt = now
+        };
+    }
+
     // --- The estimate (§6.10) ---
 
     /// <summary>The largest estimate a task can carry: a year.</summary>

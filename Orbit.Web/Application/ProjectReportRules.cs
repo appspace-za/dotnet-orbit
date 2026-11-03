@@ -79,7 +79,9 @@ public static class ProjectReportRules
                 var open = history.Current.IsOpen();
                 return new ProjectStatusRow(
                     p, history, InRange(p.CreatedAt), Count(projectTasks, fromUtc, toUtc, today),
-                    projectTasks.Sum(t => t.PeriodMinutes), projectTasks.Sum(t => t.Task.TotalMinutes),
+                    // Time is everyone's on every task on the project, a parent's included (§6.15, decision 147): the tasks given here
+                    // leave parents out of the counts and estimates, so the project's time comes from the time rows, as the people's does.
+                    timeByProject[p.Id].Sum(t => t.PeriodMinutes), timeByProject[p.Id].Sum(t => t.TotalMinutes),
                     TimeReportRules.Compare(projectTasks.Select(t => t.Task)),
                     open && p.TargetDate < today,
                     open && schedules.TryGetValue(p.Id, out var s) ? s : null,

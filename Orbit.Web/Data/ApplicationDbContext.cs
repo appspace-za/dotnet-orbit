@@ -58,6 +58,26 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<MessageTemplateRecipient> MessageTemplateRecipients => Set<MessageTemplateRecipient>();
     public DbSet<OutboundEmail> OutboundEmails => Set<OutboundEmail>();
 
+    /// <summary>
+    /// Every save first rolls parent tasks up from their subtasks (<see cref="ParentRollUp"/>, design spec 2026-11-02 §3.3), so the
+    /// derived values and their audit rows are written in the same unit of work as the change that moved them.
+    /// </summary>
+    public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        await ParentRollUp.ApplyAsync(this, cancellationToken);
+        return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    /// <summary>
+    /// The same for a synchronous save, which nothing calls today. The roll-up runs on the thread pool so that blocking on it
+    /// can't deadlock a caller holding a synchronisation context (a Blazor circuit).
+    /// </summary>
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        Task.Run(() => ParentRollUp.ApplyAsync(this, CancellationToken.None)).GetAwaiter().GetResult();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -146,6 +166,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
                 .HasForeignKey(t => t.AssetId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(t => t.AssetId);
             b.HasIndex(t => t.ParentTaskId);
+            b.HasIndex(t => t.HasSubtasks);
             b.HasIndex(t => t.StartDate);
             b.HasIndex(t => t.ProjectId);
             b.HasIndex(t => t.Status);

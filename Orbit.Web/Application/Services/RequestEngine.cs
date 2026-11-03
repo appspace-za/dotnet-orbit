@@ -172,7 +172,8 @@ public sealed class RequestEngine(
 
     /// <summary>
     /// Cancel a request in progress: every step still open is cancelled, and so is each open task a task step created (with a comment
-    /// saying why). Steps already completed stay as they are.
+    /// saying why) - for a task with subtasks, the open work under it, which closes it through the roll-up. Steps already completed
+    /// stay as they are.
     /// </summary>
     public Task<EngineFollowUp> CancelAsync(Guid requestId, Actor actor, CancellationToken ct = default) =>
         RunAsync(requestId, actor, async (request, _, ct) =>
@@ -186,27 +187,66 @@ public sealed class RequestEngine(
                 step.CompletedAt = now;
                 step.CompletedById = actor.UserId;
                 cancelled.Add(step.FlowStep.Key);
-                if (step.Task is { } task && !task.Status.IsClosed())
+                if (step.Task is not { } task || task.Status.IsClosed()) continue;
+                if (!task.HasSubtasks)
                 {
-                    var from = task.Status;
-                    task.Status = TaskItemStatus.Cancelled;
-                    task.CompletedAt = null;
-                    task.UpdatedAt = now;
-                    audit.Add(actor, AuditEntity.Task, task.Id, AuditAction.StatusChanged, task.DepartmentId, task.Title,
-                        new { status = new { from, to = TaskItemStatus.Cancelled }, request = new { request.Id, request.Number }, reason = "The request was cancelled." });
-                    db.Comments.Add(new Comment
-                    {
-                        TaskId = task.Id,
-                        AuthorId = actor.UserId,
-                        Body = $"Request {request.Number} was cancelled by {actor.DisplayName}, so this task was cancelled with it.",
-                        CreatedAt = now
-                    });
-                    // Told of as a task closed (§6.7); the comment saying why raises nothing of its own.
-                    await notifications.TaskClosedAsync(task, actor, ct: ct);
+                    await CancelTaskAsync(task, request, actor, now, ct);
+                    continue;
                 }
+                // A task with subtasks is a container (§6.15): its status comes from them, so its open work is cancelled and the
+                // save's roll-up then closes it - Cancelled, or Done when some of the work was done.
+                foreach (var work in await OpenWorkUnderAsync(task.Id, ct)) await CancelTaskAsync(work, request, actor, now, ct);
+                db.Comments.Add(new Comment
+                {
+                    TaskId = task.Id,
+                    AuthorId = actor.UserId,
+                    Body = $"Request {request.Number} was cancelled by {actor.DisplayName}, so this task's open subtasks were cancelled with it.",
+                    CreatedAt = now
+                });
             }
             audit.Add(actor, AuditEntity.Request, request.Id, AuditAction.Updated, request.DepartmentId, request.Title, new { cancelledSteps = cancelled });
         }, ct);
+
+    /// <summary>Cancels an open task with its cancelled request: the status change audited, a comment saying why, and the task-closed message.</summary>
+    private async Task CancelTaskAsync(TaskItem task, Request request, Actor actor, DateTime now, CancellationToken ct)
+    {
+        var from = task.Status;
+        task.Status = TaskItemStatus.Cancelled;
+        task.CompletedAt = null;
+        task.UpdatedAt = now;
+        audit.Add(actor, AuditEntity.Task, task.Id, AuditAction.StatusChanged, task.DepartmentId, task.Title,
+            new { status = new { from, to = TaskItemStatus.Cancelled }, request = new { request.Id, request.Number }, reason = "The request was cancelled." });
+        db.Comments.Add(new Comment
+        {
+            TaskId = task.Id,
+            AuthorId = actor.UserId,
+            Body = $"Request {request.Number} was cancelled by {actor.DisplayName}, so this task was cancelled with it.",
+            CreatedAt = now
+        });
+        // Told of as a task closed (§6.7); the comment saying why raises nothing of its own.
+        await notifications.TaskClosedAsync(task, actor, ct: ct);
+    }
+
+    /// <summary>
+    /// The open work under a task with subtasks (§6.15): the open tasks below it that have no subtasks of their own, tracked, read a
+    /// level at a time. A loop in bad data ends where it comes back round.
+    /// </summary>
+    private async Task<List<TaskItem>> OpenWorkUnderAsync(Guid rootId, CancellationToken ct)
+    {
+        var work = new List<TaskItem>();
+        var seen = new HashSet<Guid> { rootId };
+        var level = new List<Guid> { rootId };
+        for (var depth = 0; level.Count > 0 && depth < TaskTreeRules.MaxDepth; depth++)
+        {
+            var parents = level;
+            var children = (await db.Tasks.Include(t => t.Assignments)
+                    .Where(t => t.ParentTaskId != null && parents.Contains(t.ParentTaskId.Value)).ToListAsync(ct))
+                .Where(t => seen.Add(t.Id)).ToList();
+            work.AddRange(children.Where(t => !t.HasSubtasks && !t.Status.IsClosed()));
+            level = children.Where(t => t.HasSubtasks).Select(t => t.Id).ToList();
+        }
+        return work;
+    }
 
     /// <summary>Try a failed step again: an approval re-opens the stage that failed; a task or action step starts afresh.</summary>
     public Task<EngineFollowUp> RetryAsync(Guid requestId, Guid stepId, Actor actor, CancellationToken ct = default) =>

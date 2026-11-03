@@ -200,7 +200,7 @@ public static class ReportPdfEndpoint
             yield return new(["Task", "Status", "Estimate", "Logged", "Actual to date", ""],
                 p.Tasks.Select(t => (IReadOnlyList<string>)
                     [$"{t.Number} {t.Title}", t.Status.Label(), Estimate(t.EstimateMinutes), TimeFormat.Minutes(t.LoggedMinutes),
-                     TimeFormat.Minutes(t.TotalMinutes), Marker(t.Status, t.EstimateMinutes, t.IsOver)]).ToList(),
+                     TimeFormat.Minutes(t.TotalMinutes), Marker(t)]).ToList(),
                 p.Name, [4.6f, 1.5f, 1.3f, 1.3f, 1.5f, 2.1f]);
         }
     }

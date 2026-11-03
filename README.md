@@ -217,18 +217,39 @@ them, the Today tick or *Take* saves without reloading the page, so you keep you
 floating in a corner. The Tasks list also has a **Sprint** filter: a planned or active sprint, *Backlog*, or
 *Not Planned*. Its **Project**, **Assignee** and **Requestee** filters each offer *None*: the
 standalone tasks on no project, the tasks nobody is assigned to, and the tasks created for nobody else. Assignee
-*None* replaced the old *Unassigned* tick box. The Planning page's Assignee filter offers *None* too. A **Due**
-filter picks *Overdue* (due before today) or *Due in 7 days* (today to seven days ahead), counted from the day you open
-the list, so a saved link or a remembered filter doesn't freeze an old date; the dashboard's due figures open it.
+*None* (and the *Unassigned* chip) never lists a task with subtasks, which has no assignees of its own: its unassigned
+subtasks are listed, under it. Assignee *None* replaced the old *Unassigned* tick box. The Planning page's Assignee
+filter offers *None* too. A **Due** filter picks *Overdue* (due before today) or *Due in 7 days* (today to seven days
+ahead), counted from the day you open the list, so a saved link or a remembered filter doesn't freeze an old date; the
+dashboard's due figures open it.
 
 **Long lists can be searched by typing** (spec §6.2). The task form's Project, Parent task and Requestee fields, the
 recurring form's Project, the project form's Owner, the time card's *For*, the task page's dependency picker and the
 asset form's Type and Location are dropdowns you can type into: click to see every option, or type part of a name, a
-number (`P-26-0003`, `T-26-00012`) or an email to narrow the list. Parent task searches the project's open tasks as you
+number (`P-26-0003`, `T-26-00012`) or an email to narrow the list. Parent task searches the project's tasks as you
 type, by title, number or department, so it copes with any number of tasks, and never offers the task's own subtasks; a
-closed parent the task already has is shown with its status. A list page's filter with more
+closed task is shown with its status, and an open subtask filed under it reopens it. A list page's filter with more
 than 10 options works the same way, with *All*, *None*, *Me*, *Backlog* and *Not Planned* kept at the top while you
 type. Every search box matches what you type literally: `%` and `_` are ordinary characters, not wildcards.
+
+A task with subtasks is a **container** (spec §6.15). Its status, priority, start and due dates, estimate and sprint come
+from its subtasks and are shown but not editable, on the edit form (*From subtasks*) and on the task page (*(from
+subtasks)*); `update_task` refuses to change them and says so. Its own assignees are removed (the task page says
+*Assignees are on the subtasks*), and it takes no time, day plan, Today tick or *Take*: log time, plan and take on a
+subtask. A parent closes by itself when its last open subtask closes, and an open subtask reopens a closed parent.
+*Add subtask* on a task without subtasks starts the new form from that task's assignees, priority, due date, estimate
+and sprint (not a completed sprint); on a task that already has subtasks it starts blank.
+
+The Tasks list and a project page show the tasks as a **tree** (spec §6.2): each subtask under its parent, indented, with
+a ▸/▾ toggle on the parent to fold its subtasks away and their number beside its title. A parent's row shows its
+subtasks instead of controls: a chip per status with its count (*3 Done*, *2 In Progress*), its due dates from the next
+open subtask's to the last (in red when an open one is overdue), its sprints from the first to the last with *+N
+unplanned*, and the people on its open subtasks. A filter picks tasks as before and shows each match under its parents,
+greyed when they didn't match themselves; such a parent that you aren't allowed to open shows only its number and title. The Tasks
+list pages by whole groups, so a parent is never parted from its subtasks, and its header counts the matching tasks
+without subtasks, as the dashboard does. The parents you fold are remembered in your browser, on both pages, and *Expand
+all* / *Collapse all* sit above the table. The other task lists (Planning, the sprint pages, Today) stay flat, a
+subtask there showing its parent's title under its own.
 
 A task has a **type**, the kind of work it is: Meeting, Planning, Task (the default), Training, Audit, Change, Request
 or Problem. It is chosen on the task form, shown as a coloured badge beside the title (a plain Task has none in the
@@ -260,9 +281,14 @@ need them. A reopened task keeps its notes, and they are offered again when it i
 a card under the description, and the search box finds a task by them. Tasks closed before solution notes existed
 have none, and can still be edited without adding any.
 
+A task with subtasks is a container, so the dashboard, project progress, the lists' counts, the sprint pages, Planning, Today
+and the reports count its subtasks instead of it; time logged on it before it gained subtasks still counts. An asset's
+task history and the Asset status report keep it, since its subtasks aren't linked to its asset.
+
 The task clock (**Start Clock**) runs per task: each task page has its own, and leaving a page stops only that page's
 clock (spec §6.10). On a task page, subtasks and linked tasks (Waiting on, Blocks) open in a new tab, so you can run
-a clock on the task and on a subtask at the same time; overlapping time is logged on both. The page checks in every
+a clock on the task and on a linked task at the same time; overlapping time is logged on both. A task with subtasks takes
+no clock and no time: log it on a subtask. The page checks in every
 minute; a clock whose page stops checking in (a crashed tab, a computer asleep) is stopped and logged up to its last
 check-in.
 
@@ -373,10 +399,10 @@ Nothing happens by itself: Orbit follows AD only when you load the directory and
 - A task has any number of assignees (spec §6.2.3): `create_task` / `update_task` take `assigneeIds`, an array of
   user ids from `list_users`. On `update_task` it is the complete new set - `[]` unassigns everyone, and leaving it out
   keeps the assignees as they are. Task results list `assignees` as `{ id, name, active }`; `list_tasks` filters on one
-  `assigneeId` (the tasks that person is on) or on `unassigned`. **This replaced the single `assigneeId`** on
-  `create_task` / `update_task` and the `assigneeId` / `assignee` fields in results. A caller that still passes
-  `assigneeId` to those two tools gets no error: the argument is ignored and the task is saved without the assignment,
-  so update any saved prompt, routine or script that names it.
+  `assigneeId` (the tasks that person is on) or on `unassigned` (which leaves out tasks with subtasks). **This
+  replaced the single `assigneeId`** on `create_task` / `update_task` and the `assigneeId` / `assignee` fields in
+  results. A caller that still passes `assigneeId` to those two tools gets no error: the argument is ignored and the
+  task is saved without the assignment, so update any saved prompt, routine or script that names it.
 - A task can be created on someone's behalf (spec §6.2.2): `create_task` / `update_task` take `requesteeId` (a user
   id from `list_users`; `"none"` clears it on `update_task`), `list_tasks` filters on it (`"none"` for the tasks
   created for nobody else, as `projectId` `"none"` lists the tasks on no project), and task results carry
@@ -395,8 +421,11 @@ Nothing happens by itself: Orbit follows AD only when you load the directory and
   `solutionNotes`, and `list_tasks search` matches them.
 - Tasks can be subtasks (`parentTaskId`) and can depend on each other (`add_dependency`: FS, SS, FF or SF
   plus a lag in days, spec §6.15). Links gate status changes - the successor can't start / finish until the
-  predecessor has - and a parent can't close while a subtask is open; `get_task` reports what a task is
-  waiting on, and `get_project` returns the whole dependency list.
+  predecessor has - and a parent closes by itself when its last open subtask closes; `get_task` reports what a task is
+  waiting on, and `get_project` returns the whole dependency list. A task with subtasks is a parent (`hasSubtasks`
+  on every task result): its status, priority, dates, estimate, sprint and assignees come from its subtasks, so
+  `update_task` refuses to change them, and giving a task its first subtask (`parentTaskId`) replaces its own values
+  and removes its assignees. `list_tasks hasSubtasks=false` lists only the work itself, `true` only the parents.
 - Files attached to tasks and projects (spec §6.18) are listed by `get_task` / `get_project` and read with
   `get_attachment` - text as text, images as images, anything else as base64 - up to `Attachments:MaxMcpFileSizeMb`
   (default 5 MB); uploading is web-UI only.
@@ -470,8 +499,9 @@ open a page, approve or decline. The request is complete when every step is. **N
 page lists the forms, pages and approvals waiting for you (the Dashboard's **My waiting approvals** card repeats the
 approvals); **Your requests** what you logged or were addressed in (at Department scope, your whole department's);
 **Department requests** (needs **Manage requests**) everything filed with your department, where a manager can also
-cancel a request or retry and skip a step that failed. The tasks a flow creates carry the source *Request* and link
-back to their request; the Tasks list and `list_tasks` filter on the source.
+cancel a request or retry and skip a step that failed. Cancelling a request cancels its open tasks; for a task that has
+been given subtasks, its open subtasks are cancelled and it closes with them. The tasks a flow creates carry the source
+*Request* and link back to their request; the Tasks list and `list_tasks` filter on the source.
 
 Each department builds its own flows (**Admin > Request flows**, needs **Configure request flows**): categories with an
 icon and colour, flows, and each flow's steps with their fields, stages, dependencies and settings, with a *Not set
@@ -592,6 +622,8 @@ reports:
 - **Time by person** - the time each person logged in the period, and for the tasks they worked on, each task's
   estimate against all time logged on it to date (cancelled tasks aside). Expand a person to see their tasks, with
   the ones over estimate flagged. A task several people worked on shows under each of them but counts once in the total.
+  Time logged on a task before it had subtasks still counts, on a line marked *Has subtasks*, but that task isn't
+  counted in *Tasks* and its estimate (its subtasks' sum) isn't compared.
   Active people in the department reported on (the project's department when only a project is chosen, everyone when
   neither is) who logged nothing in the period are listed too, with 0, greyed out at the bottom.
 - **Estimate accuracy** - tasks completed in the period, grouped by assignee: estimated against actual time, the

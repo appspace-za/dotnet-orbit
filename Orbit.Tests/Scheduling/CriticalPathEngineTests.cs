@@ -354,16 +354,37 @@ public class CriticalPathEngineTests
     }
 
     [Fact]
-    public void Wide_window_and_parent_window_warnings()
+    public void Wide_window_warning()
     {
         var parent = Task("Parent", "2026-10-06", "2026-10-09", estimateMinutes: 60);
         var child = Task("Child", "2026-10-05", "2026-10-09", parentId: parent.Id);
         var wide = Task("Wide", "2026-10-05", "2026-10-16", estimateMinutes: 120); // 10 working days for 2h
         var r = Run([parent, child, wide], [Link(child, wide)]);
 
-        Assert.Contains(parent.Id, r.Warning(PlanIssueCodes.ParentWindow)!.TaskIds);
-        Assert.Contains(wide.Id, r.Warning(PlanIssueCodes.WideWindow)!.TaskIds);
+        Assert.Contains(wide.Id, r.Warnings.Single(w => w.Code == PlanIssueCodes.WideWindow).TaskIds);
         Assert.DoesNotContain(parent.Id, r.Warning(PlanIssueCodes.WideWindow)!.TaskIds); // 4 days for 1h is wide but under 5 days
+    }
+
+    /// <summary>SUB-025: a parent is flagged IsParent, is left out of the critical counts, and no longer draws a ParentWindow warning (§6.17).</summary>
+    [Fact]
+    public void Parent_row_is_flagged_and_not_counted_critical()
+    {
+        var a = Task("A", "2026-10-05", "2026-10-06");
+        var b = Task("B", "2026-10-06", "2026-10-08");
+        var p = Task("P", "2026-10-05", "2026-10-08");
+        p.HasSubtasks = true;
+        var r = Run([p, a, b], [Link(p, a), Link(a, b)]);
+
+        Assert.True(r.Row(p).IsParent);
+        Assert.False(r.Row(a).IsParent);
+        Assert.Equal(r.Tasks.Count(t => t.IsCritical && !t.IsParent), r.CriticalTaskCount);
+        Assert.Equal(2, r.CriticalTaskCount);
+
+        var off = Task("Off", "2026-10-06", "2026-10-07");
+        off.HasSubtasks = true;
+        var child = Task("Child", "2026-10-05", "2026-10-09", parentId: off.Id);
+        var r2 = Run([off, child]);
+        Assert.DoesNotContain(r2.Warnings, w => w.Code == "ParentWindow");
     }
 
     [Fact]

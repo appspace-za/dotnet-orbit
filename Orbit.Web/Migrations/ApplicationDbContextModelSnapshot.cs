@@ -2367,6 +2367,9 @@ namespace Orbit.Migrations
                     b.Property<DateTime?>("FirstRespondedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<bool>("HasSubtasks")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("IdempotencyKey")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
@@ -2440,6 +2443,8 @@ namespace Orbit.Migrations
                     b.HasIndex("DepartmentId");
 
                     b.HasIndex("DueDate");
+
+                    b.HasIndex("HasSubtasks");
 
                     b.HasIndex("IdempotencyKey")
                         .IsUnique()

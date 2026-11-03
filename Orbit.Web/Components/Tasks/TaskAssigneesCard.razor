@@ -2,7 +2,7 @@
 @* Who does the task (spec §6.2.3): any number of people, added and removed here without saving anything else on it. *@
 <MudPaper Outlined="true" Class="orbit-card">
     <div class="orbit-card-header"><b>Assignees</b></div>
-    @if (Task.Assignments.Count == 0)
+    @if (Task.Assignments.Count == 0 && !Task.HasSubtasks)
     {
         <div class="orbit-list-item orbit-muted"><i>Unassigned</i></div>
     }
@@ -29,7 +29,11 @@
             }
         </div>
     }
-    @if (CanEdit)
+    @if (Task.HasSubtasks)
+    {
+        <div class="orbit-list-item orbit-muted">Assignees are on the subtasks.</div>
+    }
+    else if (CanEdit)
     {
         <div class="orbit-list-item">
             <PersonPicker DepartmentId="Task.DepartmentId" Disabled="_busy" Picked="AssignAsync" />

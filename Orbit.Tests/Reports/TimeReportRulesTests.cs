@@ -254,4 +254,43 @@ public class TimeReportRulesTests
         Assert.Equal(EstimateComparison.None, nobody.Total);
     }
 
+    /// <summary>
+    /// SUB-019: a parent (a task with subtasks) keeps the minutes logged on it before it had subtasks, in the person's time, the
+    /// total and a line of its own, but isn't counted in Tasks or as unestimated, and its estimate - the sum of its subtasks' -
+    /// isn't compared, so a subtask's estimate isn't counted twice when someone logged time on both.
+    /// </summary>
+    [Fact]
+    public void A_parents_minutes_count_but_not_its_task_or_estimate()
+    {
+        var parent = Task(300, 120) with { IsParent = true };
+        var bareParent = Task(null, 30) with { IsParent = true };
+        var subtask = Task(300, 200);
+        var report = TimeReportRules.TimeByPerson(
+            [
+                new LoggedTime(Alice, parent.Id, 120),
+                new LoggedTime(Alice, bareParent.Id, 30),
+                new LoggedTime(Alice, subtask.Id, 200)
+            ],
+            Index(parent, bareParent, subtask), Name);
+
+        var alice = Assert.Single(report.Rows);
+        Assert.Equal(350, alice.LoggedMinutes);
+        Assert.Equal(1, alice.TaskCount);
+        Assert.Equal(0, alice.UnestimatedTasks);
+        Assert.Equal(new EstimateComparison(1, 300, 200, 0), alice.Estimate);
+        Assert.Equal(3, alice.Tasks.Count);
+        var line = alice.Tasks.Single(t => t.TaskId == parent.Id);
+        Assert.True(line.IsParent);
+        Assert.Equal(120, line.LoggedMinutes);
+        Assert.Null(line.EstimateMinutes);
+        Assert.False(line.IsOver);
+        Assert.False(alice.Tasks.Single(t => t.TaskId == subtask.Id).IsParent);
+
+        Assert.Equal(350, report.TotalLoggedMinutes);
+        Assert.Equal(1, report.TotalTasks);
+        Assert.Equal(0, report.TotalUnestimatedTasks);
+        Assert.Equal(new EstimateComparison(1, 300, 200, 0), report.Total);
+        Assert.Equal(new EstimateComparison(1, 300, 200, 0), TimeReportRules.Compare([parent, subtask]));
+    }
+
 }

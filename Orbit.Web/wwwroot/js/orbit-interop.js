@@ -217,6 +217,32 @@
     }
   };
 
+  // The parents collapsed in the task tree (spec §6.2, §6.15, BrowserTreeMemory): their ids as a JSON array in localStorage,
+  // newest last, one list for the Tasks list and every project page, kept to the most recent 2000. Storage that can't be read
+  // or written (blocked, full, a private window) leaves every parent open rather than failing the page.
+  var COLLAPSED = 'orbit-collapsed', COLLAPSED_MAX = 2000;
+  function readCollapsed() {
+    try {
+      var ids = JSON.parse(localStorage.getItem(COLLAPSED) || '[]');
+      return Array.isArray(ids) ? ids.filter(function (id) { return typeof id === 'string'; }) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+  window.orbit.tree = {
+    collapsed: function () {
+      return readCollapsed();
+    },
+    set: function (ids, collapsed) {
+      var changed = Object.create(null);
+      (ids || []).forEach(function (id) { changed[id] = true; });
+      var list = readCollapsed().filter(function (id) { return !changed[id]; });
+      if (collapsed) list = list.concat(Object.keys(changed));
+      if (list.length > COLLAPSED_MAX) list = list.slice(list.length - COLLAPSED_MAX);
+      try { localStorage.setItem(COLLAPSED, JSON.stringify(list)); } catch (e) { /* storage unavailable */ }
+    }
+  };
+
   // The token picker (TokenPicker.razor, §6.20): puts a token where the cursor is in the box with this id, and says the box's new
   // text and where the cursor goes after it; caret() puts it there once Blazor has drawn the new text.
   window.orbit.tokens = {

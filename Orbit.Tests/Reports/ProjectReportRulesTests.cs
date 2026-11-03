@@ -144,7 +144,7 @@ public class ProjectReportRulesTests
             Task(p, TaskItemStatus.Done, estimate: 60, total: 90, period: 30, completed: Sep(10)), // over
             Task(p, TaskItemStatus.Done, estimate: 120, total: 100, completed: From.AddDays(-3)),
             Task(p, TaskItemStatus.Cancelled, estimate: 30, total: 50, due: Today.AddDays(-9))  // closed: never overdue
-        ]);
+        ], time: [new ProjectPersonTime(p.Id, Alice, 50, 260)]);
 
         var row = Assert.Single(report.Rows);
         Assert.Equal(new ProjectTaskCounts(6, 3, 1, 1, 2, 1, 1, 1), row.Tasks);
@@ -157,6 +157,26 @@ public class ProjectReportRulesTests
         // A closed project is never past its target.
         var done = Project("Done", ProjectStatus.Completed, target: Today.AddDays(-1));
         Assert.False(Build([done], changes: [Change(done, Sep(5), ProjectStatus.Active, ProjectStatus.Completed)]).Rows[0].IsPastTarget);
+    }
+
+    /// <summary>
+    /// SUB-019: the tasks handed to the report leave out a parent, so its counts and estimates do, but the project's time is the time
+    /// rows', which include entries logged on the parent: the project's figure is the sum of its people's rows.
+    /// </summary>
+    [Fact]
+    public void A_parents_time_counts_though_the_parent_does_not()
+    {
+        var p = Project("Build");
+        var report = Build([p], [Task(p, TaskItemStatus.Done, assignee: Alice, estimate: 60, total: 50, period: 50)],
+            [new ProjectPersonTime(p.Id, Alice, 50, 50), new ProjectPersonTime(p.Id, Bob, 30, 30)]); // Bob's 30 is on the parent
+
+        var row = Assert.Single(report.Rows);
+        Assert.Equal(1, row.Tasks.Total);
+        Assert.Equal(80, row.LoggedInPeriodMinutes);
+        Assert.Equal(80, row.LoggedToDateMinutes);
+        Assert.Equal(80, report.Total.LoggedInPeriodMinutes);
+        Assert.Equal(row.LoggedToDateMinutes, row.People.Sum(x => x.LoggedToDateMinutes));
+        Assert.Equal(new EstimateComparison(1, 60, 50, 0), row.Estimate);
     }
 
     /// <summary>

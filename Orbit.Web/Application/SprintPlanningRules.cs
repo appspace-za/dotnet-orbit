@@ -20,12 +20,12 @@ namespace Orbit.Application;
 public static class SprintPlanningRules
 {
     /// <summary>
-    /// PLN-002: the tasks the page lists. They are open, and either on a project (any placement) or on the Backlog or in a sprint
+    /// PLN-002, SUB-019: the tasks the page lists. They are open, are not parents (a parent is planned through its subtasks), and either on a project (any placement) or on the Backlog or in a sprint
     /// (any project or none). Written as a query filter so SQL and the tests use the same definition.
     /// </summary>
     public static IQueryable<TaskItem> Shown(IQueryable<TaskItem> q) =>
         q.Where(t => t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled
-                     && (t.ProjectId != null || t.SprintId != null || t.InBacklog));
+                     && !t.HasSubtasks && (t.ProjectId != null || t.SprintId != null || t.InBacklog));
 
     /// <summary>
     /// PLN-001: the sprint being planned. The requested one if it is still open; otherwise the planned sprint that starts first

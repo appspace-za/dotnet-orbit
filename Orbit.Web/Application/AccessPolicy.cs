@@ -34,7 +34,7 @@ public static class AccessPolicy
     /// can't be taken: joining it is an edit (§6.2.3).
     /// </summary>
     public static bool CanTakeTask(Actor a, TaskItem t) =>
-        a.UserId is not null && t.IsOpen && t.IsUnassigned && a.CanInDepartment(Permission.TasksTake, t.DepartmentId);
+        a.UserId is not null && t.IsOpen && t.IsUnassigned && !t.HasSubtasks && a.CanInDepartment(Permission.TasksTake, t.DepartmentId);
 
     /// <summary>
     /// Changing a task's status, including closing it (Done/Cancelled) and reopening it, follows edit rights (§13 item 35).
@@ -42,7 +42,7 @@ public static class AccessPolicy
     public static bool CanChangeStatus(Actor a, TaskItem t) => CanEditTask(a, t);
 
     /// <summary>Backlog &lt;-&gt; sprint moves and the day plan: tasks.plan within reach.</summary>
-    public static bool CanPlanTask(Actor a, TaskItem t) => a.Can(Permission.TasksPlan, t.DepartmentId, IsOwn(a, t));
+    public static bool CanPlanTask(Actor a, TaskItem t) => !t.HasSubtasks && a.Can(Permission.TasksPlan, t.DepartmentId, IsOwn(a, t));
 
     /// <summary>Filing a task (or recurring definition) under a project needs tasks.create in the project's department.</summary>
     public static bool CanAddTaskToProject(Actor a, Project p) => a.CanInDepartment(Permission.TasksCreate, p.DepartmentId);
@@ -105,15 +105,15 @@ public static class AccessPolicy
     /// time.log: at Own, the actor's own time on tasks they are an assignee of; at Department, for anyone in the task's department; at All, anyone anywhere.
     /// </summary>
     public static bool CanLogTimeFor(Actor a, TaskItem t, Guid targetUserId) =>
-        a.CanInDepartment(Permission.TimeLog, t.DepartmentId) ||
-        (targetUserId == a.UserId && t.IsAssignedTo(targetUserId) && a.ScopeOf(Permission.TimeLog) >= PermissionScope.Own);
+        !t.HasSubtasks && (a.CanInDepartment(Permission.TimeLog, t.DepartmentId) ||
+        (targetUserId == a.UserId && t.IsAssignedTo(targetUserId) && a.ScopeOf(Permission.TimeLog) >= PermissionScope.Own));
 
     public static bool CanEditTimeEntry(Actor a, TimeEntry e, TaskItem task) =>
         a.CanInDepartment(Permission.TimeLog, task.DepartmentId) ||
         (a.UserId is Guid me && e.UserId == me && a.ScopeOf(Permission.TimeLog) >= PermissionScope.Own);
 
     /// <summary>Logging time for somebody else on a task: time.log in the task's department.</summary>
-    public static bool CanLogTimeForOthers(Actor a, TaskItem t) => a.CanInDepartment(Permission.TimeLog, t.DepartmentId);
+    public static bool CanLogTimeForOthers(Actor a, TaskItem t) => !t.HasSubtasks && a.CanInDepartment(Permission.TimeLog, t.DepartmentId);
 
     /// <summary>Attaching a file to a task (§6.18) follows the commenting rule: anyone who can see the task.</summary>
     public static bool CanAttachToTask(Actor a, TaskItem t) => CanViewTask(a, t);

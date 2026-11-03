@@ -52,6 +52,36 @@ public sealed class TaskStructureService(ApplicationDbContext db, IActorProvider
     }
 
     /// <summary>
+    /// For parent rows (design spec 2026-11-02 §4): what the parents among these tasks show in place of values of their own,
+    /// worked out from their bottom-level descendants. One query per level of subtasks, unscoped like the task page's Subtasks section.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<Guid, ParentSummary>> GetParentSummariesAsync(IEnumerable<TaskItem> tasks, DateOnly today, CancellationToken ct = default)
+    {
+        var parentIds = tasks.Where(t => t.HasSubtasks).Select(t => t.Id).Distinct().ToList();
+        if (parentIds.Count == 0) return new Dictionary<Guid, ParentSummary>();
+
+        var facts = new List<DescendantFacts>();
+        var seen = new HashSet<Guid>();
+        var frontier = parentIds;
+        for (var round = 0; frontier.Count > 0 && round < MaxDepth; round++)
+        {
+            var ids = frontier;
+            var level = await db.Tasks.AsNoTracking().Where(t => t.ParentTaskId != null && ids.Contains(t.ParentTaskId.Value))
+                .Select(t => new
+                {
+                    t.Id, ParentId = t.ParentTaskId!.Value, t.HasSubtasks, t.Status, t.DueDate, t.SprintId,
+                    SprintName = t.Sprint != null ? t.Sprint.Name : null,
+                    SprintStart = t.Sprint != null ? (DateOnly?)t.Sprint.StartDate : null,
+                    Names = t.Assignments.Select(a => a.User.DisplayName).ToList()
+                }).ToListAsync(ct);
+            level = level.Where(d => seen.Add(d.Id)).ToList();
+            facts.AddRange(level.Select(d => new DescendantFacts(d.Id, d.ParentId, d.HasSubtasks, d.Status, d.DueDate, d.SprintId, d.SprintName, d.SprintStart, d.Names)));
+            frontier = level.Where(d => d.HasSubtasks).Select(d => d.Id).ToList();
+        }
+        return ParentDisplayRules.Summarise(parentIds, facts, today);
+    }
+
+    /// <summary>
     /// For task tables: which of these tasks are waiting, with a one-line reason. One query for the links (plus one per
     /// level of parents for the Todo tasks, which inherit their ancestors' start gates), not one per row.
     /// </summary>
@@ -119,7 +149,7 @@ public sealed class TaskStructureService(ApplicationDbContext db, IActorProvider
                 .OrderBy(t => t.Title).Take(500).ToListAsync(ct);
 
     /// <summary>
-    /// The Parent task picker's search (§6.15, §13 items 121 and 122): up to <paramref name="take"/> open tasks within the actor's
+    /// The Parent task picker's search (§6.15, §13 items 121 and 122): up to <paramref name="take"/> tasks (closed ones too: an open subtask reopens its parent, SUB-022) within the actor's
     /// tasks.view scope (§6.5) that a task on <paramref name="projectId"/> could be filed under - the project's tasks, or for a
     /// standalone task the standalone tasks in <paramref name="departmentId"/> (in any department when that is null). The
     /// <paramref name="exclude"/>d tasks are left out: the task being edited and everything below it (<see cref="SubtreeIdsAsync"/>,
@@ -131,8 +161,7 @@ public sealed class TaskStructureService(ApplicationDbContext db, IActorProvider
         Guid? projectId, Guid? departmentId, IReadOnlyCollection<Guid> exclude, string? text, int take = 20, CancellationToken ct = default)
     {
         var actor = await actors.GetAsync(ct);
-        var q = Scoping.Tasks(db.Tasks.AsNoTracking(), actor)
-            .Where(t => t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled);
+        var q = Scoping.Tasks(db.Tasks.AsNoTracking(), actor);
         q = projectId is Guid pid ? q.Where(t => t.ProjectId == pid)
             : departmentId is Guid did ? q.Where(t => t.ProjectId == null && t.DepartmentId == did)
             : q.Where(t => t.ProjectId == null);
@@ -275,21 +304,46 @@ public sealed class TaskStructureService(ApplicationDbContext db, IActorProvider
     // ------------------------------------------------------------------ rules TaskService applies
 
     /// <summary>
-    /// Throws when a status change is gated (§6.15): a parent can't close while a child is open; FS/SS links (the task's
-    /// own and its ancestors') gate leaving Todo; FF/SF links gate Done. Cancelling is never gated by links.
+    /// Throws when a status change is gated (§6.15): FS/SS links (the task's own and its ancestors') gate leaving Todo; FF/SF
+    /// links gate Done. Cancelling is never gated by links. Closing the last open subtask finishes its parent (SUB-021), so the
+    /// parent's own FF/SF links gate it too, and so on up. A parent's own status is never set by hand (SUB-020).
     /// </summary>
     public async Task EnsureStatusChangeAllowedAsync(TaskItem task, TaskItemStatus to, CancellationToken ct = default)
     {
         if (to == task.Status) return;
-        if (to.IsClosed())
+        await EnsureLinksAllowStatusAsync(task, to, ct);
+        if (to.IsClosed()) await EnsureParentsMayFinishAsync(task, to, ct);
+    }
+
+    // SUB-021: walks up while closing this subtask finishes the parent; each parent's unmet finish links refuse it. A loop in bad
+    // data ends where it comes back round, and the walk stops at MaxDepth, as LoadAncestorsAsync's does.
+    private async Task EnsureParentsMayFinishAsync(TaskItem task, TaskItemStatus to, CancellationToken ct)
+    {
+        var child = task;
+        var childTo = to;
+        var seen = new HashSet<Guid> { task.Id };
+        for (var depth = 0; child.ParentTaskId is Guid parentId && seen.Add(parentId) && depth < MaxDepth; depth++)
         {
-            var openChildren = await db.Tasks.AsNoTracking()
-                .Where(t => t.ParentTaskId == task.Id && t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Cancelled)
-                .OrderBy(t => t.Title).Select(t => t.Title).ToListAsync(ct);
-            if (openChildren.Count > 0)
-                throw new ValidationException(
-                    $"\"{task.Title}\" can't be {(to == TaskItemStatus.Done ? "completed" : "cancelled")} while it has open subtasks ({Titles(openChildren)}). Close them first.");
+            var parent = await db.Tasks.AsNoTracking().FirstOrDefaultAsync(t => t.Id == parentId, ct);
+            if (parent is null) return;
+            var others = await db.Tasks.AsNoTracking().Where(t => t.ParentTaskId == parentId && t.Id != child.Id)
+                .Select(t => t.Status).ToListAsync(ct);
+            if (!ParentRollUpRules.FinishesParent(others, childTo, parent.Status)) return;
+
+            var links = await db.TaskDependencies.AsNoTracking()
+                .Include(l => l.Predecessor).ThenInclude(p => p.Department)
+                .Include(l => l.Successor)
+                .Where(l => l.SuccessorTaskId == parentId).ToListAsync(ct);
+            var unmet = links.Where(l => !l.Type.GatesStart() && !DependencyRules.IsMet(l)).ToList();
+            if (unmet.Count > 0)
+                throw new ValidationException($"Can't finish \"{task.Title}\": it completes \"{parent.Title}\", which waits on {Reasons(unmet, parent.Id)}.");
+            child = parent;
+            childTo = TaskItemStatus.Done;
         }
+    }
+
+    private async Task EnsureLinksAllowStatusAsync(TaskItem task, TaskItemStatus to, CancellationToken ct)
+    {
         var starting = DependencyRules.IsStart(task.Status, to);
         var finishing = DependencyRules.IsFinish(task.Status, to);
         if (!starting && !finishing) return;
@@ -317,7 +371,7 @@ public sealed class TaskStructureService(ApplicationDbContext db, IActorProvider
     /// Validates the parent for a task being created or saved into the given project/department (§6.15). Returns the
     /// parent, or null for a top-level task. <paramref name="child"/> is null on create.
     /// </summary>
-    public async Task<TaskItem?> ValidateParentAsync(TaskItem? child, Guid? parentId, Guid? projectId, Guid departmentId, bool childOpen, CancellationToken ct = default)
+    public async Task<TaskItem?> ValidateParentAsync(TaskItem? child, Guid? parentId, Guid? projectId, Guid departmentId, CancellationToken ct = default)
     {
         if (parentId is not Guid pid) return null;
         if (child is not null && pid == child.Id) throw new ValidationException("A task can't be its own parent.");
@@ -329,8 +383,7 @@ public sealed class TaskStructureService(ApplicationDbContext db, IActorProvider
                 : $"The parent must be on the same project as the task (\"{parent.Title}\" isn't).");
         if (projectId is null && parent.DepartmentId != departmentId)
             throw new ValidationException("A standalone task's parent must be in the same department.");
-        if (parent.Status.IsClosed() && childOpen)
-            throw new ValidationException($"\"{parent.Title}\" is {parent.Status.Label().ToLowerInvariant()}; an open task can't be filed under it.");
+        // A closed parent can take an open subtask: the roll-up reopens it (SUB-022).
         if (child is null || child.ParentTaskId == pid) return parent;
 
         // A task moving into this scope brings nothing with it that could loop (PrepareMoveAsync rejects crossing links).

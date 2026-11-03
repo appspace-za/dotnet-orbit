@@ -8,6 +8,8 @@ namespace Orbit.Application;
 /// <list type="bullet">
 /// <item>Estimates are compared over tasks that have one and aren't Cancelled, against all time logged on them to date.</item>
 /// <item>Every task stands alone: subtask time isn't rolled into the parent (§6.10).</item>
+/// <item>A task with subtasks (<see cref="TaskTimeFacts.IsParent"/>, §6.15) keeps the time logged on it but isn't counted and its
+/// estimate - its subtasks' sum - isn't compared, so no estimate counts twice.</item>
 /// <item>A task several people worked on shows under each of them, but totals count it once.</item>
 /// <item>So does a task several people are assigned to (§6.2.3), whole: an estimate is never split between them.</item>
 /// </list>
@@ -22,10 +24,10 @@ public static class TimeReportRules
     public static string AssigneeNames(IReadOnlyList<Guid> assigneeIds, Func<Guid?, string> name) =>
         string.Join(", ", AssigneesOrNone(assigneeIds).Select(name).Order(StringComparer.CurrentCultureIgnoreCase));
 
-    /// <summary>Estimated against actual over <paramref name="tasks"/>; each task should appear once.</summary>
+    /// <summary>Estimated against actual over <paramref name="tasks"/>; each task should appear once. Parents are left out (§6.15).</summary>
     public static EstimateComparison Compare(IEnumerable<TaskTimeFacts> tasks)
     {
-        var estimated = tasks.Where(t => t.EstimateMinutes is not null && t.Status != TaskItemStatus.Cancelled).ToList();
+        var estimated = tasks.Where(t => t.EstimateMinutes is not null && t.Status != TaskItemStatus.Cancelled && !t.IsParent).ToList();
         return new EstimateComparison(
             estimated.Count,
             estimated.Sum(t => t.EstimateMinutes!.Value),
@@ -36,6 +38,7 @@ public static class TimeReportRules
     /// <summary>
     /// Time by person: one row per person with time in the range, plus a zero row for each of <paramref name="people"/>
     /// who logged none, ordered by time logged (most first) then name; each row's tasks ordered by that person's time on them.
+    /// A parent's time counts and it has a line, without an estimate, but it isn't in the task counts or the estimates (§6.15).
     /// </summary>
     public static TimeByPersonReport TimeByPerson(
         IEnumerable<LoggedTime> logged, IReadOnlyDictionary<Guid, TaskTimeFacts> tasks, Func<Guid?, string> name,
@@ -50,11 +53,12 @@ public static class TimeReportRules
         var rows = entries.GroupBy(l => l.UserId)
             .Select(g =>
             {
-                var facts = g.Select(l => tasks[l.TaskId]).ToList();
+                var facts = g.Select(l => tasks[l.TaskId]).Where(t => !t.IsParent).ToList(); // WorkOnly (§6.15): the time is g's
                 var lines = g.Select(l =>
                     {
                         var t = tasks[l.TaskId];
-                        return new PersonTaskTimeRow(t.Id, t.Number, t.Title, t.Status, t.EstimateMinutes, l.Minutes, t.TotalMinutes);
+                        return new PersonTaskTimeRow(t.Id, t.Number, t.Title, t.Status, t.IsParent ? null : t.EstimateMinutes, l.Minutes,
+                            t.TotalMinutes, t.IsParent);
                     })
                     .OrderByDescending(r => r.LoggedMinutes).ThenBy(r => r.Number, StringComparer.Ordinal)
                     .ToList();
@@ -68,7 +72,7 @@ public static class TimeReportRules
             .OrderByDescending(r => r.LoggedMinutes).ThenBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
 
-        var distinct = entries.Select(l => l.TaskId).Distinct().Select(id => tasks[id]).ToList();
+        var distinct = entries.Select(l => l.TaskId).Distinct().Select(id => tasks[id]).Where(t => !t.IsParent).ToList(); // WorkOnly (§6.15)
         return new TimeByPersonReport(rows, entries.Sum(l => l.Minutes), distinct.Count,
             distinct.Count(t => t.EstimateMinutes is null), Compare(distinct));
     }

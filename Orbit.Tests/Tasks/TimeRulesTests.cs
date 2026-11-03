@@ -118,4 +118,19 @@ public class TimeRulesTests
         Assert.Throws<ValidationException>(() => TimeRules.CleanEstimate(-1));
         Assert.Throws<ValidationException>(() => TimeRules.CleanEstimate(TimeRules.MaxEstimateMinutes + 1));
     }
+
+    /// <summary>
+    /// SUB-024: a stopped clock logs its run as a time entry for its user on its task, dated the day it started; a run under
+    /// a minute logs nothing. The same entry the clock's own stop logs, and the one a task becoming a parent logs.
+    /// </summary>
+    [Fact]
+    public void StoppedClockEntry_logs_the_running_time()
+    {
+        var start = new DateTime(2026, 11, 2, 8, 0, 0, DateTimeKind.Utc);
+        var clock = new RunningClock { UserId = Guid.NewGuid(), TaskId = Guid.NewGuid(), StartedAt = start, LastSeenAt = start.AddMinutes(44) };
+        var entry = TimeRules.StoppedClockEntry(clock, start.AddMinutes(45));
+        Assert.Equal((45, clock.TaskId, clock.UserId, DateOnly.FromDateTime(start)), (entry!.DurationMinutes, entry.TaskId, entry.UserId, entry.Date));
+        var fresh = new RunningClock { UserId = clock.UserId, TaskId = clock.TaskId, StartedAt = start, LastSeenAt = start };
+        Assert.Null(TimeRules.StoppedClockEntry(fresh, start.AddSeconds(20))); // under a minute -> nothing logged
+    }
 }

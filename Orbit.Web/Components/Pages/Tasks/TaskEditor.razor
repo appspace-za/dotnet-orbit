@@ -3,8 +3,8 @@
 @* The task form (spec §6.2), for a new task (TaskCreate: blank, on a project or sprint, or a subtask, §6.15) or an existing one
    (TaskEdit). The department follows the task form's rule (§6.2.1): picking a project fills it with the project's, and only
    whoever creates tasks everywhere chooses it. The Assignees picker offers the people of the department in force and drops
-   those who don't belong when it changes (§6.2.3); the Parent task picker searches the project's open tasks, or for a standalone
-   task its department's (§6.15). The Requestee is offered with tasks.create_for above Own (§6.2.2), the asset with assets.view
+   those who don't belong when it changes (§6.2.3); the Parent task picker searches the project's tasks, closed ones too, or for a
+   standalone task its department's (§6.15). The Requestee is offered with tasks.create_for above Own (§6.2.2), the asset with assets.view
    (§6.19). Project, Requestee and Parent task are selects you can type into (SearchSelect, §13 item 121). Editing adds Status
    and the Solution notes box (§6.2.4), and asks before you set your own task Done with no time logged on it (§6.10). *@
 
@@ -100,7 +100,8 @@ else
                     }
                 </MudSelect>
                 <div class="mt-3">
-                    <MudSelect T="TaskPriority" @bind-Value="_form.Priority" Label="Priority" Variant="Variant.Outlined" ToStringFunc="@(p => p.ToString())">
+                    <MudSelect T="TaskPriority" @bind-Value="_form.Priority" Label="Priority" Variant="Variant.Outlined" ToStringFunc="@(p => p.ToString())"
+                               Disabled="Derived" HelperText="@DerivedHelp">
                         @foreach (var p in Enum.GetValues<TaskPriority>())
                         {
                             <MudSelectItem T="TaskPriority" Value="p">@p</MudSelectItem>
@@ -110,25 +111,32 @@ else
             </MudItem>
             <MudItem xs="12" md="4">
                 <MudDatePicker @bind-Date="StartDate" Label="Start date" DateFormat="yyyy-MM-dd" Editable="true" Clearable="true" AutoClose="true"
-                               HelperText="Planned start; not after the due date" Variant="Variant.Outlined" />
+                               HelperText="@(Derived ? DerivedHelp : "Planned start; not after the due date")" Disabled="Derived" Variant="Variant.Outlined" />
                 <div class="mt-3">
                     <MudDatePicker @bind-Date="DueDate" Label="Due date" DateFormat="yyyy-MM-dd" Editable="true" Clearable="true" AutoClose="true"
-                                   Variant="Variant.Outlined" />
+                                   Disabled="Derived" HelperText="@DerivedHelp" Variant="Variant.Outlined" />
                 </div>
             </MudItem>
             <MudItem xs="12" md="4">
                 <div class="orbit-section-title mt-0 mb-1">Assignees</div>
-                @if (_assignees.Count == 0)
+                @if (_assignees.Count == 0 && !Derived)
                 {
                     <div class="orbit-muted orbit-small mb-1">Nobody - unassigned</div>
                 }
-                <PeopleField Selected="_assignees" SelectedChanged="AssigneesChanged" DepartmentId="DepartmentInForce"
-                             Placeholder="Type a name, or click to choose..." />
-                <div class="orbit-help">
-                    @(_canChooseDepartment
-                        ? "One person, several who share the task, or nobody. They must belong to the task's department (people whose role sees every department can be assigned anywhere)."
-                        : "One person, several who share the task, or nobody.")
-                </div>
+                @if (Derived)
+                {
+                    <div class="orbit-help">Assignees are on the subtasks.</div>
+                }
+                else
+                {
+                    <PeopleField Selected="_assignees" SelectedChanged="AssigneesChanged" DepartmentId="DepartmentInForce"
+                                 Placeholder="Type a name, or click to choose..." />
+                    <div class="orbit-help">
+                        @(_canChooseDepartment
+                            ? "One person, several who share the task, or nobody. They must belong to the task's department (people whose role sees every department can be assigned anywhere)."
+                            : "One person, several who share the task, or nobody.")
+                    </div>
+                }
                 @if (_canChooseRequestee)
                 {
                     <div class="mt-3">
@@ -151,6 +159,7 @@ else
             {
                 <MudItem xs="12" md="3">
                     <MudSelect T="TaskItemStatus" Value="_form.Status" ValueChanged="StatusChanged" Label="Status" Variant="Variant.Outlined"
+                               Disabled="Derived" HelperText="@DerivedHelp"
                                ToStringFunc="@(st => st.Label())">
                         @foreach (var st in Enum.GetValues<TaskItemStatus>())
                         {
@@ -161,26 +170,28 @@ else
             }
             <MudItem xs="12" md="3">
                 <MudSelect T="SprintPlacement" Value="_form.Sprint" ValueChanged="SprintPicked" Label="Sprint" Variant="Variant.Outlined"
+                           Disabled="Derived"
                            ToStringFunc="@(p => _sprints.FirstOrDefault(x => x.Value == p).Text ?? "")">
                     @foreach (var sp in _sprints)
                     {
                         <MudSelectItem T="SprintPlacement" Value="sp.Value">@sp.Text</MudSelectItem>
                     }
                 </MudSelect>
-                <div class="orbit-help">Backlog: to plan into a sprint at sprint planning. Not Planned: work that came up during the sprint.</div>
+                <div class="orbit-help">@(Derived ? DerivedHelp : "Backlog: to plan into a sprint at sprint planning. Not Planned: work that came up during the sprint.")</div>
             </MudItem>
             <MudItem xs="12" md="4">
                 <SearchSelect TValue="Guid" Value="@(_form.ParentTaskId ?? Guid.Empty)" ValueChanged="ParentChanged" Options="NoParentOptions"
                               Search="SearchParentsAsync" SelectedText="@ParentLabel(_parent)" Limit="20" Label="Parent task" />
                 <div class="orbit-help">
-                    Makes this a subtask. Type part of a title, a task number or a department. Only open tasks on the same project are
-                    offered (for a standalone task, standalone tasks in its department).
+                    Makes this a subtask. Type part of a title, a task number or a department. Tasks on the same project are offered
+                    (for a standalone task, standalone tasks in its department), a closed one with its status: an open subtask reopens it.
                 </div>
             </MudItem>
             <MudItem xs="12" md="2">
-                <MudNumericField T="int?" @bind-Value="_form.EstimateMinutes" Label="Estimate" Min="0" Max="525600" Step="5" Placeholder="e.g. 90"
-                                 Adornment="Adornment.End" AdornmentText="min" Variant="Variant.Outlined" />
-                <div class="orbit-help">Expected effort in minutes; blank for none.</div>
+                @* A parent's estimate is its subtasks' uncapped sum (§6.15), so the year's cap doesn't bound it. *@
+                <MudNumericField T="int?" @bind-Value="_form.EstimateMinutes" Label="Estimate" Min="0" Max="@(Derived ? int.MaxValue : 525_600)" Step="5" Placeholder="e.g. 90"
+                                 Adornment="Adornment.End" AdornmentText="min" Variant="Variant.Outlined" Disabled="Derived" />
+                <div class="orbit-help">@(Derived ? DerivedHelp : "Expected effort in minutes; blank for none.")</div>
             </MudItem>
         </MudGrid>
 
@@ -257,6 +268,9 @@ else
     private Guid ProjectChoice => _form.ProjectId ?? Guid.Empty;
     private Guid DepartmentChoice => _form.DepartmentId ?? Guid.Empty;
     private Guid RequesteeChoice { get => _form.RequesteeId ?? Guid.Empty; set => _form.RequesteeId = value == Guid.Empty ? null : value; }
+    /// <summary>A task with subtasks takes these fields from them (§6.15): shown, not editable; the saved values go back unchanged.</summary>
+    private bool Derived => _task?.HasSubtasks == true;
+    private string? DerivedHelp => Derived ? "From subtasks" : null;
     private DateTime? StartDate { get => PickerDate.Of(_form.StartDate); set => _form.StartDate = PickerDate.Day(value); }
     private DateTime? DueDate { get => PickerDate.Of(_form.DueDate); set => _form.DueDate = PickerDate.Day(value); }
 
@@ -297,9 +311,10 @@ else
         p is null ? null : p.Status.IsClosed() ? $"{p.Title} ({p.Status.Label()})" : p.Title;
 
     /// <summary>
-    /// The Parent task picker's search: up to <paramref name="take"/> open tasks the task could be filed under where the form
-    /// now stands - the chosen project's, or for a standalone task its department's - leaving out the task and its own
-    /// subtasks. Opened without typing, the list starts with the current parent, so a closed one is listed with its status.
+    /// The Parent task picker's search: up to <paramref name="take"/> tasks the task could be filed under where the form now
+    /// stands - the chosen project's, or for a standalone task its department's - leaving out the task and its own subtasks. A
+    /// closed one is listed with its status (an open subtask reopens it, §6.15); opened without typing, the list starts with the
+    /// current parent.
     /// </summary>
     private async Task<IReadOnlyList<PickOption<Guid>>> SearchParentsAsync(IServiceProvider s, string? text, int take, CancellationToken ct)
     {
@@ -326,6 +341,7 @@ else
         var form = new TaskForm();
         TaskItem? task = null;
         var asked = TaskId is null ? SprintPlacement.Read(InitialSprint) : null;
+        SprintPlacement? inherited = null;
         if (TaskId is Guid id)
         {
             task = await s.Get<TaskService>().GetAsync(id);
@@ -343,6 +359,8 @@ else
                 form.ParentTaskId = parent.Id;
                 projectId = parent.ProjectId;
                 form.DepartmentId = parent.DepartmentId;
+                form.PrefillFromParent(parent);
+                inherited = TaskForm.InheritedSprint(parent);
             }
             form.ProjectId = projectId;
             // A task defaults to its project's department; someone with tasks.create everywhere can change that on the form (§6.2.1).
@@ -380,7 +398,7 @@ else
         if (_canChooseDepartment && form.DepartmentId is Guid chosenDepartment && _departments.All(d => d.Id != chosenDepartment)) form.DepartmentId = null;
         // A new task's Sprint is worked out once its project is settled, so a project the form can't offer doesn't leave it
         // on the Backlog as a standalone task (§13 item 117).
-        if (task is null) form.Sprint = asked ?? SprintPlacement.DefaultFor(form.ProjectId);
+        if (task is null) form.Sprint = TaskForm.SprintForNew(asked, inherited, form.ProjectId);
         if (_sprints.All(x => x.Value != form.Sprint)) form.Sprint = SprintPlacement.DefaultFor(form.ProjectId);
         // A parent that no longer exists is dropped; any other is kept and named, closed or not (§6.15).
         if (form.ParentTaskId is not null && _parent is null) form.ParentTaskId = null;
@@ -388,8 +406,8 @@ else
 
         _form = form;
         _task = task;
-        // Only a ?sprintId= the form kept counts as picked; one it couldn't offer fell back to the default, which follows the project.
-        _sprintPicked = task is not null || (asked is { } wanted && form.Sprint == wanted);
+        // Only a ?sprintId= or an inherited sprint the form kept counts as picked; one it couldn't offer fell back to the default, which follows the project.
+        _sprintPicked = task is not null || ((asked ?? inherited) is { } wanted && form.Sprint == wanted);
         _requiredForDone = !(task is { Status: TaskItemStatus.Done } && string.IsNullOrWhiteSpace(task.SolutionNotes));
         _showNotes = form.Status.IsClosed() || !string.IsNullOrWhiteSpace(form.SolutionNotes);
     });
@@ -488,8 +506,9 @@ else
         // service checks them again.
         if (string.IsNullOrWhiteSpace(_form.Title)) { Error("Title is required."); return; }
         if (_form.Title.Length > 300) { Error("Title must be 300 characters or fewer."); return; }
-        if (_form.EstimateMinutes < 0) { Error("The estimate can't be negative."); return; }
-        if (_form.EstimateMinutes > 525_600) { Error("The estimate must be at most a year (525,600 minutes)."); return; }
+        // A parent's estimate is its subtasks' uncapped sum, sent back unchanged, which the service lets through (§6.15).
+        if (!Derived && _form.EstimateMinutes < 0) { Error("The estimate can't be negative."); return; }
+        if (!Derived && _form.EstimateMinutes > 525_600) { Error("The estimate must be at most a year (525,600 minutes)."); return; }
         if (_task is not null && NotesRequired && string.IsNullOrWhiteSpace(_form.SolutionNotes))
         {
             Error(_task.Status == TaskItemStatus.Done ? SolutionNoteRules.CantClearMessage : SolutionNoteRules.RequiredMessage);

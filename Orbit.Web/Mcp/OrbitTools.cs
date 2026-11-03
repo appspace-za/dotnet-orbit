@@ -61,7 +61,7 @@ public sealed class OrbitTools(
         [Description("The assignees' user ids (GUID, from list_users): one person, or several who share the task. Each must be an active user in the task's department (not necessarily the project's), or a user whose role sees tasks in every department. Omit to leave unassigned.")] string[]? assigneeIds = null,
         [Description("Optional idempotency key. Retrying with the same key returns the already-created task instead of a duplicate.")] string? idempotencyKey = null,
         [Description("Planned start date as yyyy-MM-dd (not after the due date).")] string? startDate = null,
-        [Description("Parent task id (GUID) to create this as a subtask. The parent must be on the same project (or, for a standalone task, be a standalone task in the same department) and still open.")] string? parentTaskId = null,
+        [Description("Parent task id (GUID) to create this as a subtask. The parent must be on the same project (or, for a standalone task, be a standalone task in the same department); it may be closed, and an open subtask reopens it. Giving a task its first subtask makes it a parent: its own status, priority, dates, estimate and sprint are replaced by values rolled up from its subtasks, and its assignees are removed.")] string? parentTaskId = null,
         [Description("Estimated effort in minutes, e.g. 90 for an hour and a half. Omit or 0 for no estimate.")] int? estimateMinutes = null,
         [Description("The asset the task is about - a repair, a service, a replacement: its id (GUID) or ERP asset number. It must be an asset the key can see that isn't disposed; the task then appears in the asset's task history (get_asset).")] string? assetId = null,
         [Description("The requestee: user id (GUID, from list_users) of the person the task is created for. They can open, edit and plan it as their own and are emailed. Needs the key's Create tasks for others permission to reach them - anyone in the key's department at Department, anyone at All; a key at Own can name nobody. Omit when the task is for nobody else.")] string? requesteeId = null,
@@ -140,7 +140,7 @@ public sealed class OrbitTools(
         [Description("Filter by department id (GUID). Only useful for a key that sees every department.")] string? departmentId = null,
         [Description("Todo, InProgress, Waiting, Blocked, Done or Cancelled.")] string? status = null,
         [Description("Filter by assignee user id (GUID): the tasks that person is one of the assignees of.")] string? assigneeId = null,
-        [Description("true = only tasks with no assignee - work nobody has picked up yet. Overrides assigneeId.")] bool? unassigned = null,
+        [Description("true = only tasks with no assignee - work nobody has picked up yet. A task with subtasks never matches: it has no assignees of its own, and its unassigned subtasks do. Overrides assigneeId.")] bool? unassigned = null,
         [Description("Manual, Api, Recurring, Request (logged through a department's request flow) or Nagios (raised for a host or service Nagios reported down) - where the task originated.")] string? source = null,
         [Description("Low, Medium, High or Critical.")] string? priority = null,
         [Description("Meeting, Planning, Task, Training, Audit, Change, Request or Problem.")] string? type = null,
@@ -152,6 +152,7 @@ public sealed class OrbitTools(
         [Description("Free-text search over title, description, solution notes and task number.")] string? search = null,
         [Description("Only tasks on the day plan for this date (yyyy-MM-dd), or the literal \"today\".")] string? plannedFor = null,
         [Description("Only the direct subtasks of this task id (GUID).")] string? parentTaskId = null,
+        [Description("true for parent tasks only (tasks with subtasks), false for the tasks without subtasks - the work itself.")] bool? hasSubtasks = null,
         [Description("Only tasks about this asset: its id (GUID) or ERP asset number - the asset's task history.")] string? assetId = null,
         [Description("Page number, starting at 1.")] int page = 1,
         [Description("Page size (1-200). Default 50.")] int pageSize = 50,
@@ -184,6 +185,7 @@ public sealed class OrbitTools(
             OpenOnly = openOnly ?? false,
             PlannedFor = ParsePlanDate(plannedFor, "plannedFor"),
             ParentTaskId = ParseGuid(parentTaskId, "parentTaskId"),
+            HasSubtasks = hasSubtasks,
             Search = search,
             Page = page,
             PageSize = Math.Clamp(pageSize, 1, 200)
@@ -201,7 +203,8 @@ public sealed class OrbitTools(
         "Setting status to Done needs solutionNotes - how the task was resolved, kept apart from its comments - unless the task already has them (a reopened task keeps its notes). " +
         "Changing or clearing the requestee needs the key's Create tasks for others permission to reach both the person removed and the person added. " +
         "departmentId moves the task to another department (needs Edit tasks for that department); if that differs from the project's department the task " +
-        "becomes a cross-department project task. Changing projectId without departmentId moves the task into the new project's department.")]
+        "becomes a cross-department project task. Changing projectId without departmentId moves the task into the new project's department. " +
+        "A task with subtasks (hasSubtasks true) is a parent: its status, priority, dates, estimate, sprint and assignees come from its subtasks, so changing them on a parent is refused - change the subtask instead.")]
     public Task<string> UpdateTask(
         [Description("Task id (GUID), or task number such as T-26-00012.")] string taskId,
         [Description("New title.")] string? title = null,
@@ -217,7 +220,7 @@ public sealed class OrbitTools(
         [Description("Department id (GUID) to move the task to. Needs the Edit tasks permission for the target department. Omit to keep the task's department (it only follows the project when projectId changes).")] string? departmentId = null,
         [Description("Day-plan date yyyy-MM-dd, \"today\" to put the task on today's plan, or \"none\" to take it off. Anyone in the task's department may plan it; closed tasks can't be planned.")] string? plannedFor = null,
         [Description("Planned start date yyyy-MM-dd (not after the due date), or \"none\" to clear.")] string? startDate = null,
-        [Description("Parent task id (GUID) to make this a subtask (same project, or same department for standalone tasks), or \"none\" to detach it. A status change gated by a dependency, or closing a parent with open subtasks, is rejected with the reason.")] string? parentTaskId = null,
+        [Description("Parent task id (GUID) to make this a subtask (same project, or same department for standalone tasks), or \"none\" to detach it. Giving a task its first subtask replaces its own status, priority, dates, estimate and sprint with values rolled up from its subtasks and removes its assignees. A status change gated by a dependency is rejected with the reason.")] string? parentTaskId = null,
         [Description("Estimated effort in minutes (e.g. 90), or \"none\" to clear the estimate.")] string? estimateMinutes = null,
         [Description("The asset the task is about: its id (GUID) or ERP asset number, or \"none\" to unlink it. A new asset must be one the key can see that isn't disposed; the current one is kept as it is when omitted.")] string? assetId = null,
         [Description("The requestee - user id (GUID) of the person the task is for - or \"none\" for nobody else. Omit to keep the current requestee, whom the key needn't be able to reach.")] string? requesteeId = null,
@@ -1268,6 +1271,7 @@ public sealed class OrbitTools(
         createdBy = t.CreatedBy is null ? null : t.CreatedBy.IsSystemAccount ? "Claude" : t.CreatedBy.DisplayName,
         parentTaskId = t.ParentTaskId,
         parentTask = t.ParentTask?.Title,
+        hasSubtasks = t.HasSubtasks,
         startDate = t.StartDate,
         dueDate = t.DueDate,
         plannedFor = t.PlannedFor,
@@ -1313,6 +1317,7 @@ public sealed class OrbitTools(
         int? commentCount = null)
     {
         var all = p.Tasks ?? [];
+        var work = all.Where(t => !t.HasSubtasks).ToList(); // WorkOnly (§6.15): the counts leave parents out, the tasks list keeps them
         return new
         {
             id = p.Id,
@@ -1328,9 +1333,9 @@ public sealed class OrbitTools(
             requiredBufferWorkingDays = p.RequiredBufferWorkingDays,
             createdAt = p.CreatedAt,
             updatedAt = p.UpdatedAt,
-            totalTasks = all.Count,
-            openTasks = all.Count(t => !t.Status.IsClosed()),
-            doneTasks = all.Count(t => t.Status == TaskItemStatus.Done),
+            totalTasks = work.Count,
+            openTasks = work.Count(t => !t.Status.IsClosed()),
+            doneTasks = work.Count(t => t.Status == TaskItemStatus.Done),
             crossDepartment = all.Any(t => t.DepartmentId != p.DepartmentId),
             tasks = includeTasks
                 ? all.OrderBy(t => t.Status.IsClosed()).ThenBy(t => t.DueDate).Select(t => new
@@ -1338,7 +1343,7 @@ public sealed class OrbitTools(
                     id = t.Id, title = t.Title, status = t.Status, priority = t.Priority, type = t.Type, source = t.Source,
                     departmentId = t.DepartmentId, department = t.Department?.Name,
                     assignees = AssigneesDto(t),
-                    parentTaskId = t.ParentTaskId, startDate = t.StartDate, dueDate = t.DueDate,
+                    parentTaskId = t.ParentTaskId, hasSubtasks = t.HasSubtasks, startDate = t.StartDate, dueDate = t.DueDate,
                     sprintId = t.SprintId, inBacklog = SprintPlacement.Of(t).IsBacklog, notPlanned = SprintPlacement.Of(t).IsNotPlanned,
                     updatedAt = t.UpdatedAt
                 }).ToList()
