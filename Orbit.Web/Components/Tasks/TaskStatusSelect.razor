@@ -8,7 +8,17 @@
     @foreach (var s in Statuses)
     {
         var blocked = BranchSummaryRules.ClosingBlocked(s, Task.Status, Branch);
-        <MudSelectItem T="TaskItemStatus" Value="s" Disabled="blocked" title="@(blocked ? BranchSummaryRules.ClosingBlockedReason : null)">@s.Label()</MudSelectItem>
+        @* A disabled item takes no pointer events (MudBlazor), so its tooltip sits on the label, which takes them again (app.css). *@
+        <MudSelectItem T="TaskItemStatus" Value="s" Disabled="blocked">
+            @if (blocked)
+            {
+                <span class="orbit-blocked" title="@BranchSummaryRules.ClosingBlockedReason">@s.Label()</span>
+            }
+            else
+            {
+                @s.Label()
+            }
+        </MudSelectItem>
     }
 </MudSelect>
 

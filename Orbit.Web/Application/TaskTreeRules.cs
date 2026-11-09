@@ -132,19 +132,23 @@ public static class TaskTreeRules
         return new TaskTreeCut(pages[at - 1], at, pages.Count, rows.Count(r => !r.IsContext));
     }
 
-    /// <summary>The rows a collapsed row hides: every following row deeper than it, until one at its depth or above.</summary>
-    public static IReadOnlySet<Guid> Hidden(IReadOnlyList<(Guid Id, int Depth)> rows, IReadOnlySet<Guid> collapsed)
+    /// <summary>
+    /// The rows a collapsed row hides: every following row deeper than it, until one at its depth or above. A context row never
+    /// hides anything: it is shown only because something under it matched the filter, so a collapse remembered from an unfiltered
+    /// visit mustn't hide those matches.
+    /// </summary>
+    public static IReadOnlySet<Guid> Hidden(IReadOnlyList<(Guid Id, int Depth, bool IsContext)> rows, IReadOnlySet<Guid> collapsed)
     {
         var hidden = new HashSet<Guid>();
         int? under = null;
-        foreach (var (id, depth) in rows)
+        foreach (var (id, depth, context) in rows)
         {
             if (under is int top && depth > top)
             {
                 hidden.Add(id);
                 continue;
             }
-            under = collapsed.Contains(id) ? depth : null;
+            under = !context && collapsed.Contains(id) ? depth : null;
         }
         return hidden;
     }

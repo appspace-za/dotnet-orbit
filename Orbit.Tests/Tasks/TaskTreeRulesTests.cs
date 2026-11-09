@@ -158,9 +158,22 @@ public class TaskTreeRulesTests
     public void Collapsing_hides_the_whole_branch_below()
     {
         Guid a = G(), b = G(), c = G(), d = G();
-        (Guid Id, int Depth)[] rows = [(a, 0), (b, 1), (c, 2), (d, 0)];
+        (Guid Id, int Depth, bool IsContext)[] rows = [(a, 0, false), (b, 1, false), (c, 2, false), (d, 0, false)];
         Assert.Equal(new[] { b, c }.Order(), TaskTreeRules.Hidden(rows, new HashSet<Guid> { a }).Order());
         Assert.Equal([c], TaskTreeRules.Hidden(rows, new HashSet<Guid> { b }));
         Assert.Empty(TaskTreeRules.Hidden(rows, new HashSet<Guid> { d }));
+    }
+
+    /// <summary>
+    /// TREE-006: a context row is there only because something under it matched the filter, so a collapse remembered from an
+    /// unfiltered visit doesn't hide those matches; a matched parent under it still collapses as usual.
+    /// </summary>
+    [Fact]
+    public void A_context_row_never_hides_the_matches_under_it()
+    {
+        Guid top = G(), match = G(), parent = G(), child = G();
+        (Guid Id, int Depth, bool IsContext)[] rows = [(top, 0, true), (match, 1, false), (parent, 1, false), (child, 2, false)];
+        Assert.Empty(TaskTreeRules.Hidden(rows, new HashSet<Guid> { top }));
+        Assert.Equal([child], TaskTreeRules.Hidden(rows, new HashSet<Guid> { top, parent }));
     }
 }

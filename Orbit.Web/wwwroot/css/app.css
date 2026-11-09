@@ -404,6 +404,9 @@ a.orbit-plain:hover { background: var(--mud-palette-table-hover); }
 .orbit-tasks .orbit-branch .mud-chip { margin: 0; }
 .orbit-tasks .orbit-branch-count { color: var(--mud-palette-text-secondary); margin-left: .25rem; font-size: .8rem; }
 .orbit-tree-tools { display: flex; justify-content: flex-end; gap: .5rem; padding: .25rem .5rem 0; }
+/* A status greyed out on a parent with open subtasks: MudBlazor turns pointer events off on a disabled item, so the label takes
+   them back for its tooltip (TaskStatusSelect). The dropdown renders in the popover provider, outside .orbit-tasks. */
+.mud-list-item-disabled .orbit-blocked { pointer-events: auto; cursor: not-allowed; }
 .orbit-empty { padding: .75rem 1rem; margin: 0; color: var(--mud-palette-text-secondary); font-style: italic; }
 
 /* Inline controls in a row: compact, and wide enough for their longest option and a full date. */

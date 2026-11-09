@@ -15,7 +15,7 @@ else if (_rows.Count == 0)
 }
 else
 {
-    @if (Tree is not null && Tree.Any(e => e.HasChildren))
+    @if (Tree is not null && Tree.Any(Collapsible))
     {
         <div class="orbit-tree-tools">
             <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Primary" OnClick="() => SetAllAsync(false)">Expand all</MudButton>
@@ -363,7 +363,7 @@ else
             _rows = Tasks.Select(t => (t, (TaskTreeEntry?)null)).ToList();
             return;
         }
-        var hidden = TaskTreeRules.Hidden(Tree.Select(e => (e.Task.Id, e.Depth)).ToList(), _collapsed ?? new HashSet<Guid>());
+        var hidden = TaskTreeRules.Hidden(Tree.Select(e => (e.Task.Id, e.Depth, e.IsContext)).ToList(), _collapsed ?? new HashSet<Guid>());
         _rows = Tree.Where(e => !hidden.Contains(e.Task.Id)).Select(e => (e.Task, (TaskTreeEntry?)e)).ToList();
     }
 
@@ -386,8 +386,14 @@ else
         (ShowProject ? 1 : 0) + (ShowDepartment ? 1 : 0) + 1 + (ShowAssignee ? 1 : 0) + 1 + (ShowEstimate ? 1 : 0)
         + (ShowSprint ? 1 : 0) + 1 + (RowActions is not null ? 1 : 0);
 
+    /// <summary>
+    /// A row with a collapse toggle: rows sit under it and it isn't a context row, which stays open because it is there only for the
+    /// matches under it (TaskTreeRules.Hidden).
+    /// </summary>
+    private static bool Collapsible(TaskTreeEntry entry) => entry.HasChildren && !entry.IsContext;
+
     /// <summary>The toggle before a parent's number, or a space of its width so titles line up.</summary>
-    private RenderFragment Lead(TaskTreeEntry entry) => entry.HasChildren
+    private RenderFragment Lead(TaskTreeEntry entry) => Collapsible(entry)
         ? @<MudIconButton Icon="@(IsCollapsed(entry) ? Icons.Material.Filled.ChevronRight : Icons.Material.Filled.ExpandMore)"
                           Size="Size.Small" Class="orbit-tree-toggle" OnClick="() => ToggleBranchAsync(entry.Task.Id)"
                           aria-label="@($"{(IsCollapsed(entry) ? "Expand" : "Collapse")} {entry.Task.Number}")"
@@ -409,7 +415,7 @@ else
     private async Task SetAllAsync(bool collapse)
     {
         if (Tree is null || _collapsed is null) return;
-        var ids = Tree.Where(e => e.HasChildren).Select(e => e.Task.Id).ToList();
+        var ids = Tree.Where(Collapsible).Select(e => e.Task.Id).ToList();
         if (collapse) _collapsed.UnionWith(ids);
         else _collapsed.ExceptWith(ids);
         Redraw();
