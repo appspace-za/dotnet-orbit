@@ -4,7 +4,9 @@
 @inject IOptions<AttachmentOptions> AttachmentOptions
 @* A project's page (spec §6.1): its progress overall and by department (§6.2.1), the headline of its last critical path
    analysis (§6.17), its tasks (filtered by department, status and assignee in the address), recurring tasks, attachments
-   (§6.18) and comments. A department that only shares the project sees it read-only, apart from its own tasks and comments. *@
+   (§6.18) and comments. A department that only shares the project sees it read-only, apart from its own tasks and comments.
+   The tasks are a tree (§6.15, decision 145): each subtask under its parent, a match's unmatched ancestors greyed, and a
+   parent's branch summary from every task on the project. *@
 
 <PageTitle>@(_project?.Name ?? "Project") - Orbit</PageTitle>
 
@@ -213,7 +215,7 @@ else
 
     <MudPaper Outlined="true" Class="orbit-card">
         <div class="orbit-card-header">
-            <span><b>Tasks</b> <span class="orbit-muted">(@_tasks.Count of @p.Tasks.Count)</span></span>
+            <span><b>Tasks</b> <span class="orbit-muted">(@_matchCount of @p.Tasks.Count)</span></span>
             <div class="orbit-gap-row">
                 @if (_isCrossDepartment)
                 {
@@ -223,7 +225,7 @@ else
                 <FilterSelect Label="Assignee" Value="@AssigneeId" ValueChanged="v => Go(nameof(AssigneeId), v)" Options="_assigneeOptions" Class="orbit-field-sm" />
             </div>
         </div>
-        <TaskTable Tasks="_tasks" Actor="_actor!" Today="_today" ShowProject="false" ShowDepartment="_isCrossDepartment" ShowSprint="true" ShowEstimate="true" ShowPlanToday="true"
+        <TaskTable Tree="_tree" Actor="_actor!" Today="_today" ShowProject="false" ShowDepartment="_isCrossDepartment" ShowSprint="true" ShowEstimate="true" ShowPlanToday="true"
                    QuickEditAssignees="_quickEditAssignees" QuickEditSprints="_openSprints" Waiting="_waiting" EmptyMessage="No tasks match." Changed="ReloadAsync" />
     </MudPaper>
 
@@ -295,7 +297,8 @@ else
     private ProjectStatusSummary? _summary;
     private CriticalPathSummary? _criticalPath;
     private DateOnly _today;
-    private IReadOnlyList<TaskItem> _tasks = [];
+    private IReadOnlyList<TaskTreeEntry> _tree = [];
+    private int _matchCount;
     private IReadOnlyDictionary<Guid, WaitingSummary> _waiting = new Dictionary<Guid, WaitingSummary>();
     private IReadOnlyList<UserSummary> _quickEditAssignees = [];
     private IReadOnlyList<Sprint> _openSprints = [];
@@ -321,13 +324,20 @@ else
         var status = FilterQuery.Enum<TaskItemStatus>(StatusChoice);
         var assigneeId = FilterChoice.Id(AssigneeId);
         var departmentId = FilterChoice.Id(DepartmentId);
-        var tasks = project.Tasks.AsEnumerable();
+        var all = project.Tasks.ToList();
+        var tasks = all.AsEnumerable();
         if (status is TaskItemStatus st) tasks = tasks.Where(t => t.Status == st);
         if (assigneeId is Guid a) tasks = tasks.Where(t => t.IsAssignedTo(a));
         if (departmentId is Guid d) tasks = tasks.Where(t => t.DepartmentId == d);
-        var list = tasks
-            .OrderBy(t => t.Status.IsClosed()).ThenBy(t => t.DueDate == null).ThenBy(t => t.DueDate)
-            .ThenByDescending(t => t.Priority).ThenByDescending(t => t.CreatedAt).ToList();
+        // The tree (§6.15, decision 145): the matches under their ancestors, in the list's order. Every task on the project counts
+        // in a branch and a context row shows its values, as every row of this page does.
+        var matchIds = tasks.Select(t => t.Id).ToHashSet();
+        var byId = all.ToDictionary(t => t.Id);
+        var idsByParent = all.ToLookup(t => t.ParentTaskId, t => t.Id);
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var tree = TaskTreeRules.Entries(TaskTreeRules.Build(TaskTreeRules.NodesFor(all, t => matchIds.Contains(t.Id))), byId,
+            titleOnly: _ => false,
+            summary: t => BranchSummaryRules.Summarise(t, BranchSummaryRules.BranchOf(t.Id, idsByParent, byId), today));
         _assigneeOptions =
         [
             ("", "All assignees"),
@@ -340,7 +350,7 @@ else
         ];
         _quickEditAssignees = await sp.Get<UserDirectoryService>().GetQuickEditCandidatesAsync();
         _openSprints = await sp.Get<SprintService>().ListOpenAsync();
-        _waiting = await sp.Get<TaskStructureService>().GetWaitingAsync(list);
+        _waiting = await sp.Get<TaskStructureService>().GetWaitingAsync(tree.Select(e => e.Task));
         _criticalPath = await sp.Get<CriticalPathService>().GetSummaryAsync(project);
         _canRunAnalysis = AccessPolicy.CanRunCriticalPath(actor, project);
         _attachments = await sp.Get<AttachmentService>().ListForProjectAsync(Id);
@@ -348,8 +358,9 @@ else
         _comments = await sp.Get<CommentService>().ListForProjectAsync(Id);
 
         _actor = actor;
-        _today = DateOnly.FromDateTime(DateTime.UtcNow);
-        _tasks = list;
+        _today = today;
+        _tree = tree;
+        _matchCount = matchIds.Count;
         _summary = summary;
         _project = project;
     });
