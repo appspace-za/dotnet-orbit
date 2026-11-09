@@ -17,7 +17,8 @@ picked up yet. In the task tables (bar the Today page's, which only shows them),
 assignee, due date, sprint or *Today* tick saves at once, with no page reload, and a message at the bottom right
 confirms it. The Tasks list, project and sprint pages also have an **Est.** column, where the estimate is typed in
 minutes and saved on Enter or on leaving the box (empty for none), and the sprint Planning page changes it and a
-task's assignee in place. Setting *Done* still asks for solution notes. On the task page, comments, time entries, assignees (picked
+task's assignee in place. The task tables keep their controls compact so the title has room, and show a task's
+project as a line under its title, as its asset is, rather than in a column. Setting *Done* still asks for solution notes. On the task page, comments, time entries, assignees (picked
 by typing a name), dependencies and attachments are added and removed in place, and the clock keeps running while you
 work on the page. On an asset's page, checks, holders and the location change in place too, and Quick check refreshes
 the list when you close it. Only sign-in and the account pages (ASP.NET Identity's own) and the error page are still

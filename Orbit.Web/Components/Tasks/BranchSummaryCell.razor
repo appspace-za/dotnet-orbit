@@ -38,7 +38,12 @@
         break;
     case BranchColumn.Due when Summary.DueFrom is DateOnly from:
         <div class="@(Summary.Overdue ? "orbit-branch orbit-overdue" : "orbit-branch")" title="When its open subtasks are due">
-            @(Summary.DueTo is DateOnly to && to != from ? $"{Ui.Day(from)} → {Ui.Day(to)}" : Ui.Day(from))
+            @* Each date kept whole, so a narrow cell breaks the range at the arrow, not inside a date. *@
+            <span class="text-nowrap">@Ui.Day(from)</span>
+            @if (Summary.DueTo is DateOnly to && to != from)
+            {
+                <span>→</span><span class="text-nowrap">@Ui.Day(to)</span>
+            }
         </div>
         break;
     case BranchColumn.Estimate when Summary.EstimateTotal is int total:

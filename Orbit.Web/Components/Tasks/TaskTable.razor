@@ -23,7 +23,7 @@ else
         </div>
     }
     <div class="orbit-table-wrap">
-        <MudSimpleTable Dense="true" Hover="true" Elevation="0" Class="@(Class is null ? "orbit-tasks" : $"orbit-tasks {Class}")">
+        <MudSimpleTable Dense="true" Hover="true" Elevation="0" Class="@(Class is null ? "orbit-tasks orbit-task-table" : $"orbit-tasks orbit-task-table {Class}")">
             <thead>
                 <tr>
                     @if (Selectable)
@@ -37,8 +37,7 @@ else
                     {
                         <th class="orbit-today" title="On today's day plan">Today</th>
                     }
-                    <th>Task</th>
-                    @if (ShowProject) { <th>Project</th> }
+                    <th class="orbit-task-col">Task</th>
                     @if (ShowDepartment) { <th>Department</th> }
                     <th>Priority</th>
                     @if (ShowAssignee) { <th>Assignee</th> }
@@ -62,7 +61,10 @@ else
                             @if (Selectable) { <td class="orbit-check"></td> }
                             @if (ShowPlanToday) { <td class="orbit-today"></td> }
                             <td class="orbit-tree-td" style="@IndentStyle(entry)">
-                                @Lead(entry)<span class="orbit-number" title="Task number">@t.Number</span><span class="orbit-title">@t.Title</span>
+                                <div class="orbit-tree-cell">
+                                    @Lead(entry)
+                                    <div class="orbit-tree-body"><span class="orbit-number" title="Task number">@t.Number</span><span class="orbit-title">@t.Title</span></div>
+                                </div>
                             </td>
                             <td colspan="@ColumnsAfterTask"></td>
                         </tr>
@@ -100,63 +102,59 @@ else
                             </td>
                         }
                         <td class="@(entry is null ? null : "orbit-tree-td")" style="@IndentStyle(entry)">
-                            @if (entry is not null)
-                            {
-                                @Lead(entry)
-                            }
-                            <span class="orbit-number" title="Task number">@t.Number</span>
-                            @if (canView)
-                            {
-                                <a href="@($"/Tasks/Details/{t.Id}")" target="@(NewTab ? "_blank" : null)" class="@(overdue ? "orbit-title orbit-overdue" : "orbit-title")">@t.Title</a>
-                            }
-                            else
-                            {
-                                <span class="orbit-title">@t.Title</span>
-                            }
-                            @if (summary is not null)
-                            {
-                                <span class="orbit-branch-count" title="Subtasks in its branch">(@summary.SubtaskCount)</span>
-                            }
-                            @if (t.Type != TaskType.Task)
-                            {
-                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="TaskLook.Type(t.Type)" Class="@TaskLook.TypeClass(t.Type)" title="Type">@t.Type</MudChip>
-                            }
-                            @if (t.Source != TaskSource.Manual)
-                            {
-                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="TaskLook.Source(t.Source)" Class="@TaskLook.SourceClass(t.Source)">@Ui.SourceLabel(t.Source)</MudChip>
-                            }
-                            @if (Waiting is not null && Waiting.TryGetValue(t.Id, out var waiting))
-                            {
-                                <MudChip T="string" Size="Size.Small" Color="Color.Warning" title="@waiting.Reason">Gated</MudChip>
-                            }
-                            @if (CarryOvers is not null && CarryOvers.TryGetValue(t.Id, out var carried))
-                            {
-                                <MudChip T="string" Size="Size.Small" Variant="@(carried >= DayPlanRules.RepeatedCarryOvers ? Variant.Filled : Variant.Outlined)"
-                                         Color="@(carried >= DayPlanRules.RepeatedCarryOvers ? Color.Error : Color.Default)"
-                                         title="@($"Carried over to a later day's plan {carried} time{(carried == 1 ? "" : "s")}")">Carried over @(carried)&times;</MudChip>
-                            }
-                            @if (t.ParentTask is not null && Tree is null)
-                            {
-                                <div class="orbit-sub" title="Subtask of @t.ParentTask.Title">in: @Ui.Truncate(t.ParentTask.Title, 60)</div>
-                            }
-                            @if (t.Asset is not null)
-                            {
-                                <div class="orbit-sub" title="The asset this task is about">asset: @Ui.Truncate(Ui.AssetLabel(t.Asset), 60)</div>
-                            }
+                            @* In a tree the toggle (or its space) is a column of its own, so a wrapped title continues under the number. *@
+                            <div class="@(entry is null ? null : "orbit-tree-cell")">
+                                @if (entry is not null)
+                                {
+                                    @Lead(entry)
+                                }
+                                <div class="@(entry is null ? null : "orbit-tree-body")">
+                                    <span class="orbit-number" title="Task number">@t.Number</span>
+                                    @if (canView)
+                                    {
+                                        <a href="@($"/Tasks/Details/{t.Id}")" target="@(NewTab ? "_blank" : null)" class="@(overdue ? "orbit-title orbit-overdue" : "orbit-title")">@t.Title</a>
+                                    }
+                                    else
+                                    {
+                                        <span class="orbit-title">@t.Title</span>
+                                    }
+                                    @if (summary is not null)
+                                    {
+                                        <span class="orbit-branch-count" title="Subtasks in its branch">(@summary.SubtaskCount)</span>
+                                    }
+                                    @if (t.Type != TaskType.Task)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="TaskLook.Type(t.Type)" Class="@TaskLook.TypeClass(t.Type)" title="Type">@t.Type</MudChip>
+                                    }
+                                    @if (t.Source != TaskSource.Manual)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="TaskLook.Source(t.Source)" Class="@TaskLook.SourceClass(t.Source)">@Ui.SourceLabel(t.Source)</MudChip>
+                                    }
+                                    @if (Waiting is not null && Waiting.TryGetValue(t.Id, out var waiting))
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Warning" title="@waiting.Reason">Gated</MudChip>
+                                    }
+                                    @if (CarryOvers is not null && CarryOvers.TryGetValue(t.Id, out var carried))
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Variant="@(carried >= DayPlanRules.RepeatedCarryOvers ? Variant.Filled : Variant.Outlined)"
+                                                 Color="@(carried >= DayPlanRules.RepeatedCarryOvers ? Color.Error : Color.Default)"
+                                                 title="@($"Carried over to a later day's plan {carried} time{(carried == 1 ? "" : "s")}")">Carried over @(carried)&times;</MudChip>
+                                    }
+                                    @if (t.ParentTask is not null && Tree is null)
+                                    {
+                                        <div class="orbit-sub" title="Subtask of @t.ParentTask.Title">in: @Ui.Truncate(t.ParentTask.Title, 60)</div>
+                                    }
+                                    @if (ShowProject && t.Project is not null)
+                                    {
+                                        <div class="orbit-sub" title="The project this task is on">project: <a href="@($"/Projects/Details/{t.ProjectId}")" target="@(NewTab ? "_blank" : null)" class="orbit-sub-link">@t.Project.Name</a></div>
+                                    }
+                                    @if (t.Asset is not null)
+                                    {
+                                        <div class="orbit-sub" title="The asset this task is about">asset: @Ui.Truncate(Ui.AssetLabel(t.Asset), 60)</div>
+                                    }
+                                </div>
+                            </div>
                         </td>
-                        @if (ShowProject)
-                        {
-                            <td>
-                                @if (t.Project is not null)
-                                {
-                                    <MudLink Href="@($"/Projects/Details/{t.ProjectId}")" Target="@(NewTab ? "_blank" : null)" Underline="Underline.Hover">@t.Project.Name</MudLink>
-                                }
-                                else
-                                {
-                                    <span class="orbit-muted">-</span>
-                                }
-                            </td>
-                        }
                         @if (ShowDepartment)
                         {
                             <td><MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@t.Department?.Name</MudChip></td>
@@ -296,6 +294,7 @@ else
     [Parameter] public TaskTableEdits Edits { get; set; } = TaskTableEdits.All;
 
     [Parameter] public bool ShowPlanToday { get; set; }
+    /// <summary>The task's project as a line under its title, as its asset is, rather than a column of its own (decision 147).</summary>
     [Parameter] public bool ShowProject { get; set; } = true;
     [Parameter] public bool ShowDepartment { get; set; } = true;
     [Parameter] public bool ShowSprint { get; set; }
@@ -383,7 +382,7 @@ else
 
     /// <summary>The cells after the Task cell, which a title-only row leaves blank in one.</summary>
     private int ColumnsAfterTask =>
-        (ShowProject ? 1 : 0) + (ShowDepartment ? 1 : 0) + 1 + (ShowAssignee ? 1 : 0) + 1 + (ShowEstimate ? 1 : 0)
+        (ShowDepartment ? 1 : 0) + 1 + (ShowAssignee ? 1 : 0) + 1 + (ShowEstimate ? 1 : 0)
         + (ShowSprint ? 1 : 0) + 1 + (RowActions is not null ? 1 : 0);
 
     /// <summary>

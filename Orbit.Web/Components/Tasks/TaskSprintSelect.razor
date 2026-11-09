@@ -3,7 +3,7 @@
    sprint, onto the pool for sprint planning or as work that came up during the sprint. Only the planned and active sprints are
    offered; a reopened task still in a completed one shows that sprint until moved. *@
 <MudSelect @key="_version" T="SprintPlacement" Value="SprintPlacement.Of(Task)" ValueChanged="PickedAsync" ToStringFunc="Name"
-           Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Disabled="_busy" Class="orbit-inline" aria-label="Sprint">
+           Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Disabled="_busy" Class="orbit-inline orbit-inline-sprint" aria-label="Sprint">
     <MudSelectItem T="SprintPlacement" Value="SprintPlacement.NotPlanned">@SprintPlacement.NotPlannedLabel</MudSelectItem>
     <MudSelectItem T="SprintPlacement" Value="SprintPlacement.Backlog">@SprintPlacement.BacklogLabel</MudSelectItem>
     @if (Task.Sprint is { } current && Sprints.All(s => s.Id != current.Id))

@@ -395,9 +395,15 @@ a.orbit-plain:hover { background: var(--mud-palette-table-hover); }
 /* The tree view on the Tasks list and the project page (spec §6.15, decision 145): the Task cell indented one step per level
    (--orbit-indent, capped at six), a toggle or a space of its width before the number, greyed context rows, and a parent's
    branch summary as a second line in each cell. */
-.orbit-tasks td.orbit-tree-td { padding-left: calc(16px + var(--orbit-indent, 0) * 1.25rem) !important; }
-@media (max-width: 599.98px) { .orbit-tasks td.orbit-tree-td { padding-left: calc(8px + var(--orbit-indent, 0) * .75rem) !important; } }
-.orbit-tasks .orbit-tree-toggle { padding: 0 !important; width: 1.5rem; height: 1.5rem; margin-right: .25rem; vertical-align: middle; }
+.orbit-tasks td.orbit-tree-td { padding-left: calc(8px + var(--orbit-indent, 0) * 1.25rem) !important; }
+.orbit-tasks td.orbit-tree-td:first-child { padding-left: calc(16px + var(--orbit-indent, 0) * 1.25rem) !important; }
+@media (max-width: 599.98px) {
+    .orbit-tasks td.orbit-tree-td, .orbit-tasks td.orbit-tree-td:first-child { padding-left: calc(8px + var(--orbit-indent, 0) * .75rem) !important; }
+}
+/* The toggle (or its space) beside the rest of the Task cell, so a title that wraps continues under the number, not the toggle. */
+.orbit-tasks .orbit-tree-cell { display: flex; align-items: flex-start; }
+.orbit-tasks .orbit-tree-body { flex: 1 1 auto; min-width: 0; }
+.orbit-tasks .orbit-tree-toggle { padding: 0 !important; width: 1.5rem; height: 1.5rem; margin-right: .25rem; flex: none; }
 .orbit-tasks .orbit-tree-spacer { display: inline-block; width: 1.5rem; margin-right: .25rem; flex: none; }
 .orbit-tasks tr.orbit-context td { opacity: .6; }
 .orbit-tasks .orbit-branch { margin-top: .125rem; font-size: .8rem; color: var(--mud-palette-text-secondary); display: flex; flex-wrap: wrap; gap: .25rem; }
@@ -415,6 +421,30 @@ a.orbit-plain:hover { background: var(--mud-palette-table-hover); }
 .orbit-inline-date { width: 11.5rem; }
 .orbit-inline-estimate { width: 7.5rem; }
 .orbit-inline .mud-input-control, .orbit-inline-date .mud-input-control, .orbit-inline-estimate .mud-input-control { margin: 0; }
+/* The task table (TaskTable, decision 147): the title gets the room the other columns leave, so they are kept compact. Cells are
+   padded half as much as other tables' between columns. The inline controls have smaller text, padding and icons, each box sized
+   to its longest usual value (a date, "In Progress", "Sprint 15 (Planned)", a four-digit estimate), a longer name ending in an
+   ellipsis. The Task column has a floor, so a narrow window scrolls the table sideways (.orbit-table-wrap) rather than squeezing
+   the title. The project is a line under the title, not a column. */
+.orbit-task-table th, .orbit-task-table td { padding-left: 8px !important; padding-right: 8px !important; }
+.orbit-task-table th:first-child, .orbit-task-table td:first-child { padding-left: 16px !important; }
+.orbit-task-table th:last-child, .orbit-task-table td:last-child { padding-right: 16px !important; }
+.orbit-task-table .orbit-task-col { min-width: 16rem; }
+.orbit-task-table .orbit-inline .mud-input, .orbit-task-table .orbit-inline-date .mud-input, .orbit-task-table .orbit-inline-estimate .mud-input,
+.orbit-task-table .mud-input-adornment-text { font-size: .8125rem !important; }
+.orbit-task-table .mud-input-root-outlined.mud-input-root-margin-dense { padding-left: 8px !important; padding-right: 4px !important; }
+.orbit-task-table .mud-input-adorned-end { padding-right: 6px !important; }
+.orbit-task-table .mud-input-adornment .mud-icon-root { font-size: 1.125rem !important; width: 1.125rem; height: 1.125rem; }
+/* MudBlazor pulls the last icon button out by -12px, which a compact box clips. */
+.orbit-task-table .mud-input-adornment .mud-icon-button { padding: 2px !important; margin: 0 !important; }
+.orbit-task-table .orbit-inline { min-width: 0; }
+.orbit-task-table .orbit-inline-assignee { width: 9rem; }
+.orbit-task-table .orbit-inline-sprint { width: 10rem; }
+.orbit-task-table .orbit-inline-status { width: 7.5rem; }
+.orbit-task-table .orbit-inline-date { width: 9rem; }
+.orbit-task-table .orbit-inline-estimate { width: 6rem; }
+.orbit-tasks .orbit-sub a.orbit-sub-link { color: var(--mud-palette-primary); text-decoration: none; }
+.orbit-tasks .orbit-sub a.orbit-sub-link:hover { text-decoration: underline; }
 
 /* --- Reconnect dialog (shown by blazor.web.js) ------------------------------------------- */
 .orbit-reconnect { display: none; }

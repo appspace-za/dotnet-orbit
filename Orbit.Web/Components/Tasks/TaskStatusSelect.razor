@@ -3,7 +3,7 @@
    (§6.10), then the solution-notes dialog (§6.2.4). Cancel at either step, or a refused change, puts the control back.
    Given a parent's Branch (the task table's tree mode), Done and Cancelled are greyed out while a subtask is open (§6.15). *@
 <MudSelect @key="_version" T="TaskItemStatus" Value="Task.Status" ValueChanged="PickedAsync" ToStringFunc="s => s.Label()"
-           Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Disabled="_busy" Class="orbit-inline" Label="@Label"
+           Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Disabled="_busy" Class="orbit-inline orbit-inline-status" Label="@Label"
            aria-label="Status">
     @foreach (var s in Statuses)
     {
