@@ -221,6 +221,13 @@ standalone tasks on no project, the tasks nobody is assigned to, and the tasks c
 filter picks *Overdue* (due before today) or *Due in 7 days* (today to seven days ahead), counted from the day you open
 the list, so a saved link or a remembered filter doesn't freeze an old date; the dashboard's due figures open it.
 
+**Subtasks sit under their parent** on the Tasks list and a project's page (spec §6.2, §6.15), indented one step per
+level. ▸/▾ beside a parent collapses its branch, and the browser remembers it (per user) when you come back; *Expand all*
+and *Collapse all* sit above the table. With a filter on, a match shows under its parents, greyed when they don't match
+themselves. A parent stays a normal task with its own editable values, and under each one a second line sums up its
+subtasks: their statuses with counts, priorities, sprints, due date range, total estimate and people. Nothing is
+stored, so counts and reports are unchanged.
+
 **Long lists can be searched by typing** (spec §6.2). The task form's Project, Parent task and Requestee fields, the
 recurring form's Project, the project form's Owner, the time card's *For*, the task page's dependency picker and the
 asset form's Type and Location are dropdowns you can type into: click to see every option, or type part of a name, a

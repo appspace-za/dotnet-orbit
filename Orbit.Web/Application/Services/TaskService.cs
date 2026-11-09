@@ -32,7 +32,85 @@ public sealed class TaskService(
     public async Task<PagedResult<TaskItem>> ListAsync(TaskFilter f, CancellationToken ct = default)
     {
         var actor = await actors.GetAsync(ct);
-        var q = WithIncludes(db.Tasks.AsNoTracking());
+        var q = WithIncludes(Filtered(db.Tasks.AsNoTracking(), actor, f));
+
+        var page = Math.Max(1, f.Page);
+        var pageSize = Math.Clamp(f.PageSize, 1, 500);
+        var total = await q.CountAsync(ct);
+        var items = await q
+            .OrderBy(t => t.Status == TaskItemStatus.Done || t.Status == TaskItemStatus.Cancelled)
+            .ThenBy(t => t.DueDate == null)
+            .ThenBy(t => t.DueDate)
+            .ThenByDescending(EnumOrder.ByTaskPriority)
+            .ThenByDescending(t => t.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
+        return new PagedResult<TaskItem>(items, page, pageSize, total);
+    }
+
+    /// <summary>
+    /// The Tasks list as a tree (spec §6.2, §6.15, decision 145): the filter's matches, each under its chain of ancestors (unmatched
+    /// ones as context rows, an ancestor the viewer can't open as its number and title only), ordered by each branch's first match
+    /// and cut into pages of whole branches (<see cref="TaskTreeRules"/>); each parent row carries the summary of its branch, from
+    /// the subtasks the viewer may see whatever the filter (<see cref="BranchSummaryRules"/>). <see cref="TaskFilter.PageSize"/> is
+    /// not used: a page is <see cref="TaskTreeRules.PageRows"/> rows of whole branches.
+    /// </summary>
+    public async Task<TaskTreePage> ListTreeAsync(TaskFilter f, CancellationToken ct = default)
+    {
+        var actor = await actors.GetAsync(ct);
+
+        // The matches, then their ancestors level by level: unscoped, since an ancestor is shown for its place (title only if unseen).
+        var nodes = await Filtered(db.Tasks.AsNoTracking(), actor, f).Select(TreeNode(true)).ToListAsync(ct);
+        var asked = nodes.Select(n => n.Id).ToHashSet();
+        for (var round = 0; round < TaskTreeRules.MaxDepth; round++)
+        {
+            var missing = nodes.Where(n => n.ParentId is Guid p && !asked.Contains(p)).Select(n => n.ParentId!.Value).Distinct().ToList();
+            if (missing.Count == 0) break;
+            asked.UnionWith(missing);
+            nodes.AddRange(await db.Tasks.AsNoTracking().Where(t => missing.Contains(t.Id)).Select(TreeNode(false)).ToListAsync(ct));
+        }
+
+        var cut = TaskTreeRules.Cut(TaskTreeRules.Build(nodes), f.Page, TaskTreeRules.PageRows);
+        var pageIds = cut.Rows.Select(r => r.Id).ToList();
+        var tasks = await WithIncludes(db.Tasks.AsNoTracking()).Where(t => pageIds.Contains(t.Id)).ToDictionaryAsync(t => t.Id, ct);
+
+        // Every task below the page's rows, walked unscoped so that a subtask under one the viewer can't see still counts; then
+        // the ones the viewer may see, which are what a summary counts.
+        var pairs = new List<(Guid Id, Guid? ParentId)>();
+        var walked = pageIds.ToHashSet();
+        var frontier = pageIds;
+        for (var round = 0; round < TaskTreeRules.MaxDepth && frontier.Count > 0; round++)
+        {
+            var parents = frontier;
+            var level = await db.Tasks.AsNoTracking().Where(t => t.ParentTaskId != null && parents.Contains(t.ParentTaskId.Value))
+                .Select(t => new { t.Id, t.ParentTaskId }).ToListAsync(ct);
+            frontier = [];
+            foreach (var x in level)
+            {
+                pairs.Add((x.Id, x.ParentTaskId));
+                if (walked.Add(x.Id)) frontier.Add(x.Id);
+            }
+        }
+        var below = pairs.Select(p => p.Id).Distinct().ToList();
+        var countable = await Scoping.Tasks(db.Tasks.AsNoTracking().Include(t => t.Sprint), actor)
+            .Where(t => below.Contains(t.Id)).ToDictionaryAsync(t => t.Id, ct);
+        var idsByParent = pairs.ToLookup(p => p.ParentId, p => p.Id);
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        var entries = TaskTreeRules.Entries(cut.Rows, tasks,
+            titleOnly: t => !AccessPolicy.CanViewTask(actor, t),
+            summary: t => BranchSummaryRules.Summarise(t, BranchSummaryRules.BranchOf(t.Id, idsByParent, countable), today));
+        return new TaskTreePage(entries, cut.Page, cut.PageCount, cut.MatchCount);
+    }
+
+    private static System.Linq.Expressions.Expression<Func<TaskItem, TaskTreeNode>> TreeNode(bool matched) => t =>
+        new TaskTreeNode(t.Id, t.ParentTaskId, matched, t.Status == TaskItemStatus.Done || t.Status == TaskItemStatus.Cancelled,
+            t.DueDate, t.Priority, t.CreatedAt);
+
+    /// <summary>The tasks a list filter selects, within what the actor may see: the Tasks list's rows, flat or as a tree.</summary>
+    private static IQueryable<TaskItem> Filtered(IQueryable<TaskItem> q, Actor actor, TaskFilter f)
+    {
         q = Scope(q, actor, f);
 
         if (f.NoProject) q = q.Where(t => t.ProjectId == null);
@@ -58,20 +136,7 @@ public sealed class TaskService(
         var plannedFor = f.PlannedFor ?? (f.PlannedToday ? DateOnly.FromDateTime(DateTime.UtcNow) : null);
         if (plannedFor is DateOnly planned) q = q.Where(t => t.PlannedFor == planned);
         q = Matching(q, f.Search);
-
-        var page = Math.Max(1, f.Page);
-        var pageSize = Math.Clamp(f.PageSize, 1, 500);
-        var total = await q.CountAsync(ct);
-        var items = await q
-            .OrderBy(t => t.Status == TaskItemStatus.Done || t.Status == TaskItemStatus.Cancelled)
-            .ThenBy(t => t.DueDate == null)
-            .ThenBy(t => t.DueDate)
-            .ThenByDescending(EnumOrder.ByTaskPriority)
-            .ThenByDescending(t => t.CreatedAt)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .ToListAsync(ct);
-        return new PagedResult<TaskItem>(items, page, pageSize, total);
+        return q;
     }
 
     /// <summary>

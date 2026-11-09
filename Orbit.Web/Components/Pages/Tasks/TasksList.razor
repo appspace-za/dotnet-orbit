@@ -7,7 +7,8 @@
    session (OrbitListPage). Changing a filter applies it at once. The header's chips are quick filters, each in place of whatever
    was filtered: My tasks, the viewer's open tasks, which replaced the My Tasks page (decision 132, Navigation.MyTasks), Today,
    the viewer's tasks on today's plan, done ones included (decision 133, Navigation.MyTasksToday), and Unassigned, the open
-   tasks nobody is assigned to (decision 144, Navigation.UnassignedTasks). *@
+   tasks nobody is assigned to (decision 144, Navigation.UnassignedTasks). The rows are a tree (§6.15, decision 145): each subtask under
+   its parent, a match's unmatched ancestors greyed, pages of whole branches and a parent's branch summary (TaskService.ListTreeAsync). *@
 
 <PageTitle>Tasks - Orbit</PageTitle>
 
@@ -15,7 +16,7 @@
 {
     <AccessDenied Message="@Refusal" />
 }
-else if (_result is null)
+else if (_tree is null)
 {
     <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
 }
@@ -24,7 +25,7 @@ else
     <div class="orbit-page-header">
         <div class="orbit-gap-row">
             <MudText Typo="Typo.h5" HtmlTag="h1">
-                Tasks <span class="orbit-subtitle">@_result.TotalCount</span>
+                Tasks <span class="orbit-subtitle" title="Tasks matching the filters">@_tree.MatchCount</span>
                 @if (FilterChoice.Id(ParentTaskId) is not null)
                 {
                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Href="/Tasks" title="Show the whole list again">Subtasks of one task · clear</MudChip>
@@ -93,16 +94,16 @@ else
     </MudPaper>
 
     <MudPaper Outlined="true" Class="orbit-card">
-        <TaskTable Tasks="_result.Items" Actor="_actor" Today="_today" ShowDepartment="TaskLook.MixesDepartments(_actor, _result.Items)"
+        <TaskTable Tree="_tree.Rows" Actor="_actor" Today="_today" ShowDepartment="TaskLook.MixesDepartments(_actor, _tree.Rows.Select(r => r.Task))"
                    ShowSprint="true" ShowEstimate="true" ShowPlanToday="true" QuickEditAssignees="_quickEditAssignees" QuickEditSprints="_openSprints"
                    Waiting="_waiting" EmptyMessage="No tasks match these filters." Changed="ReloadAsync" />
-        @if (_result.TotalPages > 1)
+        @if (_tree.PageCount > 1)
         {
             <div class="orbit-card-footer orbit-list-row">
-                <span>Page @_result.Page of @_result.TotalPages</span>
+                <span>Page @_tree.Page of @_tree.PageCount</span>
                 <MudStack Row="true" Spacing="1">
-                    @if (_result.HasPrevious) { <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@PageUrl(_result.Page - 1)">Previous</MudButton> }
-                    @if (_result.HasNext) { <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@PageUrl(_result.Page + 1)">Next</MudButton> }
+                    @if (_tree.HasPrevious) { <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@PageUrl(_tree.Page - 1)">Previous</MudButton> }
+                    @if (_tree.HasNext) { <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@PageUrl(_tree.Page + 1)">Next</MudButton> }
                 </MudStack>
             </div>
         }
@@ -152,7 +153,7 @@ else
 
     private Actor? _actor;
     private DateOnly _today;
-    private PagedResult<TaskItem>? _result;
+    private TaskTreePage? _tree;
     private IReadOnlyDictionary<Guid, WaitingSummary> _waiting = new Dictionary<Guid, WaitingSummary>();
     private IReadOnlyList<UserSummary> _quickEditAssignees = [];
     private IReadOnlyList<Sprint> _openSprints = [];
@@ -254,8 +255,8 @@ else
                 Page = int.TryParse(PageNumber, out var page) && page > 0 ? page : 1,
                 PageSize = 50
             };
-            var result = await s.Get<TaskService>().ListAsync(filter);
-            _waiting = await s.Get<TaskStructureService>().GetWaitingAsync(result.Items);
+            var tree = await s.Get<TaskService>().ListTreeAsync(filter);
+            _waiting = await s.Get<TaskStructureService>().GetWaitingAsync(tree.Rows.Select(r => r.Task));
 
             _departments = canSeeAll
                 ? [("", "All"), .. (await s.Get<DepartmentService>().ListAsync(true)).Select(d => (d.Id.ToString(), d.Name))]
@@ -294,7 +295,7 @@ else
             _canSeeAll = canSeeAll;
             _today = DateOnly.FromDateTime(DateTime.UtcNow);
             _actor = actor;
-            _result = result;
+            _tree = tree;
         });
     }
 }

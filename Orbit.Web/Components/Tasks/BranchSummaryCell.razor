@@ -1,13 +1,14 @@
 @* One cell's line of a parent's branch summary in the task table's tree mode (spec §6.15, decision 145), under the parent's own
-   value: status chips with counts, priority and sprint chips, the due range, the estimate total or the people. Nothing is drawn
-   when the column has nothing to show. *@
+   value: status chips with counts, priority and sprint chips, the due range, the estimate total or the people. The chips are
+   outlined, in their colours, so they read as the subtasks' and not as the parent's own. Nothing is drawn when the column has
+   nothing to show. *@
 @switch (Column)
 {
     case BranchColumn.Status when Summary.Statuses.Count > 0:
         <div class="orbit-branch" title="The statuses of its subtasks">
             @foreach (var s in Summary.Statuses)
             {
-                <MudChip T="string" Size="Size.Small" Color="TaskLook.Status(s.Status)">@s.Count @s.Status.Label()</MudChip>
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="TaskLook.Status(s.Status)">@s.Count @s.Status.Label()</MudChip>
             }
         </div>
         break;
@@ -15,7 +16,7 @@
         <div class="orbit-branch" title="The priorities of its open subtasks">
             @foreach (var p in Summary.Priorities)
             {
-                <MudChip T="string" Size="Size.Small" Color="TaskLook.Priority(p)" Variant="@(p == TaskPriority.Low ? Variant.Outlined : Variant.Filled)">@p</MudChip>
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="TaskLook.Priority(p)">@p</MudChip>
             }
         </div>
         break;
