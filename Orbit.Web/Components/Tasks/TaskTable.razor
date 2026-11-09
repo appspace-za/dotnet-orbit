@@ -1,13 +1,27 @@
 @* The shared task table (spec §6.2), which replaced the Razor _TaskRows partial with the same columns and rules. Rows
    the viewer may change get live controls that save at once, with no page reload; Changed tells the page to reload its data.
    Edits says which controls a page wants, and a page can add a class per row, its own Sprint cell and a column of row actions
-   (the Planning page, §6.3, decision 141). *@
-@if (Tasks.Count == 0)
+   (the Planning page, §6.3, decision 141).
+   Given a Tree instead of Tasks (the Tasks list and the project page, §6.15, decision 145), it draws each subtask under its parent,
+   indented, with a toggle that collapses the branch (remembered in the browser, BrowserTreeMemory), greyed context rows without
+   controls, and a parent's branch summary under its own values in each cell (BranchSummaryCell). *@
+@if (Tree is not null && _collapsed is null)
+{
+    @* The collapsed parents are read from the browser before the first draw, so collapsed branches don't flash open. *@
+}
+else if (_rows.Count == 0)
 {
     <p class="orbit-empty">@(EmptyMessage ?? "No tasks.")</p>
 }
 else
 {
+    @if (Tree is not null && Tree.Any(Collapsible))
+    {
+        <div class="orbit-tree-tools">
+            <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Primary" OnClick="() => SetAllAsync(false)">Expand all</MudButton>
+            <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Primary" OnClick="() => SetAllAsync(true)">Collapse all</MudButton>
+        </div>
+    }
     <div class="orbit-table-wrap">
         <MudSimpleTable Dense="true" Hover="true" Elevation="0" Class="@(Class is null ? "orbit-tasks" : $"orbit-tasks {Class}")">
             <thead>
@@ -39,18 +53,32 @@ else
                 </tr>
             </thead>
             <tbody>
-                @foreach (var t in Tasks)
+                @foreach (var (t, entry) in _rows)
                 {
+                    @if (entry is { TitleOnly: true })
+                    {
+                        @* An ancestor the viewer can't open (§6.15): its number and title only, as the "in:" line used to show. *@
+                        <tr @key="t.Id" class="orbit-context">
+                            @if (Selectable) { <td class="orbit-check"></td> }
+                            @if (ShowPlanToday) { <td class="orbit-today"></td> }
+                            <td class="orbit-tree-td" style="@IndentStyle(entry)">
+                                @Lead(entry)<span class="orbit-number" title="Task number">@t.Number</span><span class="orbit-title">@t.Title</span>
+                            </td>
+                            <td colspan="@ColumnsAfterTask"></td>
+                        </tr>
+                        continue;
+                    }
                     var canView = AccessPolicy.CanViewTask(Actor, t);
                     var overdue = t.IsOverdue(Today);
                     var statuses = Ui.AllowedStatuses(Actor, t);
                     var canEdit = canView && AccessPolicy.CanEditTask(Actor, t);
                     var quickEdit = QuickEditAssignees is not null && canEdit;
-                    <tr @key="t.Id" class="@RowClass?.Invoke(t)">
+                    var summary = entry?.Summary;
+                    <tr @key="t.Id" class="@RowClasses(t, entry)">
                         @if (Selectable)
                         {
                             <td class="orbit-check">
-                                @if (AccessPolicy.CanPlanTask(Actor, t))
+                                @if (entry?.IsContext != true && AccessPolicy.CanPlanTask(Actor, t))
                                 {
                                     var id = t.Id;
                                     <MudCheckBox T="bool" Value="Selected.Contains(id)" ValueChanged="v => ToggleAsync(id, v)" Size="Size.Small" Dense="true"
@@ -61,7 +89,7 @@ else
                         @if (ShowPlanToday)
                         {
                             <td class="orbit-today">
-                                @if (Allows(TaskTableEdits.Today) && t.IsOpen && AccessPolicy.CanPlanTask(Actor, t))
+                                @if (Can(entry, TaskTableEdits.Today) && t.IsOpen && AccessPolicy.CanPlanTask(Actor, t))
                                 {
                                     <PlanTodayToggle Task="t" Today="Today" Changed="Changed" />
                                 }
@@ -71,7 +99,11 @@ else
                                 }
                             </td>
                         }
-                        <td>
+                        <td class="@(entry is null ? null : "orbit-tree-td")" style="@IndentStyle(entry)">
+                            @if (entry is not null)
+                            {
+                                @Lead(entry)
+                            }
                             <span class="orbit-number" title="Task number">@t.Number</span>
                             @if (canView)
                             {
@@ -80,6 +112,10 @@ else
                             else
                             {
                                 <span class="orbit-title">@t.Title</span>
+                            }
+                            @if (summary is not null)
+                            {
+                                <span class="orbit-branch-count" title="Subtasks in its branch">(@summary.SubtaskCount)</span>
                             }
                             @if (t.Type != TaskType.Task)
                             {
@@ -99,7 +135,7 @@ else
                                          Color="@(carried >= DayPlanRules.RepeatedCarryOvers ? Color.Error : Color.Default)"
                                          title="@($"Carried over to a later day's plan {carried} time{(carried == 1 ? "" : "s")}")">Carried over @(carried)&times;</MudChip>
                             }
-                            @if (t.ParentTask is not null)
+                            @if (t.ParentTask is not null && Tree is null)
                             {
                                 <div class="orbit-sub" title="Subtask of @t.ParentTask.Title">in: @Ui.Truncate(t.ParentTask.Title, 60)</div>
                             }
@@ -128,6 +164,7 @@ else
                         <td>
                             <MudChip T="string" Size="Size.Small" Color="TaskLook.Priority(t.Priority)"
                                      Variant="@(t.Priority == TaskPriority.Low ? Variant.Outlined : Variant.Filled)">@t.Priority</MudChip>
+                            @if (summary is not null) { <BranchSummaryCell Summary="summary" Column="BranchColumn.Priority" /> }
                         </td>
                         @if (ShowAssignee)
                         {
@@ -141,11 +178,11 @@ else
                                         <div class="orbit-sub">@u.DisplayName</div>
                                     }
                                 }
-                                else if (quickEdit && Allows(TaskTableEdits.Assignee))
+                                else if (quickEdit && Can(entry, TaskTableEdits.Assignee))
                                 {
                                     <TaskAssigneeSelect Task="t" Candidates="CandidatesFor(t)" Changed="Changed" />
                                 }
-                                else if (Allows(TaskTableEdits.Take) && AccessPolicy.CanTakeTask(Actor, t))
+                                else if (Can(entry, TaskTableEdits.Take) && AccessPolicy.CanTakeTask(Actor, t))
                                 {
                                     <TakeButton Task="t" Changed="Changed" />
                                 }
@@ -153,10 +190,11 @@ else
                                 {
                                     @(t.AssigneeNames ?? "-")
                                 }
+                                @if (summary is not null) { <BranchSummaryCell Summary="summary" Column="BranchColumn.Assignee" /> }
                             </td>
                         }
                         <td class="@(overdue ? "orbit-overdue" : null)">
-                            @if (quickEdit && Allows(TaskTableEdits.DueDate))
+                            @if (quickEdit && Can(entry, TaskTableEdits.DueDate))
                             {
                                 <TaskDueDatePicker Task="t" Today="Today" Changed="Changed" />
                             }
@@ -164,11 +202,12 @@ else
                             {
                                 @Ui.Day(t.DueDate)@(overdue ? " (overdue)" : "")
                             }
+                            @if (summary is not null) { <BranchSummaryCell Summary="summary" Column="BranchColumn.Due" /> }
                         </td>
                         @if (ShowEstimate)
                         {
                             <td class="text-right text-nowrap">
-                                @if (quickEdit && Allows(TaskTableEdits.Estimate))
+                                @if (quickEdit && Can(entry, TaskTableEdits.Estimate))
                                 {
                                     <TaskEstimateField Task="t" Changed="Changed" />
                                 }
@@ -177,6 +216,7 @@ else
                                 {
                                     <div class="orbit-sub" title="@($"{TimeFormat.Minutes(logged)} logged so far")">@TimeFormat.Minutes(SprintPlanningRules.Remaining(t, logged)) left</div>
                                 }
+                                @if (summary is not null) { <BranchSummaryCell Summary="summary" Column="BranchColumn.Estimate" /> }
                             </td>
                         }
                         @if (ShowSprint)
@@ -186,7 +226,7 @@ else
                                 {
                                     @SprintCell(t)
                                 }
-                                else if (Allows(TaskTableEdits.Sprint) && QuickEditSprints is not null && canView && t.IsOpen && AccessPolicy.CanPlanTask(Actor, t))
+                                else if (Can(entry, TaskTableEdits.Sprint) && QuickEditSprints is not null && canView && t.IsOpen && AccessPolicy.CanPlanTask(Actor, t))
                                 {
                                     <TaskSprintSelect Task="t" Sprints="QuickEditSprints" Changed="Changed" />
                                 }
@@ -198,17 +238,19 @@ else
                                 {
                                     <span class="orbit-muted">@SprintPlacement.Of(t).Label()</span>
                                 }
+                                @if (summary is not null) { <BranchSummaryCell Summary="summary" Column="BranchColumn.Sprint" /> }
                             </td>
                         }
                         <td>
-                            @if (Allows(TaskTableEdits.Status) && canView && statuses.Count > 1)
+                            @if (Can(entry, TaskTableEdits.Status) && canView && statuses.Count > 1)
                             {
-                                <TaskStatusSelect Task="t" Statuses="statuses" Changed="Changed" />
+                                <TaskStatusSelect Task="t" Statuses="statuses" Branch="summary" Changed="Changed" />
                             }
                             else
                             {
                                 <MudChip T="string" Size="Size.Small" Color="TaskLook.Status(t.Status)">@t.Status.Label()</MudChip>
                             }
+                            @if (summary is not null) { <BranchSummaryCell Summary="summary" Column="BranchColumn.Status" /> }
                         </td>
                         @if (RowActions is not null)
                         {
@@ -222,7 +264,15 @@ else
 }
 
 @code {
-    [Parameter, EditorRequired] public IReadOnlyList<TaskItem> Tasks { get; set; } = [];
+    [Inject] private BrowserTreeMemory TreeMemory { get; set; } = null!;
+
+    /// <summary>The rows, flat, in the order given. A page passes these or <see cref="Tree"/>.</summary>
+    [Parameter] public IReadOnlyList<TaskItem> Tasks { get; set; } = [];
+    /// <summary>
+    /// The rows as a tree (§6.15, decision 145), in display order: each subtask under its parent, indented, with a collapse toggle,
+    /// greyed context rows without controls, and the branch summary under a parent's own values. Takes the place of <see cref="Tasks"/>.
+    /// </summary>
+    [Parameter] public IReadOnlyList<TaskTreeEntry>? Tree { get; set; }
     [Parameter, EditorRequired] public Actor Actor { get; set; } = null!;
     [Parameter] public DateOnly Today { get; set; } = DateOnly.FromDateTime(DateTime.UtcNow);
 
@@ -284,11 +334,95 @@ else
     /// <summary>The assignee candidates for each department's rows, worked out once for the parameters given.</summary>
     private readonly Dictionary<Guid, IReadOnlyList<UserSummary>> _candidates = [];
 
-    protected override void OnParametersSet() => _candidates.Clear();
+    /// <summary>The parents collapsed in the tree, read from the browser once a <see cref="Tree"/> is given; null until then.</summary>
+    private HashSet<Guid>? _collapsed;
+    /// <summary>The rows drawn: every task in flat mode; in tree mode the entries no collapsed parent hides.</summary>
+    private List<(TaskItem Task, TaskTreeEntry? Entry)> _rows = [];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _candidates.Clear();
+        if (Tree is not null && _collapsed is null)
+        {
+            try
+            {
+                _collapsed = await TreeMemory.CollapsedAsync();
+            }
+            catch (JSException)
+            {
+                _collapsed = []; // storage unreadable: every parent expanded, as for a first visit
+            }
+        }
+        Redraw();
+    }
+
+    private void Redraw()
+    {
+        if (Tree is null)
+        {
+            _rows = Tasks.Select(t => (t, (TaskTreeEntry?)null)).ToList();
+            return;
+        }
+        var hidden = TaskTreeRules.Hidden(Tree.Select(e => (e.Task.Id, e.Depth, e.IsContext)).ToList(), _collapsed ?? new HashSet<Guid>());
+        _rows = Tree.Where(e => !hidden.Contains(e.Task.Id)).Select(e => (e.Task, (TaskTreeEntry?)e)).ToList();
+    }
 
     private bool Allows(TaskTableEdits edit) => !ReadOnly && Edits.HasFlag(edit);
 
-    private List<Guid> Selectables => Tasks.Where(t => AccessPolicy.CanPlanTask(Actor, t)).Select(t => t.Id).ToList();
+    /// <summary>A row's live control: as <see cref="Allows"/>, but never on a tree's context row, which is shown for its place only.</summary>
+    private bool Can(TaskTreeEntry? entry, TaskTableEdits edit) => Allows(edit) && entry?.IsContext != true;
+
+    private string? RowClasses(TaskItem t, TaskTreeEntry? entry)
+    {
+        var own = RowClass?.Invoke(t);
+        return entry?.IsContext == true ? (own is null ? "orbit-context" : $"{own} orbit-context") : own;
+    }
+
+    private static string? IndentStyle(TaskTreeEntry? entry) =>
+        entry is null ? null : $"--orbit-indent: {TaskTreeRules.Indent(entry.Depth)}";
+
+    /// <summary>The cells after the Task cell, which a title-only row leaves blank in one.</summary>
+    private int ColumnsAfterTask =>
+        (ShowProject ? 1 : 0) + (ShowDepartment ? 1 : 0) + 1 + (ShowAssignee ? 1 : 0) + 1 + (ShowEstimate ? 1 : 0)
+        + (ShowSprint ? 1 : 0) + 1 + (RowActions is not null ? 1 : 0);
+
+    /// <summary>
+    /// A row with a collapse toggle: rows sit under it and it isn't a context row, which stays open because it is there only for the
+    /// matches under it (TaskTreeRules.Hidden).
+    /// </summary>
+    private static bool Collapsible(TaskTreeEntry entry) => entry.HasChildren && !entry.IsContext;
+
+    /// <summary>The toggle before a parent's number, or a space of its width so titles line up.</summary>
+    private RenderFragment Lead(TaskTreeEntry entry) => Collapsible(entry)
+        ? @<MudIconButton Icon="@(IsCollapsed(entry) ? Icons.Material.Filled.ChevronRight : Icons.Material.Filled.ExpandMore)"
+                          Size="Size.Small" Class="orbit-tree-toggle" OnClick="() => ToggleBranchAsync(entry.Task.Id)"
+                          aria-label="@($"{(IsCollapsed(entry) ? "Expand" : "Collapse")} {entry.Task.Number}")"
+                          title="@($"{(IsCollapsed(entry) ? "Expand" : "Collapse")} {entry.Task.Number}")" />
+        : @<span class="orbit-tree-spacer"></span>;
+
+    private bool IsCollapsed(TaskTreeEntry entry) => _collapsed?.Contains(entry.Task.Id) == true;
+
+    private async Task ToggleBranchAsync(Guid id)
+    {
+        if (_collapsed is null) return;
+        var collapse = _collapsed.Add(id);
+        if (!collapse) _collapsed.Remove(id);
+        Redraw();
+        await TreeMemory.SetAsync([id], collapse);
+    }
+
+    /// <summary>Expand all or Collapse all: every parent in this tree (one page of the Tasks list), and no other.</summary>
+    private async Task SetAllAsync(bool collapse)
+    {
+        if (Tree is null || _collapsed is null) return;
+        var ids = Tree.Where(Collapsible).Select(e => e.Task.Id).ToList();
+        if (collapse) _collapsed.UnionWith(ids);
+        else _collapsed.ExceptWith(ids);
+        Redraw();
+        await TreeMemory.SetAsync(ids, collapse);
+    }
+
+    private List<Guid> Selectables => _rows.Select(r => r.Task).Where(t => AccessPolicy.CanPlanTask(Actor, t)).Select(t => t.Id).ToList();
 
     private bool? AllSelected
     {

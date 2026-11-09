@@ -1,0 +1,57 @@
+@* One cell's line of a parent's branch summary in the task table's tree mode (spec §6.15, decision 145), under the parent's own
+   value: status chips with counts, priority and sprint chips, the due range, the estimate total or the people. The chips are
+   outlined, in their colours, so they read as the subtasks' and not as the parent's own. Nothing is drawn when the column has
+   nothing to show. *@
+@switch (Column)
+{
+    case BranchColumn.Status when Summary.Statuses.Count > 0:
+        <div class="orbit-branch" title="The statuses of its subtasks">
+            @foreach (var s in Summary.Statuses)
+            {
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="TaskLook.Status(s.Status)">@s.Count @s.Status.Label()</MudChip>
+            }
+        </div>
+        break;
+    case BranchColumn.Priority when Summary.Priorities.Count > 0:
+        <div class="orbit-branch" title="The priorities of its open subtasks">
+            @foreach (var p in Summary.Priorities)
+            {
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="TaskLook.Priority(p)">@p</MudChip>
+            }
+        </div>
+        break;
+    case BranchColumn.Sprint when Summary.Sprints.Count > 0 || Summary.OnBacklog || Summary.NotPlanned:
+        <div class="orbit-branch" title="Where its open subtasks are planned">
+            @foreach (var sp in Summary.Sprints)
+            {
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@sp.Name</MudChip>
+            }
+            @if (Summary.OnBacklog)
+            {
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@SprintPlacement.BacklogLabel</MudChip>
+            }
+            @if (Summary.NotPlanned)
+            {
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@SprintPlacement.NotPlannedLabel</MudChip>
+            }
+        </div>
+        break;
+    case BranchColumn.Due when Summary.DueFrom is DateOnly from:
+        <div class="@(Summary.Overdue ? "orbit-branch orbit-overdue" : "orbit-branch")" title="When its open subtasks are due">
+            @(Summary.DueTo is DateOnly to && to != from ? $"{Ui.Day(from)} → {Ui.Day(to)}" : Ui.Day(from))
+        </div>
+        break;
+    case BranchColumn.Estimate when Summary.EstimateTotal is int total:
+        <div class="orbit-branch" title="@($"{TimeFormat.Minutes(Summary.OwnEstimate)} on this task, {TimeFormat.Minutes(Summary.SubtasksEstimate)} on its subtasks")">
+            @TimeFormat.Minutes(total) total
+        </div>
+        break;
+    case BranchColumn.Assignee when Summary.Assignees.Count > 0:
+        <div class="orbit-branch" title="The people on its open subtasks">@string.Join(", ", Summary.Assignees.Select(u => u.DisplayName))</div>
+        break;
+}
+
+@code {
+    [Parameter, EditorRequired] public BranchSummary Summary { get; set; } = null!;
+    [Parameter, EditorRequired] public BranchColumn Column { get; set; }
+}

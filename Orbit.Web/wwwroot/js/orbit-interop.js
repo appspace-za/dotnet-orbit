@@ -217,6 +217,16 @@
     }
   };
 
+  // Collapsed parents in the tree view (spec §6.15, BrowserTreeMemory.cs): task ids per user in localStorage, so they outlast the session.
+  window.orbit.tree = {
+    read: function (owner) {
+      try { var raw = localStorage.getItem('orbit-tree-' + owner); return raw ? JSON.parse(raw) : []; } catch (e) { return []; }
+    },
+    write: function (owner, ids) {
+      try { localStorage.setItem('orbit-tree-' + owner, JSON.stringify(ids)); } catch (e) { /* storage unavailable */ }
+    }
+  };
+
   // The token picker (TokenPicker.razor, §6.20): puts a token where the cursor is in the box with this id, and says the box's new
   // text and where the cursor goes after it; caret() puts it there once Blazor has drawn the new text.
   window.orbit.tokens = {

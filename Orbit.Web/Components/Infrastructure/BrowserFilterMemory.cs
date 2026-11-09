@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.JSInterop;
@@ -68,9 +67,5 @@ public sealed class BrowserFilterMemory(IJSRuntime js, AuthenticationStateProvid
             ? values.Where(v => !string.IsNullOrWhiteSpace(v)).Select(v => $"{Uri.EscapeDataString(k)}={Uri.EscapeDataString(v!)}")
             : []));
 
-    private async Task<string> OwnerAsync()
-    {
-        var user = (await authentication.GetAuthenticationStateAsync()).User;
-        return Guid.TryParse(user.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id.ToString("N") : "-";
-    }
+    private Task<string> OwnerAsync() => BrowserOwner.IdAsync(authentication);
 }

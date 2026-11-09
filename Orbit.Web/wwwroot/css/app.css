@@ -392,6 +392,21 @@ a.orbit-plain:hover { background: var(--mud-palette-table-hover); }
 /* MudBlazor wraps each chip in a .mud-chip-container, which is display: contents, so the margin goes on the chip. */
 .orbit-tasks .mud-chip { margin: 0 .25rem 0 0; }
 .orbit-tasks .orbit-title + .mud-chip-container > .mud-chip { margin-left: .5rem; }
+/* The tree view on the Tasks list and the project page (spec §6.15, decision 145): the Task cell indented one step per level
+   (--orbit-indent, capped at six), a toggle or a space of its width before the number, greyed context rows, and a parent's
+   branch summary as a second line in each cell. */
+.orbit-tasks td.orbit-tree-td { padding-left: calc(16px + var(--orbit-indent, 0) * 1.25rem) !important; }
+@media (max-width: 599.98px) { .orbit-tasks td.orbit-tree-td { padding-left: calc(8px + var(--orbit-indent, 0) * .75rem) !important; } }
+.orbit-tasks .orbit-tree-toggle { padding: 0 !important; width: 1.5rem; height: 1.5rem; margin-right: .25rem; vertical-align: middle; }
+.orbit-tasks .orbit-tree-spacer { display: inline-block; width: 1.5rem; margin-right: .25rem; flex: none; }
+.orbit-tasks tr.orbit-context td { opacity: .6; }
+.orbit-tasks .orbit-branch { margin-top: .125rem; font-size: .8rem; color: var(--mud-palette-text-secondary); display: flex; flex-wrap: wrap; gap: .25rem; }
+.orbit-tasks .orbit-branch .mud-chip { margin: 0; }
+.orbit-tasks .orbit-branch-count { color: var(--mud-palette-text-secondary); margin-left: .25rem; font-size: .8rem; }
+.orbit-tree-tools { display: flex; justify-content: flex-end; gap: .5rem; padding: .25rem .5rem 0; }
+/* A status greyed out on a parent with open subtasks: MudBlazor turns pointer events off on a disabled item, so the label takes
+   them back for its tooltip (TaskStatusSelect). The dropdown renders in the popover provider, outside .orbit-tasks. */
+.mud-list-item-disabled .orbit-blocked { pointer-events: auto; cursor: not-allowed; }
 .orbit-empty { padding: .75rem 1rem; margin: 0; color: var(--mud-palette-text-secondary); font-style: italic; }
 
 /* Inline controls in a row: compact, and wide enough for their longest option and a full date. */
