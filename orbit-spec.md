@@ -3330,6 +3330,7 @@ Earlier open questions, now resolved:
     - **Built as** `Navigation.MySprint(actor, sprintId)` beside `MyTasks` and `MyTasksToday`, the one place the filter's address is written (the plain list for an actor with no user); the *My sprint* chip (icon `DirectionsRun`, the active sprint's name in its tooltip) before *My tasks*, `_activeSprint`, `InActiveSprint`, `ShowingMySprint` and `ToggleMySprintAsync` in `TasksList.razor`, with `ShowingMine` narrowed so the two aren't filled together. NAV-009 new. No new permission (the Sprint filter is open to every Tasks viewer), no migration, no MCP change (`list_tasks` already takes `assigneeId` and `sprintId`).
     - **Verified:**
         - The build and the tests (555, with NAV-009) pass.
+        - The user reviewed the change and approved it. **Not exercised in the browser by Claude:** the dev instance stopped at the login page, which wasn't signed in to on the user's behalf.
 
 ## 14. Suggested Build Order
 
