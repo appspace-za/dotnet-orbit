@@ -1,3 +1,4 @@
+using Orbit.Application.Models;
 using Orbit.Data.Entities;
 
 namespace Orbit.Application;
@@ -146,6 +147,23 @@ public static class TaskTreeRules
             under = collapsed.Contains(id) ? depth : null;
         }
         return hidden;
+    }
+
+    /// <summary>
+    /// The rows as the task table draws them, in order: each with its task, whether only its number and title may be shown, and its
+    /// branch summary (none for a title-only row). A row whose task is missing from <paramref name="tasks"/> is skipped.
+    /// </summary>
+    public static IReadOnlyList<TaskTreeEntry> Entries(IReadOnlyList<TaskTreeRow> rows, IReadOnlyDictionary<Guid, TaskItem> tasks,
+        Func<TaskItem, bool> titleOnly, Func<TaskItem, BranchSummary?> summary)
+    {
+        var entries = new List<TaskTreeEntry>(rows.Count);
+        foreach (var row in rows)
+        {
+            if (!tasks.TryGetValue(row.Id, out var task)) continue;
+            var bare = titleOnly(task);
+            entries.Add(new TaskTreeEntry(task, row.Depth, row.IsContext, row.HasChildren, bare, bare ? null : summary(task)));
+        }
+        return entries;
     }
 
     /// <summary>The indent for a row at <paramref name="depth"/>, capped at <see cref="MaxIndent"/>.</summary>
