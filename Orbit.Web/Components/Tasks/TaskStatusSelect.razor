@@ -1,12 +1,14 @@
 @inherits OrbitComponentBase
 @* The inline status control (spec §6.2). Picking Done asks first, as the Razor control does: the "no time logged" question
-   (§6.10), then the solution-notes dialog (§6.2.4). Cancel at either step, or a refused change, puts the control back. *@
+   (§6.10), then the solution-notes dialog (§6.2.4). Cancel at either step, or a refused change, puts the control back.
+   Given a parent's Branch (the task table's tree mode), Done and Cancelled are greyed out while a subtask is open (§6.15). *@
 <MudSelect @key="_version" T="TaskItemStatus" Value="Task.Status" ValueChanged="PickedAsync" ToStringFunc="s => s.Label()"
            Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Disabled="_busy" Class="orbit-inline" Label="@Label"
            aria-label="Status">
     @foreach (var s in Statuses)
     {
-        <MudSelectItem T="TaskItemStatus" Value="s">@s.Label()</MudSelectItem>
+        var blocked = BranchSummaryRules.ClosingBlocked(s, Task.Status, Branch);
+        <MudSelectItem T="TaskItemStatus" Value="s" Disabled="blocked" title="@(blocked ? BranchSummaryRules.ClosingBlockedReason : null)">@s.Label()</MudSelectItem>
     }
 </MudSelect>
 
@@ -14,6 +16,8 @@
     [Parameter, EditorRequired] public TaskItem Task { get; set; } = null!;
     /// <summary>The statuses the viewer may pick: <see cref="Ui.AllowedStatuses"/>.</summary>
     [Parameter, EditorRequired] public IReadOnlyList<TaskItemStatus> Statuses { get; set; } = [];
+    /// <summary>The task's branch summary when it is a parent in the task table's tree mode: Done and Cancelled are greyed out while a subtask is open.</summary>
+    [Parameter] public BranchSummary? Branch { get; set; }
     /// <summary>A visible label (the task page); a table cell leaves it out.</summary>
     [Parameter] public string? Label { get; set; }
     /// <summary>Raised after the status changed, so the page can reload.</summary>

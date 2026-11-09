@@ -115,6 +115,22 @@ public class BranchSummaryRulesTests
         Assert.Equal(["Ann", "Bob"], s.Assignees.Select(u => u.DisplayName));
     }
 
+    /// <summary>
+    /// TREE-017: on a parent's inline status control, Done and Cancelled are blocked while a counted subtask is open; the current
+    /// value and the open statuses never are.
+    /// </summary>
+    [Fact]
+    public void Done_and_cancelled_are_blocked_while_a_subtask_is_open()
+    {
+        var open = Summ([T(InProgress)]);
+        Assert.True(BranchSummaryRules.ClosingBlocked(Done, InProgress, open));
+        Assert.True(BranchSummaryRules.ClosingBlocked(Cancelled, InProgress, open));
+        Assert.False(BranchSummaryRules.ClosingBlocked(Waiting, InProgress, open));
+        Assert.False(BranchSummaryRules.ClosingBlocked(Done, Done, open));
+        Assert.False(BranchSummaryRules.ClosingBlocked(Done, InProgress, Summ([T(Done)])));
+        Assert.False(BranchSummaryRules.ClosingBlocked(Done, InProgress, null));
+    }
+
     /// <summary>TREE-016: no subtasks to count means no summary; the open flag says whether any counted subtask is open.</summary>
     [Fact]
     public void No_subtasks_means_no_summary_and_the_open_flag_is_right()

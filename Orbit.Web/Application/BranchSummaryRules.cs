@@ -35,6 +35,17 @@ public sealed record BranchSummary(
 /// </summary>
 public static class BranchSummaryRules
 {
+    /// <summary>Why Done and Cancelled are greyed out on a parent's inline status control.</summary>
+    public const string ClosingBlockedReason = "Close its open subtasks first.";
+
+    /// <summary>
+    /// TREE-017: whether <paramref name="option"/> is greyed out on a parent's inline status control - Done or Cancelled, other than
+    /// its <paramref name="current"/> status, while a subtask the page counts is open (§6.15). The server's rule is the backstop
+    /// (<c>TaskStructureService.EnsureStatusChangeAllowedAsync</c>), for subtasks the page can't see and changes made meanwhile.
+    /// </summary>
+    public static bool ClosingBlocked(TaskItemStatus option, TaskItemStatus current, BranchSummary? summary) =>
+        option.IsClosed() && option != current && summary?.HasOpenSubtasks == true;
+
     /// <summary>
     /// The tasks below <paramref name="parentId"/>, at every level, that are in <paramref name="countable"/> (what the page may show).
     /// The walk follows <paramref name="idsByParent"/> through every task, so a subtask under one the viewer can't see still counts.

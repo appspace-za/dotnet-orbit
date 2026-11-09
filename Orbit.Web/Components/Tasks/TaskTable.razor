@@ -244,7 +244,7 @@ else
                         <td>
                             @if (Can(entry, TaskTableEdits.Status) && canView && statuses.Count > 1)
                             {
-                                <TaskStatusSelect Task="t" Statuses="statuses" Changed="Changed" />
+                                <TaskStatusSelect Task="t" Statuses="statuses" Branch="summary" Changed="Changed" />
                             }
                             else
                             {
