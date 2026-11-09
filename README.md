@@ -8,8 +8,9 @@ Identity, the `ModelContextProtocol` .NET SDK, Quartz.NET, Ical.Net and QuestPDF
 
 **The web UI is Blazor** (spec §6): Blazor Server with MudBlazor, converted from Razor Pages page by page at the same
 URLs, so bookmarks and the links in emails still work. On the lists a filter applies as soon as you change it (the
-search box as you type), and it's remembered for the browser session. Three chips beside the Tasks list's title filter
-it in one click, in place of the other filters: **My tasks**, your own open tasks (it replaced the My Tasks page,
+search box as you type), and it's remembered for the browser session. Four chips beside the Tasks list's title filter
+it in one click, in place of the other filters: **My sprint**, your tasks in the active sprint, done ones included
+(shown while a sprint is active), **My tasks**, your own open tasks (it replaced the My Tasks page,
 whose address still leads there), **Today**, your tasks planned for today, done ones included - your own day,
 where the Today page is the team's plan for the morning meeting - and **Unassigned**, the open tasks nobody has
 picked up yet. In the task tables (bar the Today page's, which only shows them), changing a task's status,

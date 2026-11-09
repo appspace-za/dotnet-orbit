@@ -135,6 +135,21 @@ public class NavigationTests
     }
 
     /// <summary>
+    /// NAV-009: My sprint is the Tasks list filtered to the viewer's tasks in the active sprint, done ones included - Open only is
+    /// left off (§6.2, decision 146) - in keys the list reads and remembers. An actor with no user of its own gets the plain list.
+    /// </summary>
+    [Fact]
+    public void My_sprint_is_the_Tasks_list_filtered_to_your_tasks_in_the_sprint()
+    {
+        var me = Guid.NewGuid();
+        var sprint = Guid.NewGuid();
+        var address = Navigation.MySprint(TestActors.With(DefaultRoles.MemberGrants, Finance, userId: me), sprint);
+        Assert.Equal($"/Tasks?AssigneeId={me}&Sprint={sprint}", address);
+        Assert.All(address.Split('?')[1].Split('&'), pair => Assert.Contains(pair.Split('=')[0], TaskListKeys.Remembered));
+        Assert.Equal("/Tasks", Navigation.MySprint(Actor.System, sprint));
+    }
+
+    /// <summary>
     /// NAV-008: Unassigned is the Tasks list filtered to the open tasks nobody is assigned to - the Assignee filter's None with Open
     /// only (§6.2, decision 144) - the same address for every viewer, in keys the list reads and remembers.
     /// </summary>

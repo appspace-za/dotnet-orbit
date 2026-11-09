@@ -5,7 +5,8 @@
 @* The Tasks list (spec §6.2): every task the viewer may see, filtered and paged, with the rows' live controls. The filters
    live in the address, in the Razor page's keys (old links and bookmarks still work), and are remembered for the browser
    session (OrbitListPage). Changing a filter applies it at once. The header's chips are quick filters, each in place of whatever
-   was filtered: My tasks, the viewer's open tasks, which replaced the My Tasks page (decision 132, Navigation.MyTasks), Today,
+   was filtered: My sprint, the viewer's tasks in the active sprint (decision 146, Navigation.MySprint), shown while a sprint is
+   active; My tasks, the viewer's open tasks, which replaced the My Tasks page (decision 132, Navigation.MyTasks), Today,
    the viewer's tasks on today's plan, done ones included (decision 133, Navigation.MyTasksToday), and Unassigned, the open
    tasks nobody is assigned to (decision 144, Navigation.UnassignedTasks). The rows are a tree (§6.15, decision 145): each subtask under
    its parent, a match's unmatched ancestors greyed, pages of whole branches and a parent's branch summary (TaskService.ListTreeAsync). *@
@@ -33,6 +34,12 @@ else
             </MudText>
             @if (_actor!.UserId is not null)
             {
+                if (_activeSprint is not null)
+                {
+                    <MudChip T="string" Icon="@Icons.Material.Filled.DirectionsRun" Color="Color.Primary" Variant="@(ShowingMySprint ? Variant.Filled : Variant.Outlined)"
+                             OnClick="ToggleMySprintAsync"
+                             title="@(ShowingMySprint ? "Show everyone's tasks again, in any sprint" : $"Your tasks in the current sprint, {_activeSprint.Name}, done ones included, in place of the other filters")">My sprint</MudChip>
+                }
                 <MudChip T="string" Icon="@Icons.Material.Filled.Person" Color="Color.Primary" Variant="@(ShowingMine ? Variant.Filled : Variant.Outlined)"
                          OnClick="ToggleMyTasksAsync"
                          title="@(ShowingMine ? "Show everyone's tasks again" : "Only your open tasks, in place of the other filters")">My tasks</MudChip>
@@ -157,6 +164,8 @@ else
     private IReadOnlyDictionary<Guid, WaitingSummary> _waiting = new Dictionary<Guid, WaitingSummary>();
     private IReadOnlyList<UserSummary> _quickEditAssignees = [];
     private IReadOnlyList<Sprint> _openSprints = [];
+    /// <summary>The current sprint, the one active sprint (§6.3), for the My sprint chip; null between sprints, which hides the chip.</summary>
+    private Sprint? _activeSprint;
     /// <summary>The Sprint filter's special entries (§6.3), kept at the top while typing: All, Not Planned, the Backlog.</summary>
     private static readonly IReadOnlyList<(string Value, string Text)> SprintSpecial =
         [("", "All"), (SprintPlacement.NotPlannedValue, SprintPlacement.NotPlannedLabel), (SprintPlacement.BacklogValue, SprintPlacement.BacklogLabel)];
@@ -170,13 +179,29 @@ else
     /// <summary>The list is filtered to the viewer as assignee, whatever else is filtered.</summary>
     private bool AssignedToMe => _actor?.UserId is Guid me && FilterChoice.Id(AssigneeChoice) == me;
 
+    /// <summary>The list is filtered to the active sprint (§6.3: one at a time, company-wide).</summary>
+    private bool InActiveSprint => _activeSprint is not null && SprintPlacement.Read(SprintChoice)?.SprintId == _activeSprint.Id;
+
     /// <summary>
-    /// Which quick filter is on - one at a time, since all three filter on the assignee: Today with the viewer and Planned today
-    /// ticked, My tasks with the viewer and without it (decision 133), Unassigned with None (decision 144).
+    /// Which quick filter is on - one at a time, since all four filter on the assignee: Today with the viewer and Planned today
+    /// ticked (decision 133), My sprint with the viewer and the active sprint (decision 146), My tasks with the viewer otherwise
+    /// (decision 132), Unassigned with None (decision 144).
     /// </summary>
     private bool ShowingMyToday => AssignedToMe && FilterQuery.Flag(PlannedToday);
-    private bool ShowingMine => AssignedToMe && !FilterQuery.Flag(PlannedToday);
+    private bool ShowingMySprint => AssignedToMe && !FilterQuery.Flag(PlannedToday) && InActiveSprint;
+    private bool ShowingMine => AssignedToMe && !FilterQuery.Flag(PlannedToday) && !InActiveSprint;
     private bool ShowingUnassigned => FilterChoice.IsNone(AssigneeChoice);
+
+    /// <summary>
+    /// On, it replaces every filter with the viewer's tasks in the active sprint (Navigation.MySprint). Off, it clears the two it set,
+    /// the assignee and the sprint, keeping the rest.
+    /// </summary>
+    private Task ToggleMySprintAsync()
+    {
+        if (ShowingMySprint) return ClearAsync(TaskListKeys.Assignee, TaskListKeys.Sprint);
+        Nav.NavigateTo(Navigation.MySprint(_actor!, _activeSprint!.Id));
+        return Task.CompletedTask;
+    }
 
     /// <summary>
     /// On, it replaces every filter with the viewer's open tasks (Navigation.MyTasks), which the address remembers on arrival like any
@@ -286,6 +311,7 @@ else
             if (filter.SprintId is Guid chosen && _openSprints.All(sp => sp.Id != chosen))
                 sprintOptions.Add((chosen.ToString(), await sprints.FindAsync(chosen) is { } sprint ? $"{sprint.Name} ({sprint.Status})" : "Unknown sprint"));
             _sprintOptions = sprintOptions;
+            _activeSprint = _openSprints.FirstOrDefault(sp => sp.Status == SprintStatus.Active);
 
             _canFilterByAsset = actor.Has(Permission.AssetsView);
             _assetLabel = filter.AssetId is Guid assetId

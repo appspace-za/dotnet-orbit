@@ -40,6 +40,17 @@ public static class Navigation
         new FilterQuery().Add(TaskListKeys.Assignee, me).Add(TaskListKeys.PlannedToday, true).At(TaskListKeys.Path);
 
     /// <summary>
+    /// The Tasks list's My sprint filter (§6.2, decision 146): the tasks the viewer is an assignee of in the active sprint, done ones
+    /// included, so the sprint's finished work stays in view. The sprint is passed in, since sprints are company-wide with one active
+    /// at a time (§6.3) and the list already loads it. An actor with no user gets the plain list.
+    /// </summary>
+    public static string MySprint(Actor a, Guid sprintId) => a.UserId is Guid me ? MySprint(me, sprintId) : TaskListKeys.Path;
+
+    /// <summary>The Tasks list's My sprint filter for this person (<see cref="MySprint(Actor, Guid)"/>).</summary>
+    public static string MySprint(Guid me, Guid sprintId) =>
+        new FilterQuery().Add(TaskListKeys.Assignee, me).Add(TaskListKeys.Sprint, sprintId).At(TaskListKeys.Path);
+
+    /// <summary>
     /// The Tasks list's Unassigned filter (§6.2, decision 144): the open tasks nobody is assigned to, the Assignee filter's
     /// <i>None</i> with <i>Open only</i>. It is the same for every viewer, so an actor with no user gets it too.
     /// </summary>
