@@ -118,4 +118,26 @@ public class TimeRulesTests
         Assert.Throws<ValidationException>(() => TimeRules.CleanEstimate(-1));
         Assert.Throws<ValidationException>(() => TimeRules.CleanEstimate(TimeRules.MaxEstimateMinutes + 1));
     }
+
+    /// <summary>
+    /// TIME-010: My Time's Sprint dropdown names the sprint a range is exactly, first day to last; a range that only overlaps
+    /// one, or is a day off at either end, names none; of two sprints on the same dates the first listed (§6.10).
+    /// </summary>
+    [Fact]
+    public void A_range_names_the_sprint_it_is_exactly()
+    {
+        var d = (int day) => new DateOnly(2026, 11, day);
+        var first = new Sprint { Name = "S1", StartDate = d(2), EndDate = d(13) };
+        var twin = new Sprint { Name = "S1 twin", StartDate = d(2), EndDate = d(13) };
+        var second = new Sprint { Name = "S2", StartDate = d(16), EndDate = d(27) };
+        Sprint[] sprints = [first, twin, second];
+
+        Assert.Same(first, TimeRules.SprintForRange(sprints, d(2), d(13)));
+        Assert.Same(second, TimeRules.SprintForRange(sprints, d(16), d(27)));
+        Assert.Null(TimeRules.SprintForRange(sprints, d(1), d(13)));
+        Assert.Null(TimeRules.SprintForRange(sprints, d(2), d(14)));
+        Assert.Null(TimeRules.SprintForRange(sprints, d(3), d(12)));
+        Assert.Null(TimeRules.SprintForRange(sprints, d(2), d(27)));
+        Assert.Null(TimeRules.SprintForRange([], d(2), d(13)));
+    }
 }

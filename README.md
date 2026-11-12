@@ -275,6 +275,11 @@ a clock on the task and on a subtask at the same time; overlapping time is logge
 minute; a clock whose page stops checking in (a crashed tab, a computer asleep) is stopped and logged up to its last
 check-in.
 
+**My Time** shows the time you logged between two dates, the last seven days by default. Its **Sprint** dropdown, beside
+*From* and *To*, lists the active and completed sprints, newest first; picking one sets the dates to the sprint's first
+and last days, and the dropdown names the sprint while the dates match it (spec §6.10). Each entry shows its task's
+**Type** and **Sprint**: the sprint the task is in now, or *Backlog* / *Not Planned*.
+
 A project is owned by one department, but someone whose role may create tasks in every department can file
 tasks under it for other departments (unassigned, or assigned to someone in that department). Each such task
 belongs to its own department, which sees and works it as usual; a department with tasks on another

@@ -49,6 +49,7 @@ public sealed class TimeEntryService(ApplicationDbContext db, IActorProvider act
         if (to < from) (from, to) = (to, from);
         var entries = await db.TimeEntries.AsNoTracking()
             .Include(e => e.Task).ThenInclude(t => t.Project)
+            .Include(e => e.Task).ThenInclude(t => t.Sprint)
             .Where(e => e.UserId == actor.UserId && e.Date >= from && e.Date <= to)
             .OrderByDescending(e => e.Date).ThenByDescending(e => e.CreatedAt)
             .ToListAsync(ct);

@@ -63,4 +63,14 @@ public static class TimeRules
         minutes = value == 0 ? null : value;
         return true;
     }
+
+    // --- My Time (§6.10, §13 item 148) ---
+
+    /// <summary>
+    /// The sprint a date range is exactly - its first day to its last - or null. My Time's Sprint dropdown shows it, so the
+    /// range in the address stays the page's only state: a reload or a shared link names the sprint again. Of two sprints on
+    /// the same dates, the first listed.
+    /// </summary>
+    public static Sprint? SprintForRange(IEnumerable<Sprint> sprints, DateOnly from, DateOnly to) =>
+        sprints.FirstOrDefault(s => s.StartDate == from && s.EndDate == to);
 }

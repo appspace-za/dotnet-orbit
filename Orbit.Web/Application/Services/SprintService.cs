@@ -43,6 +43,17 @@ public sealed class SprintService(ApplicationDbContext db, IActorProvider actors
             .OrderBy(s => s.Status == SprintStatus.Active ? 0 : 1).ThenBy(s => s.StartDate).ToListAsync(ct);
     }
 
+    /// <summary>
+    /// Sprints that have started (active or completed), newest first: the ones time can already have been logged in, offered
+    /// by My Time's Sprint dropdown (§6.10).
+    /// </summary>
+    public async Task<IReadOnlyList<Sprint>> ListStartedAsync(CancellationToken ct = default)
+    {
+        await actors.GetAsync(ct);
+        return await db.Sprints.AsNoTracking().Where(s => s.Status != SprintStatus.Planned)
+            .OrderByDescending(s => s.StartDate).ThenByDescending(s => s.EndDate).ToListAsync(ct);
+    }
+
     /// <summary>The sprint with the tasks in it that the caller may see (tasks.view, §6.5).</summary>
     public async Task<Sprint> GetAsync(Guid id, CancellationToken ct = default)
     {

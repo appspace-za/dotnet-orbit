@@ -3,7 +3,10 @@
 @* My Time (spec §6.10): the time the viewer logged in a date range - the last seven days by default - as entries with a total,
    and by day. The range lives in the address (From, To) and applies as soon as a date changes. The pickers show the range read
    from the address, never the loaded one: a MudDatePicker handed a date other than its own raises DateChanged with it, so the
-   older range showing while the new one loaded sent the page back to it, and back again, for ever (§13 item 143). *@
+   older range showing while the new one loaded sent the page back to it, and back again, for ever (§13 item 143).
+   The Sprint dropdown (active and completed sprints, newest first) fills From and To with a sprint's dates in one go. It
+   shows the sprint the range is exactly (TimeRules.SprintForRange), read from the address too, so it needs no key of its
+   own; any other range leaves it blank. Each entry shows its task's type and the sprint the task is in now (§13 item 148). *@
 
 <PageTitle>My Time - Orbit</PageTitle>
 
@@ -24,6 +27,8 @@ else
             <div class="orbit-subtitle">Time you logged between @Ui.Day(s.From) and @Ui.Day(s.To).</div>
         </div>
         <div class="orbit-actions">
+            <FilterSelect Label="Sprint" Value="@(TimeRules.SprintForRange(_sprints, _from, _to)?.Id.ToString() ?? "")" ValueChanged="PickSprint"
+                          Options="_sprintOptions" Title="Fill From and To with a sprint's dates" Class="orbit-field-sm" />
             <MudDatePicker Date="PickerDate.Of(_from)" DateChanged="d => Go(PickerDate.Day(d), _to)" Label="From" DateFormat="yyyy-MM-dd" Editable="true" AutoClose="true"
                            Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-field-sm" />
             <MudDatePicker Date="PickerDate.Of(_to)" DateChanged="d => Go(_from, PickerDate.Day(d))" Label="To" DateFormat="yyyy-MM-dd" Editable="true" AutoClose="true"
@@ -43,14 +48,25 @@ else
                 {
                     <div class="orbit-table-wrap">
                         <MudSimpleTable Dense="true" Hover="true" Elevation="0" Class="orbit-tasks">
-                            <thead><tr><th>Date</th><th>Task</th><th>Project</th><th>Duration</th><th>Note</th><th></th></tr></thead>
+                            <thead><tr><th>Date</th><th>Task</th><th>Type</th><th>Project</th><th>Sprint</th><th>Duration</th><th>Note</th><th></th></tr></thead>
                             <tbody>
                                 @foreach (var e in s.Entries)
                                 {
                                     <tr @key="e.Id">
                                         <td class="text-nowrap">@Ui.Day(e.Date)</td>
                                         <td><a href="@($"/Tasks/Details/{e.TaskId}")" class="orbit-title">@e.Task.Title</a></td>
+                                        <td><MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="TaskLook.Type(e.Task.Type)" Class="@TaskLook.TypeClass(e.Task.Type)">@e.Task.Type</MudChip></td>
                                         <td>@(e.Task.Project?.Name ?? "-")</td>
+                                        <td>
+                                            @if (e.Task.Sprint is not null)
+                                            {
+                                                <MudLink Href="@($"/Sprints/Details/{e.Task.SprintId}")" Underline="Underline.Hover">@e.Task.Sprint.Name</MudLink>
+                                            }
+                                            else
+                                            {
+                                                <span class="orbit-muted text-nowrap">@SprintPlacement.Of(e.Task).Label()</span>
+                                            }
+                                        </td>
                                         <td class="text-nowrap">@TimeFormat.Minutes(e.DurationMinutes)</td>
                                         <td>@e.Note</td>
                                         <td class="text-right"><MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" Href="@($"/Time/Edit/{e.Id}")">Edit</MudButton></td>
@@ -85,12 +101,33 @@ else
     private MyTimeSummary? _summary;
     /// <summary>The range in the address, which the pickers show. Set before the entries load, so they show it while they do.</summary>
     private DateOnly _from, _to;
+    /// <summary>The Sprint dropdown's sprints (active and completed, newest first), fetched with the first range and kept.</summary>
+    private IReadOnlyList<Sprint> _sprints = [];
+    private IReadOnlyList<(string Value, string Text)> _sprintOptions = [];
+    private bool _sprintsLoaded;
 
     protected override async Task OnParametersSetAsync()
     {
         var (from, to) = FilterQuery.Period(FilterQuery.Date(From), FilterQuery.Date(To), DateOnly.FromDateTime(DateTime.UtcNow), 6);
         (_from, _to) = (from, to);
-        await Load(async s => _summary = await s.Get<TimeEntryService>().MyTimeAsync(from, to));
+        await Load(async s =>
+        {
+            _summary = await s.Get<TimeEntryService>().MyTimeAsync(from, to);
+            if (_sprintsLoaded) return;
+            _sprints = await s.Get<SprintService>().ListStartedAsync();
+            _sprintOptions = _sprints.Select(sp => (sp.Id.ToString(), $"{sp.Name} ({sp.Status})")).ToList();
+            _sprintsLoaded = true;
+        });
+    }
+
+    /// <summary>
+    /// A sprint picked from the dropdown: its first and last days become the range, in one move. The pickers then echo their new
+    /// dates, and the select may echo its sprint: each comes back to the range already shown, which Go ignores.
+    /// </summary>
+    private void PickSprint(string? value)
+    {
+        if (!Guid.TryParse(value, out var id) || _sprints.FirstOrDefault(sp => sp.Id == id) is not { } sprint) return;
+        Go(sprint.StartDate, sprint.EndDate);
     }
 
     private void Go(DateOnly? from, DateOnly? to)
