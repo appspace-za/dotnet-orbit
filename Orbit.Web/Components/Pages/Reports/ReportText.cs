@@ -22,7 +22,7 @@ public static class ReportText
     public static string Estimate(int? minutes) => minutes is int m ? TimeFormat.Minutes(m) : "-";
 
     /// <summary>
-    /// A part's share of a whole as Time spent writes it (§12): a whole percentage, "&lt;1%" for a part above nothing that rounds to
+    /// A part's share of a whole as Time utilisation writes it (§12): a whole percentage, "&lt;1%" for a part above nothing that rounds to
     /// 0, and "-" of nothing. Shares are rounded each on their own, so they needn't add up to 100%.
     /// </summary>
     public static string ShareText(int part, int whole) =>

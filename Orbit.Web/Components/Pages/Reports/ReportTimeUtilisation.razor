@@ -1,4 +1,4 @@
-@* Time spent (spec §12, decision 149): where the time logged in the period went. Four tiles; five charts (TimeSpentCharts, the
+@* Time utilisation (spec §12, decision 149): where the time logged in the period went. Four tiles; five charts (TimeUtilisationCharts, the
    same SVG as the PDF's: the time per day, week or month across the top, then by project beside by person and by task type beside
    by source); By person, the people who logged nothing greyed at the end; then By task, every task worked on, most time first,
    each opening on the people who logged time on it. ReportView keeps this component across runs (no @key), so the tasks opened
@@ -251,13 +251,13 @@ else
 </div>
 
 @code {
-    [Parameter, EditorRequired] public TimeSpentReport Report { get; set; } = null!;
+    [Parameter, EditorRequired] public TimeUtilisationReport Report { get; set; } = null!;
 
     /// <summary>The tasks whose people are showing, by id, so they stay open when a filter changes and the report reloads.</summary>
     private readonly HashSet<Guid> _open = [];
     private IReadOnlyList<SprintCharts.Chart> _charts = [];
 
-    protected override void OnParametersSet() => _charts = TimeSpentCharts.All(Report);
+    protected override void OnParametersSet() => _charts = TimeUtilisationCharts.All(Report);
 
     private void Toggle(Guid id)
     {

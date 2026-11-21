@@ -5,13 +5,13 @@ using Orbit.Reporting;
 namespace Orbit.Components.Pages.Reports;
 
 /// <summary>
-/// Time spent's five charts (spec §12), as SVG (<see cref="SvgCharts"/>) for the page and the PDF alike: the time per day, week or
+/// Time utilisation's five charts (spec §12), as SVG (<see cref="SvgCharts"/>) for the page and the PDF alike: the time per day, week or
 /// month across the top, then by project beside by person, and by task type beside by task source. One series, so no legend: each
 /// bar's tip reads its time and its share of the whole (<see cref="ReportText.ShareText"/>). Every chart puts the most time first;
 /// the projects and people charts keep the <see cref="SprintCharts.MaxBars"/> - 1 with the most and give the rest one bar
 /// (<see cref="SprintCharts.Fold"/>), so a large department's chart still fits on one PDF page, which QuestPDF needs of a picture.
 /// </summary>
-public static class TimeSpentCharts
+public static class TimeUtilisationCharts
 {
     /// <summary>The one series: the planned indigo of Sprint status, whose dark shade app.css already gives <c>oc-time</c>.</summary>
     public static readonly SvgCharts.Series Time = new("Time", "oc-time", "#4338ca");
@@ -21,16 +21,16 @@ public static class TimeSpentCharts
     private static readonly SvgCharts.Series[] One = [Time];
 
     /// <summary>The five charts, in the order the page and the PDF show them: the period across the top, then two pairs.</summary>
-    public static IReadOnlyList<SprintCharts.Chart> All(TimeSpentReport r) => [Period(r), Projects(r), People(r), Types(r), Sources(r)];
+    public static IReadOnlyList<SprintCharts.Chart> All(TimeUtilisationReport r) => [Period(r), Projects(r), People(r), Types(r), Sources(r)];
 
     /// <summary>The charts as the PDF lays them out: the period across the page, then the others two to a row.</summary>
-    public static IEnumerable<ReportPdfBuilder.Charts> PdfSections(TimeSpentReport r) => SprintCharts.PdfSections(All(r));
+    public static IEnumerable<ReportPdfBuilder.Charts> PdfSections(TimeUtilisationReport r) => SprintCharts.PdfSections(All(r));
 
     /// <summary>
-    /// The time in each day, ISO week or month of the window (<see cref="TimeSpentReport.BucketSize"/>), titled to match; a day's
+    /// The time in each day, ISO week or month of the window (<see cref="TimeUtilisationReport.BucketSize"/>), titled to match; a day's
     /// column greys a weekend. Drawn across the top (<see cref="SprintCharts.WideWidth"/>) and at half width for one column of charts.
     /// </summary>
-    public static SprintCharts.Chart Period(TimeSpentReport r)
+    public static SprintCharts.Chart Period(TimeUtilisationReport r)
     {
         var title = r.BucketSize switch
         {
@@ -45,7 +45,7 @@ public static class TimeSpentCharts
     }
 
     /// <summary>Each project's time, most first, past twelve the rest together; then the tasks on no project, muted, last.</summary>
-    public static SprintCharts.Chart Projects(TimeSpentReport r)
+    public static SprintCharts.Chart Projects(TimeUtilisationReport r)
     {
         const string title = "Time by project";
         var (shown, rest) = SprintCharts.Fold(r.Projects.Where(p => p.Project is not null).ToList(), p => p.Minutes);
@@ -56,7 +56,7 @@ public static class TimeSpentCharts
     }
 
     /// <summary>Each person's time, most first, past twelve the rest together. The people who logged nothing aren't on it.</summary>
-    public static SprintCharts.Chart People(TimeSpentReport r)
+    public static SprintCharts.Chart People(TimeUtilisationReport r)
     {
         const string title = "Time by person";
         var (shown, rest) = SprintCharts.Fold(r.People.Where(p => p.Minutes > 0).ToList(), p => p.Minutes);
@@ -66,14 +66,14 @@ public static class TimeSpentCharts
     }
 
     /// <summary>Each task type's time, most first. Eight types at most, so it never folds.</summary>
-    public static SprintCharts.Chart Types(TimeSpentReport r)
+    public static SprintCharts.Chart Types(TimeUtilisationReport r)
     {
         const string title = "Time by task type";
         return new(title, Draw(r.Types.Select(t => Bar(r, t.Type.ToString(), t.Minutes)).ToList(), title));
     }
 
     /// <summary>Each task source's time, most first, named as the app names them (<c>Api</c> is Claude). Five at most.</summary>
-    public static SprintCharts.Chart Sources(TimeSpentReport r)
+    public static SprintCharts.Chart Sources(TimeUtilisationReport r)
     {
         const string title = "Time by task source";
         return new(title, Draw(r.Sources.Select(s => Bar(r, Ui.SourceLabel(s.Source), s.Minutes)).ToList(), title));
@@ -83,7 +83,7 @@ public static class TimeSpentCharts
         SvgCharts.HorizontalBars(items, One, v => TimeFormat.Minutes((int)Math.Round(v)), Empty, title);
 
     /// <summary>A bar: its time, and at its tip the time and its share of the whole (<c>2h · 67%</c>).</summary>
-    private static SvgCharts.Item Bar(TimeSpentReport r, string label, int minutes, string? title = null, bool muted = false) =>
+    private static SvgCharts.Item Bar(TimeUtilisationReport r, string label, int minutes, string? title = null, bool muted = false) =>
         new(label, [minutes], $"{TimeFormat.Minutes(minutes)} · {ReportText.ShareText(minutes, r.Summary.Minutes)}", title, muted);
 
     /// <summary>

@@ -12,13 +12,13 @@ public enum ReportKind
     ProjectStatus,
     AssetStatus,
     SprintStatus,
-    TimeSpent
+    TimeUtilisation
 }
 
 /// <summary>
 /// A report's filters. <see cref="OwnerId"/> and <see cref="AssigneeId"/> pick projects for the project status report
 /// (<see cref="ReportDefinition.ByOwnerAndAssignee"/>) and are ignored by the others. <see cref="PersonId"/> keeps only the time a
-/// person logged, on Time spent (<see cref="ReportDefinition.ByPerson"/>) alone.
+/// person logged, on Time utilisation (<see cref="ReportDefinition.ByPerson"/>) alone.
 /// </summary>
 public sealed record ReportFilter(
     DateTime FromUtc, DateTime ToUtc, Guid? ProjectId, Guid? DepartmentId, Guid? OwnerId = null, Guid? AssigneeId = null,
@@ -54,14 +54,14 @@ public sealed record EstimateComparison(int EstimatedTasks, int EstimatedMinutes
     public double? VariancePercent => EstimatedMinutes == 0 ? null : VarianceMinutes * 100.0 / EstimatedMinutes;
 }
 
-/// <summary>One person's time on one task on one day of Time spent's window (§12), summed in SQL.</summary>
-public sealed record TimeSpentEntry(Guid TaskId, Guid UserId, DateOnly Date, int Minutes);
+/// <summary>One person's time on one task on one day of Time utilisation's window (§12), summed in SQL.</summary>
+public sealed record TimeUtilisationEntry(Guid TaskId, Guid UserId, DateOnly Date, int Minutes);
 
 /// <summary>One person's time on one task to date, on any day.</summary>
-public sealed record TimeSpentPersonTime(Guid TaskId, Guid UserId, int Minutes);
+public sealed record TimeUtilisationPersonTime(Guid TaskId, Guid UserId, int Minutes);
 
-/// <summary>What Time spent needs to know about a task. <see cref="TotalMinutes"/> is all time logged on it to date, by anyone.</summary>
-public sealed record TimeSpentTaskFacts(
+/// <summary>What Time utilisation needs to know about a task. <see cref="TotalMinutes"/> is all time logged on it to date, by anyone.</summary>
+public sealed record TimeUtilisationTaskFacts(
     Guid Id, string Number, string Title, TaskItemStatus Status, TaskType Type, TaskSource Source, Guid? ProjectId,
     IReadOnlyList<Guid> AssigneeIds, int? EstimateMinutes, int TotalMinutes)
 {
@@ -69,47 +69,47 @@ public sealed record TimeSpentTaskFacts(
     public TaskTimeFacts AsTimeFacts() => new(Id, Number, Title, Status, AssigneeIds, EstimateMinutes, TotalMinutes);
 }
 
-public sealed record TimeSpentProjectFacts(Guid Id, string Number, string Name);
+public sealed record TimeUtilisationProjectFacts(Guid Id, string Number, string Name);
 
 /// <summary>
-/// Time spent's tiles: the time in the window, the people who logged it and the covered people who logged nothing, the tasks it
+/// Time utilisation's tiles: the time in the window, the people who logged it and the covered people who logged nothing, the tasks it
 /// was logged on and how many have no estimate, and the estimate comparison over them, each task once.
 /// </summary>
-public sealed record TimeSpentSummary(int Minutes, int People, int LoggedNothing, int Tasks, int UnestimatedTasks, EstimateComparison Estimate);
+public sealed record TimeUtilisationSummary(int Minutes, int People, int LoggedNothing, int Tasks, int UnestimatedTasks, EstimateComparison Estimate);
 
 /// <summary>A person's time in the window and how many tasks it was on; a covered person who logged nothing reads zero.</summary>
-public sealed record TimeSpentPersonRow(Guid UserId, string Name, int Minutes, int Tasks)
+public sealed record TimeUtilisationPersonRow(Guid UserId, string Name, int Minutes, int Tasks)
 {
     public bool LoggedNothing => Minutes == 0;
 }
 
 /// <summary>A person's time on a task: in the window, and to date.</summary>
-public sealed record TimeSpentTaskPerson(Guid UserId, string Name, int Minutes, int ToDateMinutes, bool IsAssignee);
+public sealed record TimeUtilisationTaskPerson(Guid UserId, string Name, int Minutes, int ToDateMinutes, bool IsAssignee);
 
 /// <summary>
 /// A task worked on in the window: <see cref="Minutes"/> is the time in it (the person's, under the Person filter),
 /// <see cref="TotalMinutes"/> everyone's to date. <see cref="Project"/> is null for a task on no project.
 /// </summary>
-public sealed record TimeSpentTaskRow(
-    Guid TaskId, string Number, string Title, TaskItemStatus Status, TaskType Type, TimeSpentProjectFacts? Project,
-    int? EstimateMinutes, int Minutes, int TotalMinutes, IReadOnlyList<TimeSpentTaskPerson> People)
+public sealed record TimeUtilisationTaskRow(
+    Guid TaskId, string Number, string Title, TaskItemStatus Status, TaskType Type, TimeUtilisationProjectFacts? Project,
+    int? EstimateMinutes, int Minutes, int TotalMinutes, IReadOnlyList<TimeUtilisationTaskPerson> People)
 {
     public bool IsCancelled => Status == TaskItemStatus.Cancelled;
     public bool IsOver => !IsCancelled && EstimateMinutes is int e && TotalMinutes > e;
 }
 
 /// <summary>
-/// Time spent (§12): where the time logged in a window went - by person, then every task worked on, most time first, with who
+/// Time utilisation (§12): where the time logged in a window went - by person, then every task worked on, most time first, with who
 /// logged it. <see cref="PersonOptions"/> are the people with time before the Person filter applies.
 /// </summary>
-public sealed record TimeSpentReport(
-    DateOnly From, DateOnly To, TimeSpentSummary Summary, IReadOnlyList<TimeSpentPersonRow> People,
-    IReadOnlyList<TimeSpentTaskRow> Tasks, IReadOnlyList<ReportPerson> PersonOptions)
+public sealed record TimeUtilisationReport(
+    DateOnly From, DateOnly To, TimeUtilisationSummary Summary, IReadOnlyList<TimeUtilisationPersonRow> People,
+    IReadOnlyList<TimeUtilisationTaskRow> Tasks, IReadOnlyList<ReportPerson> PersonOptions)
 {
     /// <summary>The time by project, most first, with No project (a null <c>Project</c>) last.</summary>
-    public IReadOnlyList<TimeSpentProjectRow> Projects { get; init; } = [];
-    public IReadOnlyList<TimeSpentTypeRow> Types { get; init; } = [];
-    public IReadOnlyList<TimeSpentSourceRow> Sources { get; init; } = [];
+    public IReadOnlyList<TimeUtilisationProjectRow> Projects { get; init; } = [];
+    public IReadOnlyList<TimeUtilisationTypeRow> Types { get; init; } = [];
+    public IReadOnlyList<TimeUtilisationSourceRow> Sources { get; init; } = [];
     /// <summary>Whether <see cref="Buckets"/> are days, weeks or months, by the window's length.</summary>
     public TimeBucketSize BucketSize { get; init; }
     public IReadOnlyList<TimeBucket> Buckets { get; init; } = [];
@@ -120,7 +120,7 @@ public sealed record TimeSpentReport(
     public ReportPerson? Person { get; init; }
 }
 
-/// <summary>What one column of Time spent's per-period chart covers: a day, an ISO week (Monday to Sunday) or a calendar month.</summary>
+/// <summary>What one column of Time utilisation's per-period chart covers: a day, an ISO week (Monday to Sunday) or a calendar month.</summary>
 public enum TimeBucketSize
 {
     Day,
@@ -132,11 +132,11 @@ public enum TimeBucketSize
 public sealed record TimeBucket(DateOnly From, DateOnly To, int Minutes = 0);
 
 /// <summary>A project's time in the window; a null <see cref="Project"/> is the tasks on no project.</summary>
-public sealed record TimeSpentProjectRow(TimeSpentProjectFacts? Project, int Minutes);
+public sealed record TimeUtilisationProjectRow(TimeUtilisationProjectFacts? Project, int Minutes);
 
-public sealed record TimeSpentTypeRow(TaskType Type, int Minutes);
+public sealed record TimeUtilisationTypeRow(TaskType Type, int Minutes);
 
-public sealed record TimeSpentSourceRow(TaskSource Source, int Minutes);
+public sealed record TimeUtilisationSourceRow(TaskSource Source, int Minutes);
 
 /// <summary>
 /// Estimate accuracy (§12): tasks completed in the range, grouped by assignee. A task several people share (§6.2.3) is under each
@@ -684,7 +684,7 @@ public static class ReportCatalog
             "Average time from creation until the task first left Todo, for tasks created in the period."),
         new(ReportKind.MeanTimeToResolve, "Mean time to resolve",
             "Average time from creation to completion, for tasks completed in the period."),
-        new(ReportKind.TimeSpent, "Time spent",
+        new(ReportKind.TimeUtilisation, "Time utilisation",
             "Where the time logged in the period went: by project, person, day, task type and source, then every task worked on, most time first, with who logged it.",
             ByPerson: true, SprintQuickPick: true),
         new(ReportKind.EstimateAccuracy, "Estimate accuracy",

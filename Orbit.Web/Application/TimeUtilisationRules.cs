@@ -3,7 +3,7 @@ using Orbit.Application.Models;
 namespace Orbit.Application;
 
 /// <summary>
-/// The pure part of the Time spent report (§12): turns the time <c>ReportingService</c> reads in SQL into the report.
+/// The pure part of the Time utilisation report (§12): turns the time <c>ReportingService</c> reads in SQL into the report.
 /// <list type="bullet">
 /// <item>The window is <c>from</c> to <c>to</c>, both days included; an entry counts in it by its own date. Its project and
 /// department are its task's, which the service applies in SQL.</item>
@@ -14,7 +14,7 @@ namespace Orbit.Application;
 /// <item>Every task stands alone: time on a subtask isn't rolled into its parent (§6.10).</item>
 /// </list>
 /// </summary>
-public static class TimeSpentRules
+public static class TimeUtilisationRules
 {
     private const string Unknown = "Unknown";
 
@@ -25,9 +25,9 @@ public static class TimeSpentRules
     /// listed when they logged nothing (decision 44). An entry outside the window, or on a task not in <paramref name="tasks"/>, is
     /// dropped.
     /// </summary>
-    public static TimeSpentReport Build(
-        DateOnly from, DateOnly to, IEnumerable<TimeSpentEntry> entries, IReadOnlyDictionary<Guid, TimeSpentTaskFacts> tasks,
-        IEnumerable<TimeSpentPersonTime> toDate, IReadOnlyDictionary<Guid, TimeSpentProjectFacts> projects,
+    public static TimeUtilisationReport Build(
+        DateOnly from, DateOnly to, IEnumerable<TimeUtilisationEntry> entries, IReadOnlyDictionary<Guid, TimeUtilisationTaskFacts> tasks,
+        IEnumerable<TimeUtilisationPersonTime> toDate, IReadOnlyDictionary<Guid, TimeUtilisationProjectFacts> projects,
         IReadOnlyDictionary<Guid, ReportPerson> people, IEnumerable<Guid> covered, Guid? personId)
     {
         var inWindow = entries.Where(e => e.Date >= from && e.Date <= to && tasks.ContainsKey(e.TaskId)).ToList();
@@ -42,13 +42,13 @@ public static class TimeSpentRules
         var listed = covered.Distinct().Where(id => personId is not Guid only || id == only).ToList();
 
         var byPerson = picked.GroupBy(e => e.UserId)
-            .Select(g => new TimeSpentPersonRow(g.Key, Name(g.Key), g.Sum(e => e.Minutes), g.Select(e => e.TaskId).Distinct().Count()))
+            .Select(g => new TimeUtilisationPersonRow(g.Key, Name(g.Key), g.Sum(e => e.Minutes), g.Select(e => e.TaskId).Distinct().Count()))
             .OrderByDescending(r => r.Minutes)
             .ThenBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
         var withTime = byPerson.Select(r => r.UserId).ToHashSet();
         var nothing = listed.Where(id => !withTime.Contains(id))
-            .Select(id => new TimeSpentPersonRow(id, Name(id), 0, 0))
+            .Select(id => new TimeUtilisationPersonRow(id, Name(id), 0, 0))
             .OrderBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
 
@@ -61,13 +61,13 @@ public static class TimeSpentRules
                     .Select(p =>
                     {
                         var minutes = p.Sum(e => e.Minutes);
-                        return new TimeSpentTaskPerson(p.Key, Name(p.Key), minutes,
+                        return new TimeUtilisationTaskPerson(p.Key, Name(p.Key), minutes,
                             personToDate.TryGetValue((g.Key, p.Key), out var all) ? all : minutes, t.AssigneeIds.Contains(p.Key));
                     })
                     .OrderByDescending(p => p.Minutes)
                     .ThenBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase)
                     .ToList();
-                return new TimeSpentTaskRow(t.Id, t.Number, t.Title, t.Status, t.Type, ProjectOf(projects, t.ProjectId), t.EstimateMinutes,
+                return new TimeUtilisationTaskRow(t.Id, t.Number, t.Title, t.Status, t.Type, ProjectOf(projects, t.ProjectId), t.EstimateMinutes,
                     g.Sum(e => e.Minutes), t.TotalMinutes, taskPeople);
             })
             .OrderByDescending(r => r.Minutes)
@@ -75,19 +75,19 @@ public static class TimeSpentRules
             .ToList();
 
         var worked = taskRows.Select(r => tasks[r.TaskId]).ToList();
-        var summary = new TimeSpentSummary(picked.Sum(e => e.Minutes), byPerson.Count, nothing.Count, worked.Count,
+        var summary = new TimeUtilisationSummary(picked.Sum(e => e.Minutes), byPerson.Count, nothing.Count, worked.Count,
             worked.Count(t => t.EstimateMinutes is null), TimeReportRules.Compare(worked.Select(t => t.AsTimeFacts())));
 
         var (size, buckets) = Buckets(from, to);
-        return new TimeSpentReport(from, to, summary, [.. byPerson, .. nothing], taskRows, options)
+        return new TimeUtilisationReport(from, to, summary, [.. byPerson, .. nothing], taskRows, options)
         {
             Projects = ByProject(taskRows),
             Types = taskRows.GroupBy(r => r.Type)
-                .Select(g => new TimeSpentTypeRow(g.Key, g.Sum(r => r.Minutes)))
+                .Select(g => new TimeUtilisationTypeRow(g.Key, g.Sum(r => r.Minutes)))
                 .OrderByDescending(r => r.Minutes).ThenBy(r => r.Type)
                 .ToList(),
             Sources = taskRows.GroupBy(r => tasks[r.TaskId].Source)
-                .Select(g => new TimeSpentSourceRow(g.Key, g.Sum(r => r.Minutes)))
+                .Select(g => new TimeUtilisationSourceRow(g.Key, g.Sum(r => r.Minutes)))
                 .OrderByDescending(r => r.Minutes).ThenBy(r => r.Source)
                 .ToList(),
             BucketSize = size,
@@ -131,20 +131,20 @@ public static class TimeSpentRules
     }
 
     /// <summary>The time by project: the projects with time, most first, then by name; the tasks on no project last, when they have any.</summary>
-    private static IReadOnlyList<TimeSpentProjectRow> ByProject(IReadOnlyList<TimeSpentTaskRow> rows)
+    private static IReadOnlyList<TimeUtilisationProjectRow> ByProject(IReadOnlyList<TimeUtilisationTaskRow> rows)
     {
         var projects = rows.Where(r => r.Project is not null)
             .GroupBy(r => r.Project!.Id)
-            .Select(g => new TimeSpentProjectRow(g.First().Project, g.Sum(r => r.Minutes)))
+            .Select(g => new TimeUtilisationProjectRow(g.First().Project, g.Sum(r => r.Minutes)))
             .OrderByDescending(r => r.Minutes)
             .ThenBy(r => r.Project!.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
         var none = rows.Where(r => r.Project is null).Sum(r => r.Minutes);
-        if (none > 0) projects.Add(new TimeSpentProjectRow(null, none));
+        if (none > 0) projects.Add(new TimeUtilisationProjectRow(null, none));
         return projects;
     }
 
     /// <summary>A task's project: null for none, and a stand-in for an id that isn't found.</summary>
-    private static TimeSpentProjectFacts? ProjectOf(IReadOnlyDictionary<Guid, TimeSpentProjectFacts> projects, Guid? id) =>
-        id is not Guid p ? null : projects.TryGetValue(p, out var found) ? found : new TimeSpentProjectFacts(p, "", "Unknown project");
+    private static TimeUtilisationProjectFacts? ProjectOf(IReadOnlyDictionary<Guid, TimeUtilisationProjectFacts> projects, Guid? id) =>
+        id is not Guid p ? null : projects.TryGetValue(p, out var found) ? found : new TimeUtilisationProjectFacts(p, "", "Unknown project");
 }

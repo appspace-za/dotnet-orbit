@@ -10,20 +10,20 @@ namespace Orbit.Components.Pages.Reports;
 
 /// <summary>
 /// A report's filters as the address gives them (spec §12), read leniently as the Razor page's binding did: a bad value is no
-/// filter. No kind is the first report, Closed count by person. Time by person's kind opens Time spent, which replaced it
-/// (decision 149), so its links and bookmarks keep working.
+/// filter. No kind is the first report, Closed count by person. The kinds of Time by person (decision 149) and Time spent (decision
+/// 150) open Time utilisation, which replaced them, so their links and bookmarks keep working.
 /// </summary>
 public sealed record ReportAddress(
     ReportKind Kind, DateOnly? From, DateOnly? To, Guid? ProjectId, Guid? DepartmentId, Guid? OwnerId, Guid? AssigneeId,
     Guid? SprintId = null, Guid? PersonId = null)
 {
-    private const string RetiredTimeByPerson = "TimeByPerson";
+    private static readonly string[] RetiredTimeReports = ["TimeByPerson", "TimeSpent"];
 
     public static ReportAddress Parse(
         string? kind, string? from, string? to, string? projectId, string? departmentId, string? ownerId, string? assigneeId,
         string? sprintId = null, string? personId = null) =>
-        new(string.Equals(kind?.Trim(), RetiredTimeByPerson, StringComparison.OrdinalIgnoreCase)
-                ? ReportKind.TimeSpent
+        new(RetiredTimeReports.Contains(kind?.Trim(), StringComparer.OrdinalIgnoreCase)
+                ? ReportKind.TimeUtilisation
                 : FilterQuery.Enum<ReportKind>(kind) ?? ReportKind.ClosedByPerson,
             FilterQuery.Date(from), FilterQuery.Date(to), FilterChoice.Id(projectId), FilterChoice.Id(departmentId),
             FilterChoice.Id(ownerId), FilterChoice.Id(assigneeId), FilterChoice.Id(sprintId), FilterChoice.Id(personId));
@@ -57,7 +57,7 @@ public sealed class ReportRun
     public Guid? AssigneeId { get; private set; }
     /// <summary>The sprint reported on (<see cref="ReportDefinition.BySprint"/>): the one chosen, or the one the report defaulted to.</summary>
     public Guid? SprintId { get; private set; }
-    /// <summary>Whose time Time spent shows (<see cref="ReportDefinition.ByPerson"/>): everyone's when null.</summary>
+    /// <summary>Whose time Time utilisation shows (<see cref="ReportDefinition.ByPerson"/>): everyone's when null.</summary>
     public Guid? PersonId { get; private set; }
 
     /// <summary>reports.view at Department scope fixes the department to the viewer's own (§6.5): the picker is hidden.</summary>
@@ -69,7 +69,7 @@ public sealed class ReportRun
     public ProjectStatusReport? ProjectReport { get; private set; }
     public AssetStatusReport? AssetReport { get; private set; }
     public SprintStatusReport? SprintReport { get; private set; }
-    public TimeSpentReport? TimeSpent { get; private set; }
+    public TimeUtilisationReport? TimeUtilisation { get; private set; }
     public string FilterSummary { get; private set; } = string.Empty;
 
     /// <summary>The Project filter's projects (archived ones too, as reports look back), without "All". Only with options.</summary>
@@ -189,7 +189,7 @@ public sealed class ReportRun
             case ReportKind.EstimateAccuracy: run.EstimateAccuracy = await reporting.EstimateAccuracyAsync(filter, ct); break;
             case ReportKind.ProjectStatus: run.ProjectReport = await reporting.ProjectStatusAsync(filter, ct); break;
             case ReportKind.AssetStatus: run.AssetReport = await reporting.AssetStatusAsync(filter, ct); break;
-            case ReportKind.TimeSpent: run.TimeSpent = await reporting.TimeSpentAsync(filter, ct); break;
+            case ReportKind.TimeUtilisation: run.TimeUtilisation = await reporting.TimeUtilisationAsync(filter, ct); break;
             case ReportKind.SprintStatus:
                 run.SprintReport = await reporting.SprintStatusAsync(
                     new SprintReportFilter(filters.SprintId, run.ProjectId, run.DepartmentId, run.AssigneeId), ct);
@@ -230,7 +230,7 @@ public sealed class ReportRun
             if (run.OwnerId is Guid o) parts.Add("Owner: " + PersonName(people.Owners, o));
             if (run.AssigneeId is Guid a) parts.Add("Assignee: " + PersonName(people.Assignees, a));
         }
-        if (run.TimeSpent is { } spent && run.PersonId is not null) parts.Add("Person: " + (spent.Person?.Name ?? "Unknown"));
+        if (run.TimeUtilisation is { } spent && run.PersonId is not null) parts.Add("Person: " + (spent.Person?.Name ?? "Unknown"));
         run.FilterSummary = string.Join(" · ", parts);
 
         if (withOptions)
@@ -247,7 +247,7 @@ public sealed class ReportRun
             // Labelled as My Time labels them (decision 148).
             run.SprintOptions = run.Sprints.Select(s => (s.Id.ToString(), $"{s.Name} ({s.Status})")).ToList();
             // The person picked stays offered under their name in a period where they logged nothing, when the report knows them.
-            if (run.TimeSpent is { } report)
+            if (run.TimeUtilisation is { } report)
                 run.PersonFilterOptions = PersonOptions(
                     report.Person is { } chosen && report.PersonOptions.All(p => p.Id != chosen.Id) ? [.. report.PersonOptions, chosen] : report.PersonOptions,
                     run.PersonId);

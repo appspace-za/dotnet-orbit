@@ -6,7 +6,7 @@ namespace Orbit.Tests.Reports;
 
 /// <summary>
 /// The estimate comparison and Estimate accuracy (spec §12). Time by person's own tests (RPT-001, RPT-003, RPT-008) were retired
-/// with it: Time spent's RPT-044 to RPT-048 cover the same ground (decision 149).
+/// with it: Time utilisation's RPT-044 to RPT-048 cover the same ground (decision 149).
 /// </summary>
 public class TimeReportRulesTests
 {

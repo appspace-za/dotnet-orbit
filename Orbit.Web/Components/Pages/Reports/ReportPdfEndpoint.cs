@@ -40,7 +40,7 @@ public static class ReportPdfEndpoint
                 return AccessDeniedReason.Forbid(http, ex);
             }
             var bytes = ReportPdfBuilder.Build(run.Definition.Title, run.FilterSummary, Tables(run),
-                landscape: run.ProjectReport is not null || run.AssetReport is not null || run.SprintReport is not null || run.TimeSpent is not null);
+                landscape: run.ProjectReport is not null || run.AssetReport is not null || run.SprintReport is not null || run.TimeUtilisation is not null);
             return Results.File(bytes, "application/pdf", run.FileName);
         }).RequireAuthorization(Policies.Permission(Permission.ReportsView));
         return endpoints;
@@ -65,17 +65,17 @@ public static class ReportPdfEndpoint
         if (run.ProjectReport is not null) tables.AddRange(ProjectStatusTables(run.ProjectReport));
         if (run.AssetReport is not null) tables.AddRange(AssetStatusTables(run.AssetReport));
         if (run.SprintReport is not null) tables.AddRange(SprintStatusSections(run.SprintReport));
-        if (run.TimeSpent is not null) tables.AddRange(TimeSpentSections(run.TimeSpent));
+        if (run.TimeUtilisation is not null) tables.AddRange(TimeUtilisationSections(run.TimeUtilisation));
         return tables;
     }
 
     /// <summary>
-    /// Time spent (decision 149): the five charts, the summary, By person and By task - one row per task, its people in one cell, so
+    /// Time utilisation (decision 149): the five charts, the summary, By person and By task - one row per task, its people in one cell, so
     /// a month's couple of hundred tasks stay a table rather than a table each.
     /// </summary>
-    public static IEnumerable<ReportPdfBuilder.Section> TimeSpentSections(TimeSpentReport r)
+    public static IEnumerable<ReportPdfBuilder.Section> TimeUtilisationSections(TimeUtilisationReport r)
     {
-        foreach (var charts in TimeSpentCharts.PdfSections(r)) yield return charts;
+        foreach (var charts in TimeUtilisationCharts.PdfSections(r)) yield return charts;
 
         var s = r.Summary;
         static string Minutes(int m) => TimeFormat.Minutes(m);
@@ -91,7 +91,7 @@ public static class ReportPdfEndpoint
         if (people.Count > 0) people.Add(["Total", Minutes(s.Minutes), "", s.Tasks.ToString()]);
         yield return new ReportPdfBuilder.Table(["Person", "Logged", "Share", "Tasks"], people, "By person", [4, 1.4f, 1, 1]);
 
-        static string PeopleOf(TimeSpentTaskRow t) => string.Join("\n", t.People.Select(p =>
+        static string PeopleOf(TimeUtilisationTaskRow t) => string.Join("\n", t.People.Select(p =>
             $"{p.Name} {Minutes(p.Minutes)} ({ShareText(p.Minutes, t.Minutes)})" + (p.IsAssignee ? " · assignee" : "")));
         var tasks = r.Tasks.Select(t => (IReadOnlyList<string>)
             [$"{t.Number} {t.Title}\n{(t.Project is { } p ? $"{p.Number} {p.Name}".Trim() : "No project")}", t.Type.ToString(),
