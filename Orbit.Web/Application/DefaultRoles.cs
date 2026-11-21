@@ -28,6 +28,8 @@ public static class DefaultRoles
         [Permission.ProjectsCreate] = PermissionScope.Department,
         [Permission.ProjectsEdit] = PermissionScope.Own,
         [Permission.TimeLog] = PermissionScope.Own,
+        // Availability (§6.22): record their own unavailable time; their pattern is set by whoever manages their department.
+        [Permission.AvailabilityManage] = PermissionScope.Own,
         // Assets (§6.19): see and self-certify the assets they hold.
         [Permission.AssetsView] = PermissionScope.Own,
         [Permission.AssetsCheck] = PermissionScope.Own,
@@ -47,6 +49,8 @@ public static class DefaultRoles
         [Permission.ProjectsCreate] = PermissionScope.Department,
         [Permission.ProjectsEdit] = PermissionScope.Department,
         [Permission.TimeLog] = PermissionScope.Department,
+        // Availability (§6.22): the department's work patterns and unavailable time.
+        [Permission.AvailabilityManage] = PermissionScope.Department,
         // Assets (§6.19): run the department's register, including its own asset types and locations.
         [Permission.AssetsView] = PermissionScope.Department,
         [Permission.AssetsCreate] = PermissionScope.Department,
