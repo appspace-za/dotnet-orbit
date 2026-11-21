@@ -502,3 +502,9 @@ a.orbit-plain:hover { background: var(--mud-palette-table-hover); }
     box-shadow: 0 -1px 3px rgba(0, 0, 0, .2);
 }
 #blazor-error-ui .dismiss { float: right; cursor: pointer; background: none; border: 0; font-size: 1.25rem; line-height: 1; }
+
+/* Availability (spec §6.22): a person's work pattern and the dialog that changes it. */
+.orbit-availability-days th, .orbit-availability-days td { text-align: center; }
+.orbit-availability-week { display: grid; grid-template-columns: repeat(7, minmax(56px, 1fr)); gap: .5rem; }
+.orbit-availability-week .mud-input-control { margin: 0; }
+@media (max-width: 599.98px) { .orbit-availability-week { grid-template-columns: repeat(4, minmax(56px, 1fr)); } }

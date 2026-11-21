@@ -1,0 +1,81 @@
+@* Change a person's work pattern from a date (spec §6.22): the hours they are expected to work each weekday, in quarter hours. The
+   date is today to begin with, and the hours are those of the pattern in effect on the date picked, refilled when it changes. A
+   pattern already on that date is replaced, so a mistake is corrected on its own date. Closes with true once saved. *@
+<MudDialog>
+    <DialogContent>
+        <MudDatePicker Date="PickerDate.Of(_from)" DateChanged="DateChanged" Label="In effect from" DateFormat="yyyy-MM-dd" Editable="true"
+                       AutoClose="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-field-sm" />
+        <div class="orbit-help my-2">Hours each weekday, in quarter hours (7.5 or 7,5); 0 for a day not worked. A pattern already on this date is replaced.</div>
+        <div class="orbit-availability-week">
+            @foreach (var day in Days)
+            {
+                var d = day;
+                <MudTextField T="string" Value="@_hours[d]" ValueChanged="@(v => _hours[d] = v)" Label="@d.ToString()[..3]" Immediate="true"
+                              InputMode="@(InputMode.@decimal)" Variant="Variant.Outlined" Margin="Margin.Dense" @key="d" />
+            }
+        </div>
+        <div class="orbit-small orbit-muted mt-2">@TotalText</div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="SaveAsync">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private static readonly DayOfWeek[] Days =
+        [DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday];
+
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = null!;
+    [Parameter, EditorRequired] public Guid UserId { get; set; }
+    /// <summary>The person's patterns, to fill the hours from the one in effect on the date picked.</summary>
+    [Parameter] public IReadOnlyList<PatternHistoryRow> History { get; set; } = [];
+
+    private DateOnly _from = DateOnly.FromDateTime(DateTime.UtcNow);
+    private Dictionary<DayOfWeek, string?> _hours = Days.ToDictionary(d => d, _ => (string?)"0");
+    private bool _busy;
+
+    protected override void OnInitialized() => Refill();
+
+    private void DateChanged(DateTime? value)
+    {
+        if (PickerDate.Day(value) is not DateOnly day || day == _from) return;
+        _from = day;
+        Refill();
+    }
+
+    /// <summary>The hours of the pattern in effect on the date picked, as they'd be typed.</summary>
+    private void Refill()
+    {
+        var week = AvailabilityRules.PatternOn(History.Select(h => new PatternFacts(h.Id, h.EffectiveFrom, h.Week)).ToList(), _from)?.Week
+                   ?? WeekMinutes.None;
+        _hours = Days.ToDictionary(d => d, d => (string?)AvailabilityInputRules.FormatHours(week.For(d)).TrimEnd('h'));
+    }
+
+    private WeekMinutes? Week()
+    {
+        var minutes = new Dictionary<DayOfWeek, int>();
+        foreach (var d in Days)
+        {
+            if (!AvailabilityInputRules.TryParseHours(_hours[d], out var m)) return null;
+            minutes[d] = m;
+        }
+        return new WeekMinutes(minutes[DayOfWeek.Monday], minutes[DayOfWeek.Tuesday], minutes[DayOfWeek.Wednesday], minutes[DayOfWeek.Thursday],
+            minutes[DayOfWeek.Friday], minutes[DayOfWeek.Saturday], minutes[DayOfWeek.Sunday]);
+    }
+
+    private string TotalText => Week() is { } w ? $"{TimeFormat.Minutes(w.Total)} a week" : "Each day's hours must be between 0 and 24, in quarter hours.";
+
+    private async Task SaveAsync()
+    {
+        if (Week() is not { } week)
+        {
+            Error("Each day's hours must be between 0 and 24, in quarter hours.");
+            return;
+        }
+        _busy = true;
+        if (await Act(async s => await s.Get<AvailabilityService>().SetPatternAsync(UserId, new WorkPatternInput(_from, week))))
+            Dialog.Close(DialogResult.Ok(true));
+        _busy = false;
+    }
+}
