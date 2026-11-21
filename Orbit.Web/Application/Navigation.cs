@@ -72,6 +72,9 @@ public static class Navigation
     /// <summary>My Time: time.log at Own or wider.</summary>
     public static bool ShowsMyTime(Actor a) => a.Has(Permission.TimeLog);
 
+    /// <summary>Availability (§6.22): availability.manage at Own or wider - at Own it opens on the person's own page.</summary>
+    public static bool ShowsAvailability(Actor a) => a.Has(Permission.AvailabilityManage);
+
     /// <summary>Assets: assets.view at Own or wider.</summary>
     public static bool ShowsAssets(Actor a) => a.Has(Permission.AssetsView);
 
@@ -85,6 +88,7 @@ public static class Navigation
         new("Sprints", "/Sprints", ShowsPlanning),
         new("Recurring", "/Recurring", ShowsRecurring),
         new("My Time", "/Time/My", ShowsMyTime),
+        new("Availability", "/Availability", ShowsAvailability),
         new("Assets", "/Assets", ShowsAssets),
         new("Requests", "/Requests", AccessPolicy.CanSubmitRequests),
         new("Reports", "/Reports", AccessPolicy.CanViewReports)

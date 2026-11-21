@@ -508,3 +508,16 @@ a.orbit-plain:hover { background: var(--mud-palette-table-hover); }
 .orbit-availability-week { display: grid; grid-template-columns: repeat(7, minmax(56px, 1fr)); gap: .5rem; }
 .orbit-availability-week .mud-input-control { margin: 0; }
 @media (max-width: 599.98px) { .orbit-availability-week { grid-template-columns: repeat(4, minmax(56px, 1fr)); } }
+/* The team grid (spec §6.22): a person per row, a day per column; the name column stays in view while the days scroll. */
+.orbit-av-grid { border-collapse: collapse; width: 100%; font-size: .85rem; }
+.orbit-av-grid th, .orbit-av-grid td { text-align: center; white-space: nowrap; padding: .35rem .5rem; border-bottom: 1px solid var(--mud-palette-lines-default); }
+.orbit-av-grid th { font-weight: 600; color: var(--mud-palette-text-secondary); line-height: 1.2; }
+.orbit-av-grid th:first-child, .orbit-av-grid td:first-child { text-align: left; position: sticky; left: 0; z-index: 1; background: var(--mud-palette-surface); }
+.orbit-av-grid td a { display: block; color: inherit; text-decoration: none; }
+.orbit-av-grid td a:hover { text-decoration: underline; }
+.orbit-av-grid th.orbit-av-weekend { color: var(--mud-palette-text-disabled); }
+.orbit-av-reduced { background: color-mix(in srgb, var(--mud-palette-warning) 20%, transparent); }
+.orbit-av-holiday { background: var(--mud-palette-action-disabled-background); color: var(--mud-palette-text-disabled); }
+.orbit-av-off, .orbit-av-blank { color: var(--mud-palette-text-disabled); }
+.orbit-av-reason { display: block; font-size: .7rem; color: var(--mud-palette-text-secondary); }
+.orbit-av-month th, .orbit-av-month td { padding: .3rem .2rem; font-size: .75rem; }

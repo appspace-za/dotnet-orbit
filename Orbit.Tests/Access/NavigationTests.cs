@@ -14,7 +14,7 @@ public class NavigationTests
     [Fact]
     public void Shipped_roles_see_their_full_menus()
     {
-        string[] full = ["Dashboard", "Today", "Tasks", "Projects", "Sprints", "Recurring", "My Time", "Assets", "Requests"];
+        string[] full = ["Dashboard", "Today", "Tasks", "Projects", "Sprints", "Recurring", "My Time", "Availability", "Assets", "Requests"];
         Assert.Equal(full, Menu(TestActors.Member(Finance)));
         Assert.Equal(full, Menu(TestActors.DepartmentAdmin(Finance)));
         Assert.Equal([.. full, "Reports"], Menu(TestActors.SystemAdmin()));
@@ -44,6 +44,8 @@ public class NavigationTests
         var auditor = TestActors.Grants(null, (Permission.TasksView, PermissionScope.All), (Permission.ProjectsView, PermissionScope.All));
         Assert.Equal(["Dashboard", "Tasks"], Menu(auditor));
         Assert.Equal(["Dashboard"], Menu(TestActors.Nobody(Finance)));
+        // Availability (§6.22): your own unavailable time at Own is enough for the menu item.
+        Assert.Equal(["Dashboard", "Availability"], Menu(TestActors.Grants(Finance, (Permission.AvailabilityManage, PermissionScope.Own))));
         // Configuring request flows and the action library are in the Admin menu, not the main one.
         var configurer = TestActors.Grants(Finance, (Permission.RequestsConfigure, PermissionScope.Department));
         Assert.Equal(["Dashboard"], Menu(configurer));
@@ -105,6 +107,7 @@ public class NavigationTests
         Assert.Equal("/Today", hrefs["Today"]);
         Assert.Equal("/Tasks", hrefs["Tasks"]);
         Assert.Equal("/Admin/Users", hrefs["Users"]);
+        Assert.Equal("/Availability", hrefs["Availability"]);
         Assert.All(hrefs.Values, h => Assert.DoesNotContain("/Index", h));
     }
 
