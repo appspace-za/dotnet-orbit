@@ -126,7 +126,9 @@ Member **Own**, Department Admin **Department**. The built-in role holds All.
 
 - **`AccessPolicy.CanManageAvailability(actor, person)`**: Own when the person is the actor, Department when the person's
   `DepartmentId` is the actor's, All always. **`CanChangeWorkPattern(actor, person)`**: the same at Department and All, never at
-  Own. Lists of people go through a new **`Scoping.People(q, actor)`**. System accounts are never offered.
+  Own. Lists of people go through the existing **`Scoping.People(q, actor, Permission.AvailabilityManage)`**, which already
+  gives everyone at All, the actor and their department's people at Department, and only the actor at Own, always active and
+  never a system account.
 - **Page doors:** the `/Availability` pages carry `[RequirePermission(Permission.AvailabilityManage)]`. The service applies
   the scope and refuses with `ForbiddenException` (*"You can't manage this person's availability."*).
 - **Privacy.** The reason and note of an entry are shown only on the Availability pages, which only the person and people
@@ -354,7 +356,7 @@ xUnit over pure code. Tests cite their IDs in doc comments.
 | **AVL-005** | System accounts and people with no pattern have no availability. |
 | **AVL-006** | Input rules: `To` before `From`, a span over 366 days, hours out of range or not in quarters, the note's length, a 0-hour week allowed, removing the only pattern refused. |
 | **AVL-007** | The team grid: week and month ranges snapped, cells (hours, `-`, shaded with reasons, greyed holiday, blank outside employment), totals, the hover text. |
-| **AVL-008** | Access: `CanManageAvailability` and `CanChangeWorkPattern` at each scope (Own never changes a pattern), `Scoping.People`, the catalogue entry and default grants. |
+| **AVL-008** | Access: `CanManageAvailability` and `CanChangeWorkPattern` at each scope (Own never changes a pattern), `Scoping.People` with `availability.manage`, the catalogue entry and default grants. |
 | **AVL-009** | My Time's line: logged of available, the percentage, under target, no availability. |
 | **RPT-044 to RPT-052** | Kept, moved to the renamed classes. RPT-044, RPT-048, RPT-049 and RPT-050 unchanged. RPT-045 (the Person options), RPT-046 (the tiles, now §7.1's six), RPT-047 (By person, now §7.3) and RPT-051 (the charts, now §7.2's) rewritten for the person-centred rules. RPT-052 also covers `Kind=TimeSpent`. |
 | **RPT-053** | Who is in it: home department, availability or time, a leaver with time, someone deactivated before the range, never the Claude user; the Person options. |
