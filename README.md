@@ -1,7 +1,7 @@
 # Orbit
 
 Task and project tracker for the whole business: departments with server-side boundaries, company-wide
-sprints, recurring tasks, time tracking, reports, an asset register, request flows, tasks raised from Nagios
+sprints, recurring tasks, time tracking, people's availability, reports, an asset register, request flows, tasks raised from Nagios
 monitoring, and an MCP server so Claude can create and query work.
 Built on ASP.NET Core (.NET 10) with Blazor Server + MudBlazor, EF Core + PostgreSQL, ASP.NET Core
 Identity, the `ModelContextProtocol` .NET SDK, Quartz.NET, Ical.Net and QuestPDF. The full specification is in `orbit-spec.md`.
@@ -106,6 +106,7 @@ scopes below it, and a role with no grants sees nothing.
 | `projects.create` | Dept / All | Create projects | Dept | Dept |
 | `projects.edit` | Own / Dept / All | Edit/archive projects, run the critical path analysis; moving to another department needs All | Own | Dept |
 | `time.log` | Own / Dept / All | Log, edit, delete time (Own: yours on tasks you are an assignee of; Dept: for anyone in the department) | Own | Dept |
+| `availability.manage` | Own / Dept / All | People's availability: unavailable time (Own: your own) and, from Department up, work patterns | Own | Dept |
 | `sprints.manage` | All | Create/start/complete sprints | - | - |
 | `reports.view` | Dept / All | Reports (Dept: fixed to your own department) | - | - |
 | `audit.view` | Dept / All | Admin > Activity Log and `list_activity` | - | - |
@@ -124,8 +125,8 @@ scopes below it, and a role with no grants sees nothing.
 | `messages.manage` | All | Admin > Messages: the emails Orbit sends when something happens, to whom and saying what, and the emails sent | - | - |
 
 The navbar follows the same grants: Today needs **Edit tasks**, Tasks **View tasks**, Projects **Edit
-projects**, Sprints **Plan tasks**, Recurring **Create tasks**, My Time **Log time** and Assets **View
-assets**, each at any scope. The sprint Planning page has no menu item: its buttons on the Sprints page and a sprint's
+projects**, Sprints **Plan tasks**, Recurring **Create tasks**, My Time **Log time**, Availability **Manage
+availability** and Assets **View assets**, each at any scope. The sprint Planning page has no menu item: its buttons on the Sprints page and a sprint's
 page show with **Plan tasks**. Hiding a link blocks nothing - the pages keep their own rules.
 
 The Dashboard is always there. It has three views, switched under its header: **My work** (your own tasks and your
@@ -278,7 +279,9 @@ check-in.
 **My Time** shows the time you logged between two dates, the last seven days by default. Its **Sprint** dropdown, beside
 *From* and *To*, lists the active and completed sprints, newest first; picking one sets the dates to the sprint's first
 and last days, and the dropdown names the sprint while the dates match it (spec §6.10). Each entry shows its task's
-**Type** and **Sprint**: the sprint the task is in now, or *Backlog* / *Not Planned*.
+**Type** and **Sprint**: the sprint the task is in now, or *Backlog* / *Not Planned*. Above the entries it sets the time
+you logged against the time you were available - *Logged 32h of 40h available · 80%* - in amber below the utilisation
+target (see [Availability](#availability)).
 
 A project is owned by one department, but someone whose role may create tasks in every department can file
 tasks under it for other departments (unassigned, or assigned to someone in that department). Each such task
@@ -596,19 +599,39 @@ latest, with the reason one failed. Orbit sends through **Brevo**, **Mailjet** o
 [through Resend](#sending-email-through-resend)); until then it
 only writes each email to the log, and the outbox shows them all the same. **Send test email** sends a short email to your own address straight away and shows why if it fails.
 
+## Availability
+
+Orbit knows when each person is available (spec §6.22), so the *Time utilisation* report and My Time can set the
+time people logged against the time they had. A person's **work pattern** is the hours they are expected to work each
+weekday (in quarter hours, `7.5` or `7,5`), in effect from a date until their next one, so a change from 1 March leaves
+January's figures alone. Everyone starts on the organisation's working days times `CriticalPath:HoursPerWorkingDay`.
+**Unavailable time** is a date range, all day or so many hours a day, with a reason (*Leave*, *Sick*, *Training*,
+*Other*) and a note. Public holidays from **Admin > Working Calendar** come off everyone's day, and nobody counts as
+available before their account existed or while it was deactivated.
+
+The **Availability** page shows the people you manage as a grid, a day per column for a week or a month: the hours
+each is available, a reduced day shaded with its reason, a holiday greyed. Click a name for the person's page - their
+pattern and its history, and their unavailable time - or a day to record unavailable time on it. **Manage
+availability** decides who does what: at *Own* you record your own unavailable time, at *Department* you also set the
+patterns of your department's people, at *All* anyone's. A reason and note are seen only by the person and whoever
+manages them: reports and the activity log carry hours only. **Admin > Users** shows each person's weekly hours.
+
 ## Reports
 
 **Reports** (spec §12, needs **View reports**; at Department scope it is fixed to your own department) takes a date
-range and optional project and department filters, shows each report on screen and exports it to PDF:
+range and optional project and department filters (*Time utilisation* has no project filter), shows each report on screen and exports it to PDF:
 *Closed count by person*, *Created count by person*, *Mean time to respond*, *Mean time to resolve*, and two time
 reports:
 
-- **Time spent** - where the time logged in the period went: tiles, then the time per day (per week past two months,
-  per month past a year), by project, by person, by task type and by task source; every person's total, with the
-  department's active people who logged nothing greyed at the end; then every task worked on, most time first,
-  with its estimate against all time logged on it to date. Open a task to see who logged time on it. A **Sprint**
-  dropdown beside the dates fills them with a sprint's, and a **Person** filter narrows it to the time one person
-  logged. It replaced *Time by person*; old links to that report open this one.
+- **Time utilisation** - of the time each person was available, how much they logged: the people of the department
+  (by their home department) and all their time, on any department's task. Tiles for available, logged, utilisation,
+  unlogged, tasks and estimate variance; logged against available per day (per week past two months, per month past
+  a year), utilisation by person and where the time went by project, task type and source; every person's row,
+  lowest utilisation first, flagged *Under 80%* below the target (`Reports:UtilisationTargetPercent`); a timesheet
+  grid of logged against available per person per day; then every task worked on, most time first, with its
+  estimate against all time logged on it to date. A **Sprint** dropdown beside the dates fills them with a sprint's,
+  and a **Person** filter narrows it to one person. A task you can't open shows only its number and department. It
+  replaced *Time spent*, which replaced *Time by person*; old links to either open this one.
 - **Estimate accuracy** - tasks completed in the period, grouped by assignee: estimated against actual time, the
   variance, and how many ran over. Expand a row to see its tasks, largest overrun first.
 
@@ -674,13 +697,15 @@ And one about sprints, for the sprint review at sprint planning:
 ## Configuration
 
 See `Orbit.Web/appsettings.json` for defaults and `deploy/orbit.env.example` for the production environment
-variables (`Database:ApplyMigrations`, `DataProtection:KeyRingPath`, `Jobs:*`, `Security:*`, `Agents:*`, `CriticalPath:*`, `Assets:*`, `Attachments:*`, `Actions:*`, `Nagios:*`, `Email:*`, `Seed:Admin:*`, `App:BaseUrl`).
+variables (`Database:ApplyMigrations`, `DataProtection:KeyRingPath`, `Jobs:*`, `Security:*`, `Agents:*`, `CriticalPath:*`, `Reports:*`, `Assets:*`, `Attachments:*`, `Actions:*`, `Nagios:*`, `Email:*`, `Seed:Admin:*`, `App:BaseUrl`).
 `Jobs:Nagios:*` schedules the look for Nagios instances that are due (every minute; each instance has its own
 interval), `Nagios:QueryTimeoutSeconds` caps an agent's read of one instance and `Nagios:StaleAfterSeconds` is how
 old Nagios' own status data may be before a check is discarded.
 `Actions:TimeoutSeconds` caps a request action's script, and `Actions:Connections:<name>:Provider` / `ConnectionString`
 name the databases a script on the server may open; an agent's connections go in its own `actions.json` (deploy/README.md).
 `App:BaseUrl` is also the address put into an agent's `configure` command, so it must be the public `https` URL.
+`Reports:UtilisationTargetPercent` (80) is the share of a person's available time below which Time utilisation and
+My Time flag them as under target; a value outside 1 to 100 falls back to 80, with a warning at startup.
 Emails (see [Messages](#messages)) are sent from the outbox by `Jobs:EmailDispatch:*` (every 15 seconds) through
 Identity's `IEmailSender`: `Email:Provider` is `Log` (the default, which only logs them), `Brevo`, `Mailjet` or `Resend`.
 `Email:MaxAttempts` (6) is how many tries a failing email gets, `Email:KeepDays` (30) how long sent and failed ones
