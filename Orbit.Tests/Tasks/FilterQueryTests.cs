@@ -170,6 +170,18 @@ public class FilterQueryTests
             Orbit.Components.Pages.Reports.ReportAddress.Parse("TimeSpent", null, null, null, null, null, null).Kind);
     }
 
+    /// <summary>RPT-052: an old Time by person link opens Time spent, which replaced it (decision 149), with its other filters kept.</summary>
+    [Theory]
+    [InlineData("TimeByPerson")]
+    [InlineData(" timebyperson ")]
+    public void An_old_time_by_person_link_opens_time_spent(string kind)
+    {
+        var dept = Guid.NewGuid();
+        var a = Orbit.Components.Pages.Reports.ReportAddress.Parse(kind, "2026-10-01", "2026-10-31", null, dept.ToString(), null, null);
+        Assert.Equal((Orbit.Application.Models.ReportKind.TimeSpent, new DateOnly(2026, 10, 1), new DateOnly(2026, 10, 31), dept),
+            (a.Kind, a.From!.Value, a.To!.Value, a.DepartmentId!.Value));
+    }
+
     /// <summary>Decision 143: a report's period is the last 31 days by default, and the page and its PDF read it the same way.</summary>
     [Fact]
     public void A_report_period_defaults_to_the_last_31_days()

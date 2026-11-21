@@ -8,7 +8,6 @@ public enum ReportKind
     CreatedByPerson,
     MeanTimeToRespond,
     MeanTimeToResolve,
-    TimeByPerson,
     EstimateAccuracy,
     ProjectStatus,
     AssetStatus,
@@ -37,9 +36,6 @@ public sealed record PersonAverageRow(Guid? UserId, string Name, int Count, doub
 
 public sealed record MeanTimeReport(IReadOnlyList<PersonAverageRow> Rows, int OverallCount, double? OverallAverageHours);
 
-/// <summary>One person's time on one task within a report's date range, summed in SQL (§12 Time by person).</summary>
-public sealed record LoggedTime(Guid UserId, Guid TaskId, int Minutes);
-
 /// <summary>What the time reports need to know about a task. <see cref="TotalMinutes"/> is all time logged on it to date, by anyone.</summary>
 public sealed record TaskTimeFacts(
     Guid Id, string Number, string Title, TaskItemStatus Status, IReadOnlyList<Guid> AssigneeIds, int? EstimateMinutes, int TotalMinutes);
@@ -56,25 +52,6 @@ public sealed record EstimateComparison(int EstimatedTasks, int EstimatedMinutes
 
     /// <summary>Variance as a percentage of the estimate; null when nothing is estimated.</summary>
     public double? VariancePercent => EstimatedMinutes == 0 ? null : VarianceMinutes * 100.0 / EstimatedMinutes;
-}
-
-/// <summary>
-/// Time by person (§12): who logged how much in the range. The totals count each task once, so a task two people
-/// worked on shows under both rows but isn't estimated twice in <see cref="Total"/>.
-/// </summary>
-public sealed record TimeByPersonReport(
-    IReadOnlyList<PersonTimeRow> Rows, int TotalLoggedMinutes, int TotalTasks, int TotalUnestimatedTasks, EstimateComparison Total);
-
-public sealed record PersonTimeRow(
-    Guid UserId, string Name, int LoggedMinutes, int TaskCount, int UnestimatedTasks, EstimateComparison Estimate,
-    IReadOnlyList<PersonTaskTimeRow> Tasks);
-
-/// <summary>A task one person worked on: <see cref="LoggedMinutes"/> is their time in the range, <see cref="TotalMinutes"/> everyone's to date.</summary>
-public sealed record PersonTaskTimeRow(
-    Guid TaskId, string Number, string Title, TaskItemStatus Status, int? EstimateMinutes, int LoggedMinutes, int TotalMinutes)
-{
-    public bool IsCancelled => Status == TaskItemStatus.Cancelled;
-    public bool IsOver => !IsCancelled && EstimateMinutes is int e && TotalMinutes > e;
 }
 
 /// <summary>One person's time on one task on one day of Time spent's window (§12), summed in SQL.</summary>
@@ -702,8 +679,6 @@ public static class ReportCatalog
             "Average time from creation until the task first left Todo, for tasks created in the period."),
         new(ReportKind.MeanTimeToResolve, "Mean time to resolve",
             "Average time from creation to completion, for tasks completed in the period."),
-        new(ReportKind.TimeByPerson, "Time by person",
-            "Time each person logged in the period, and for the tasks they worked on, each task's estimate against all time logged on it to date."),
         new(ReportKind.TimeSpent, "Time spent",
             "Where the time logged in the period went: by project, person, day, task type and source, then every task worked on, most time first, with who logged it.",
             ByPerson: true, SprintQuickPick: true),

@@ -61,7 +61,6 @@ public static class ReportPdfEndpoint
             rows.Add(["Overall", meanTime.OverallCount.ToString(), DurationFormat.Hours(meanTime.OverallAverageHours)]);
             tables.Add(new ReportPdfBuilder.Table(["Assignee", "Tasks", "Average"], rows));
         }
-        if (run.TimeByPerson is not null) tables.AddRange(TimeByPersonTables(run.TimeByPerson));
         if (run.EstimateAccuracy is not null) tables.AddRange(EstimateAccuracyTables(run.EstimateAccuracy));
         if (run.ProjectReport is not null) tables.AddRange(ProjectStatusTables(run.ProjectReport));
         if (run.AssetReport is not null) tables.AddRange(AssetStatusTables(run.AssetReport));
@@ -218,27 +217,6 @@ public static class ReportPdfEndpoint
         g.Project is { } p ? $"{p.Number} {p.Name}\n{p.DepartmentName} · {p.Status.Label()}".Trim() : g.Name;
 
     private static string Tasks(int count, int unestimated) => unestimated == 0 ? count.ToString() : $"{count} ({unestimated} unestimated)";
-
-    private static IEnumerable<ReportPdfBuilder.Table> TimeByPersonTables(TimeByPersonReport r)
-    {
-        var rows = r.Rows.Select(p => (IReadOnlyList<string>)
-            [p.Name, TimeFormat.Minutes(p.LoggedMinutes), Tasks(p.TaskCount, p.UnestimatedTasks),
-             Estimated(p.Estimate), Actual(p.Estimate), Variance(p.Estimate)]).ToList();
-        if (rows.Count > 0)
-            rows.Add(["Total", TimeFormat.Minutes(r.TotalLoggedMinutes), Tasks(r.TotalTasks, r.TotalUnestimatedTasks),
-                Estimated(r.Total), Actual(r.Total), Variance(r.Total)]);
-        yield return new(["Person", "Logged", "Tasks", "Estimated", "Actual to date", "Variance"], rows,
-            Widths: [3, 1.4f, 2, 1.4f, 1.5f, 2]);
-
-        foreach (var p in r.Rows.Where(p => p.Tasks.Count > 0)) // people with no time have only their summary row
-        {
-            yield return new(["Task", "Status", "Estimate", "Logged", "Actual to date", ""],
-                p.Tasks.Select(t => (IReadOnlyList<string>)
-                    [$"{t.Number} {t.Title}", t.Status.Label(), Estimate(t.EstimateMinutes), TimeFormat.Minutes(t.LoggedMinutes),
-                     TimeFormat.Minutes(t.TotalMinutes), Marker(t.Status, t.EstimateMinutes, t.IsOver)]).ToList(),
-                p.Name, [4.6f, 1.5f, 1.3f, 1.3f, 1.5f, 2.1f]);
-        }
-    }
 
     private static IEnumerable<ReportPdfBuilder.Table> EstimateAccuracyTables(EstimateAccuracyReport r)
     {

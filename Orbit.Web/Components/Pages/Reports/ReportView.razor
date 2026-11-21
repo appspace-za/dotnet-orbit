@@ -164,10 +164,6 @@ else
                 </div>
             }
         }
-        else if (run.TimeByPerson is { } time)
-        {
-            <ReportTimeByPerson @key="run" Report="time" />
-        }
         else if (run.EstimateAccuracy is { } accuracy)
         {
             <ReportEstimateAccuracy @key="run" Report="accuracy" />

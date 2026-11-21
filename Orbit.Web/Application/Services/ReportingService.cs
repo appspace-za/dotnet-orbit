@@ -118,29 +118,6 @@ public sealed class ReportingService(ApplicationDbContext db, IActorProvider act
     }
 
     /// <summary>
-    /// Time logged in the period (by entry date) per person, with each task's estimate against all time logged on it
-    /// to date. Scoped by the task's project and department, like time logging itself (§6.2.1). The people the report
-    /// covers (<see cref="PeopleAsync"/>) are listed with zero when they logged nothing.
-    /// </summary>
-    public async Task<TimeByPersonReport> TimeByPersonAsync(ReportFilter f, CancellationToken ct = default)
-    {
-        var actor = await RequireReportsAsync(ct);
-        var from = DateOnly.FromDateTime(f.FromUtc);
-        var to = DateOnly.FromDateTime(f.ToUtc);
-        var logged = await Apply(db.TimeEntries.AsNoTracking(), f, actor)
-            .Where(e => e.Date >= from && e.Date < to)
-            .GroupBy(e => new { e.UserId, e.TaskId })
-            .Select(g => new LoggedTime(g.Key.UserId, g.Key.TaskId, g.Sum(e => e.DurationMinutes)))
-            .ToListAsync(ct);
-        var taskIds = logged.Select(l => l.TaskId).Distinct().ToList();
-        var tasks = taskIds.Count == 0 ? new Dictionary<Guid, TaskTimeFacts>()
-            : await Facts(db.Tasks.AsNoTracking().Where(t => taskIds.Contains(t.Id))).ToDictionaryAsync(t => t.Id, ct);
-        var people = await PeopleAsync(f, actor, ct);
-        var names = await NamesAsync(logged.Select(l => l.UserId).Concat(people).Select(id => (Guid?)id), ct);
-        return TimeReportRules.TimeByPerson(logged, tasks, id => Name(id, names, "Unknown"), people);
-    }
-
-    /// <summary>
     /// Time spent (§12): where the time logged in the period (by entry date) went - by person, project, type, source and day, then
     /// every task worked on with who logged it. Entries are scoped by their task's project and department, as time logging itself is
     /// (§6.2.1). The time is read once, summed by task, person and day, with every person's entries: the Person filter applies in
@@ -187,7 +164,7 @@ public sealed class ReportingService(ApplicationDbContext db, IActorProvider act
     }
 
     /// <summary>
-    /// The people Time by person lists even with nothing logged: active people (never the Claude user) whose own
+    /// The people Time spent lists even with nothing logged (decision 44): active people (never the Claude user) whose own
     /// department is the one reported on - the project's when only a project is chosen - or everyone when neither is.
     /// </summary>
     private async Task<List<Guid>> PeopleAsync(ReportFilter f, Actor actor, CancellationToken ct)

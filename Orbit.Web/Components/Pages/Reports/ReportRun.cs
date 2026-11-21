@@ -10,18 +10,23 @@ namespace Orbit.Components.Pages.Reports;
 
 /// <summary>
 /// A report's filters as the address gives them (spec §12), read leniently as the Razor page's binding did: a bad value is no
-/// filter. No kind is the first report, Closed count by person.
+/// filter. No kind is the first report, Closed count by person. Time by person's kind opens Time spent, which replaced it
+/// (decision 149), so its links and bookmarks keep working.
 /// </summary>
 public sealed record ReportAddress(
     ReportKind Kind, DateOnly? From, DateOnly? To, Guid? ProjectId, Guid? DepartmentId, Guid? OwnerId, Guid? AssigneeId,
     Guid? SprintId = null, Guid? PersonId = null)
 {
+    private const string RetiredTimeByPerson = "TimeByPerson";
+
     public static ReportAddress Parse(
         string? kind, string? from, string? to, string? projectId, string? departmentId, string? ownerId, string? assigneeId,
         string? sprintId = null, string? personId = null) =>
-        new(FilterQuery.Enum<ReportKind>(kind) ?? ReportKind.ClosedByPerson, FilterQuery.Date(from), FilterQuery.Date(to),
-            FilterChoice.Id(projectId), FilterChoice.Id(departmentId), FilterChoice.Id(ownerId), FilterChoice.Id(assigneeId),
-            FilterChoice.Id(sprintId), FilterChoice.Id(personId));
+        new(string.Equals(kind?.Trim(), RetiredTimeByPerson, StringComparison.OrdinalIgnoreCase)
+                ? ReportKind.TimeSpent
+                : FilterQuery.Enum<ReportKind>(kind) ?? ReportKind.ClosedByPerson,
+            FilterQuery.Date(from), FilterQuery.Date(to), FilterChoice.Id(projectId), FilterChoice.Id(departmentId),
+            FilterChoice.Id(ownerId), FilterChoice.Id(assigneeId), FilterChoice.Id(sprintId), FilterChoice.Id(personId));
 
     /// <summary>The period reported on, the last 31 days by default; Sprint status replaces it with the sprint's days.</summary>
     public (DateOnly From, DateOnly To) Period(DateOnly today) => FilterQuery.Period(From, To, today, 30);
@@ -60,7 +65,6 @@ public sealed class ReportRun
     public ReportDefinition Definition { get; private set; } = null!;
     public PersonCountReport? Counts { get; private set; }
     public MeanTimeReport? MeanTime { get; private set; }
-    public TimeByPersonReport? TimeByPerson { get; private set; }
     public EstimateAccuracyReport? EstimateAccuracy { get; private set; }
     public ProjectStatusReport? ProjectReport { get; private set; }
     public AssetStatusReport? AssetReport { get; private set; }
@@ -182,7 +186,6 @@ public sealed class ReportRun
             case ReportKind.CreatedByPerson: run.Counts = await reporting.CreatedByPersonAsync(filter, ct); break;
             case ReportKind.MeanTimeToRespond: run.MeanTime = await reporting.MeanTimeToRespondAsync(filter, ct); break;
             case ReportKind.MeanTimeToResolve: run.MeanTime = await reporting.MeanTimeToResolveAsync(filter, ct); break;
-            case ReportKind.TimeByPerson: run.TimeByPerson = await reporting.TimeByPersonAsync(filter, ct); break;
             case ReportKind.EstimateAccuracy: run.EstimateAccuracy = await reporting.EstimateAccuracyAsync(filter, ct); break;
             case ReportKind.ProjectStatus: run.ProjectReport = await reporting.ProjectStatusAsync(filter, ct); break;
             case ReportKind.AssetStatus: run.AssetReport = await reporting.AssetStatusAsync(filter, ct); break;
