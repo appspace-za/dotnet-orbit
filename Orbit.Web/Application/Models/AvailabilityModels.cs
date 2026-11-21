@@ -56,3 +56,17 @@ public sealed record AvailabilityDay(
     public IReadOnlyDictionary<UnavailableReason, int> UnavailableByReason =>
         Removed.GroupBy(r => r.Reason).ToDictionary(g => g.Key, g => g.Sum(r => r.Minutes));
 }
+
+/// <summary>The team grid's period: a week (Monday to Sunday) or a calendar month.</summary>
+public enum AvailabilityView
+{
+    Week,
+    Month
+}
+
+/// <summary>
+/// One cell of the team grid: its text (<c>8h</c>, <c>-</c> for a day the pattern doesn't work, empty outside employment), whether
+/// unavailable time reduced it, a holiday, the reasons' short forms and the line its hover shows.
+/// </summary>
+public sealed record AvailabilityCell(
+    DateOnly Date, string Text, bool Reduced, bool Holiday, bool Blank, IReadOnlyList<string> Reasons, string Hover);
