@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Orbit.Application;
+using Orbit.Application.Availability;
 using Orbit.Data.Entities;
 
 namespace Orbit.Data;
@@ -79,6 +80,11 @@ public static class DbInitializer
                 if (result.Succeeded)
                 {
                     await userManager.AddToRoleAsync(admin, builtIn.Name!);
+                    // The standard week, as every new person gets (§6.22).
+                    var calendar = await db.WorkingCalendars.AsNoTracking().FirstOrDefaultAsync(c => c.Id == WellKnownIds.WorkingCalendarId, ct) ?? new WorkingCalendar();
+                    var hours = sp.GetRequiredService<IOptions<CriticalPathOptions>>().Value.HoursPerWorkingDay;
+                    db.WorkPatterns.Add(WorkPatterns.Default(admin.Id, calendar.WorkingDays, hours, DateOnly.FromDateTime(admin.CreatedAt)));
+                    await db.SaveChangesAsync(ct);
                     logger.LogWarning("Seeded the initial System Administrator account {Email}. Sign in, change the password, then remove the Seed:Admin settings.", admin.Email);
                 }
                 else

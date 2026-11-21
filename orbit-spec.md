@@ -287,6 +287,21 @@ These live in Orbit, not on the agent, so that the agent has nothing to configur
 - `IsWorking` (bool) — false for a public holiday or shutdown day, true for an exceptional working day
 - `CreatedAt`, `CreatedById`
 
+**WorkPattern** *(a person's expected hours per weekday, in effect from a date — see §6.22)*
+- `Id` (Guid)
+- `UserId` (FK → User, cascade)
+- `EffectiveFrom` (date; unique with `UserId`) — in effect until the person's next pattern; the first also covers the dates before it
+- `MondayMinutes` … `SundayMinutes` (int, 0 to 1,440 in quarter hours) — the weekly total is their sum, never stored
+- `CreatedAt`, `CreatedById`
+
+**UnavailableTime** *(a stretch of a person's unavailable time — see §6.22)*
+- `Id` (Guid)
+- `UserId` (FK → User, cascade)
+- `From`, `To` (dates, both included, at most 366 days apart)
+- `MinutesPerDay` (int, nullable) — null for all day, otherwise 15 to 1,440 in quarter hours
+- `Reason` (`Leave`, `Sick`, `Training`, `Other`) and `Note` (up to 500 characters) — shown only to the person and whoever manages their availability
+- `CreatedAt`, `CreatedById`, `UpdatedAt`, `UpdatedById`
+
 **CriticalPathAnalysis** *(one run of critical path analysis on a project — see §6.17)*
 - `Id` (Guid)
 - `ProjectId` (FK → Project)
@@ -1395,7 +1410,8 @@ Orbit relies on ASP.NET Core's standard layered configuration (`appsettings.json
 - **Email sender** (§6.7): `Email__Provider=Brevo` with `Email__FromAddress`, optionally `Email__FromName`, and the secret `Email__Brevo__ApiKey` (a Brevo v3 API key, `xkeysib-…`) in the env file. Without them Orbit only logs its emails. Brevo must accept calls from the server: authorise its public address under Brevo's *Security > Authorised IPs*, or Brevo answers 401 and the outbox says so. Orbit reaches `api.brevo.com` over HTTPS (443), through the machine's proxy if one is set. Or `Email__Provider=Mailjet` with the same From settings and the secrets `Email__Mailjet__ApiKey` and `Email__Mailjet__SecretKey` (the API key and its secret key); Orbit then reaches `api.mailjet.com` (or `api.us.mailjet.com`, set as `Email__Mailjet__BaseUrl`) over HTTPS. Or `Email__Provider=Resend` with the same From settings, the From address on a domain verified in Resend, and the secret `Email__Resend__ApiKey` (`re_…`, best a key with sending access only); Orbit then reaches `api.resend.com` over HTTPS.
 - **Request actions** (§6.20): `Actions__TimeoutSeconds` (default 120) is how long a script may run; `Actions__Connections__<name>__Provider` (`postgres` or `sqlserver`) and `Actions__Connections__<name>__ConnectionString` name the databases a script running on the web server may open as `Connections.Open("<name>")`. The connection named `orbit` is always Orbit's own database and needs no setting. These are secrets like the main connection string and live in the same env file; an agent-side action takes its connections from the agent's `actions.json` instead (§10.3).
 - **Sign-in hardening** (`Security__Lockout__MaxFailedAttempts`, `Security__Lockout__LockoutMinutes`, `Security__LoginThrottle__Enabled` / `MaxFailures` / `WindowMinutes`; §6.5, §8.3). The lockout pair is the one setting that must be chosen against the organisation's **Active Directory password policy** rather than left to taste: attempts below AD's lockout threshold, minutes at least AD's counter-reset interval. The defaults (3 / 30) suit the common policies.
-- **Critical path analysis thresholds** (`CriticalPath__NearCriticalThresholdWorkingDays`, `CriticalPath__BufferAmberPercent`, `CriticalPath__BufferRedPercent`, `CriticalPath__HoursPerWorkingDay`; §6.17), defaults 5 / 33 / 66 / 8. The working week and public holidays are data, edited under Admin > Working Calendar, not configuration.
+- **Critical path analysis thresholds** (`CriticalPath__NearCriticalThresholdWorkingDays`, `CriticalPath__BufferAmberPercent`, `CriticalPath__BufferRedPercent`, `CriticalPath__HoursPerWorkingDay`; §6.17), defaults 5 / 33 / 66 / 8. The working week and public holidays are data, edited under Admin > Working Calendar, not configuration. `HoursPerWorkingDay` is also the length of a day in a new person's work pattern (§6.22).
+- **Utilisation target** (`Reports__UtilisationTargetPercent`; §6.22, §12 Time utilisation), default 80, from 1 to 100: logged time below this share of a person's available time is *under target*. A value outside 1 to 100 falls back to 80, with a warning logged at startup.
 - **Asset windows** (`Assets__CheckDueSoonDays`, `Assets__WarrantyExpiringDays`; §6.19), defaults 14 / 60. Check intervals are per asset type, edited on the Asset types pages, and asset files use the `Attachments__*` limits.
 - **Behind the reverse proxy:** Orbit honours `X-Forwarded-For`/`X-Forwarded-Proto`, from a proxy on the same host only (the framework's loopback-only default), so the request scheme and the source addresses it sees — an agent's, and every sign-in attempt's — are the real ones rather than `127.0.0.1` over `http`. `X-Forwarded-For` is therefore a **security setting**: the failed-sign-in throttle counts by client address and switches itself off, with a warning in the log, if all it ever sees is loopback (§8.3). Caddy sends it by default; nginx must be told to. The proxy must allow WebSocket upgrade and long-lived connections on `/agent/hub`; if it doesn't, the agent falls back to Server-Sent Events or long polling by itself. `App__BaseUrl` must be the public `https` address: it is what the agent's `configure` command is built from.
 - **Data Protection key ring, again:** it now also encrypts the directory service-account password. Losing it means re-entering that password under Admin > Directory; nothing else about directory sign-in is affected. The same goes for each Nagios instance's password (§6.21): re-enter it under Admin > Nagios, where the instance says why it stopped being checked.
