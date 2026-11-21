@@ -113,6 +113,11 @@ public sealed record TimeSpentReport(
     /// <summary>Whether <see cref="Buckets"/> are days, weeks or months, by the window's length.</summary>
     public TimeBucketSize BucketSize { get; init; }
     public IReadOnlyList<TimeBucket> Buckets { get; init; } = [];
+    /// <summary>
+    /// The person the Person filter picked, when the report knows them - they logged time in the window or are among the people
+    /// it covers - so they keep their name in a window where they logged nothing; null otherwise.
+    /// </summary>
+    public ReportPerson? Person { get; init; }
 }
 
 /// <summary>What one column of Time spent's per-period chart covers: a day, an ISO week (Monday to Sunday) or a calendar month.</summary>

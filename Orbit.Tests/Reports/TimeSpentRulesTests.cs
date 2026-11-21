@@ -85,6 +85,23 @@ public class TimeSpentRulesTests
         Assert.Empty(nobody.Tasks);
     }
 
+    /// <summary>
+    /// RPT-045: the person the Person filter picked is named when the report knows them - they logged time in the window, or are
+    /// among the people it covers - though they logged nothing in it, so stepping through sprints for someone never shows them as
+    /// Unknown; anyone else isn't named.
+    /// </summary>
+    [Fact]
+    public void The_chosen_person_is_named_though_they_logged_nothing_in_the_window()
+    {
+        var t = Task();
+        TimeSpentEntry[] entries = [Entry(Bob, t, 60)];
+
+        Assert.Equal("Bob", Run(entries, [t], personId: Bob).Person?.Name);
+        Assert.Equal("Alice", Run(entries, [t], covered: [Alice], personId: Alice).Person?.Name);
+        Assert.Null(Run(entries, [t], covered: [Alice], personId: Eve).Person);
+        Assert.Null(Run(entries, [t], covered: [Alice]).Person);
+    }
+
     /// <summary>RPT-046: the summary counts people and tasks, unestimated tasks, and a shared task's estimate once.</summary>
     [Fact]
     public void Summary_counts_people_tasks_and_a_shared_task_once()

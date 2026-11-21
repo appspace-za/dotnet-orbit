@@ -91,7 +91,11 @@ public static class TimeSpentRules
                 .OrderByDescending(r => r.Minutes).ThenBy(r => r.Source)
                 .ToList(),
             BucketSize = size,
-            Buckets = buckets.Select(b => b with { Minutes = picked.Where(e => e.Date >= b.From && e.Date <= b.To).Sum(e => e.Minutes) }).ToList()
+            Buckets = buckets.Select(b => b with { Minutes = picked.Where(e => e.Date >= b.From && e.Date <= b.To).Sum(e => e.Minutes) }).ToList(),
+            // Named only from what the report already holds: the people with time in the window and those it covers.
+            Person = personId is Guid chosen && (options.Any(o => o.Id == chosen) || listed.Contains(chosen))
+                ? people.TryGetValue(chosen, out var p) ? p : new ReportPerson(chosen, Unknown, true)
+                : null
         };
     }
 

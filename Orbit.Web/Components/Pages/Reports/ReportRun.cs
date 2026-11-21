@@ -230,7 +230,7 @@ public sealed class ReportRun
             if (run.OwnerId is Guid o) parts.Add("Owner: " + PersonName(people.Owners, o));
             if (run.AssigneeId is Guid a) parts.Add("Assignee: " + PersonName(people.Assignees, a));
         }
-        if (run.TimeSpent is { } spent && run.PersonId is Guid person) parts.Add("Person: " + PersonName(spent.PersonOptions, person));
+        if (run.TimeSpent is { } spent && run.PersonId is not null) parts.Add("Person: " + (spent.Person?.Name ?? "Unknown"));
         run.FilterSummary = string.Join(" · ", parts);
 
         if (withOptions)
@@ -246,7 +246,11 @@ public sealed class ReportRun
             }
             // Labelled as My Time labels them (decision 148).
             run.SprintOptions = run.Sprints.Select(s => (s.Id.ToString(), $"{s.Name} ({s.Status})")).ToList();
-            if (run.TimeSpent is { } report) run.PersonFilterOptions = PersonOptions(report.PersonOptions, run.PersonId);
+            // The person picked stays offered under their name in a period where they logged nothing, when the report knows them.
+            if (run.TimeSpent is { } report)
+                run.PersonFilterOptions = PersonOptions(
+                    report.Person is { } chosen && report.PersonOptions.All(p => p.Id != chosen.Id) ? [.. report.PersonOptions, chosen] : report.PersonOptions,
+                    run.PersonId);
             await DepartmentOptionsAsync(run, departments, ct);
         }
         return run;
