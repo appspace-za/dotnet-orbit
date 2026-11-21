@@ -60,10 +60,14 @@ public sealed record TimeUtilisationEntry(Guid TaskId, Guid UserId, DateOnly Dat
 /// <summary>One person's time on one task to date, on any day.</summary>
 public sealed record TimeUtilisationPersonTime(Guid TaskId, Guid UserId, int Minutes);
 
-/// <summary>What Time utilisation needs to know about a task. <see cref="TotalMinutes"/> is all time logged on it to date, by anyone.</summary>
+/// <summary>
+/// What Time utilisation needs to know about a task. <see cref="TotalMinutes"/> is all time logged on it to date, by anyone.
+/// <see cref="Restricted"/> is a task the viewer can't open, outside the departments their reports reach (§12): it is listed by number
+/// and department only.
+/// </summary>
 public sealed record TimeUtilisationTaskFacts(
     Guid Id, string Number, string Title, TaskItemStatus Status, TaskType Type, TaskSource Source, Guid? ProjectId,
-    IReadOnlyList<Guid> AssigneeIds, int? EstimateMinutes, int TotalMinutes)
+    IReadOnlyList<Guid> AssigneeIds, int? EstimateMinutes, int TotalMinutes, string DepartmentName, bool Restricted)
 {
     /// <summary>The task as the estimate comparison (<see cref="Orbit.Application.TimeReportRules.Compare"/>) reads it.</summary>
     public TaskTimeFacts AsTimeFacts() => new(Id, Number, Title, Status, AssigneeIds, EstimateMinutes, TotalMinutes);
@@ -88,11 +92,13 @@ public sealed record TimeUtilisationTaskPerson(Guid UserId, string Name, int Min
 
 /// <summary>
 /// A task worked on in the window: <see cref="Minutes"/> is the time in it (the person's, under the Person filter),
-/// <see cref="TotalMinutes"/> everyone's to date. <see cref="Project"/> is null for a task on no project.
+/// <see cref="TotalMinutes"/> everyone's to date. <see cref="Project"/> is null for a task on no project. A <see cref="Restricted"/>
+/// task has no <see cref="Title"/>: it is shown by number and department, unlinked.
 /// </summary>
 public sealed record TimeUtilisationTaskRow(
     Guid TaskId, string Number, string Title, TaskItemStatus Status, TaskType Type, TimeUtilisationProjectFacts? Project,
-    int? EstimateMinutes, int Minutes, int TotalMinutes, IReadOnlyList<TimeUtilisationTaskPerson> People)
+    int? EstimateMinutes, int Minutes, int TotalMinutes, IReadOnlyList<TimeUtilisationTaskPerson> People, string DepartmentName,
+    bool Restricted)
 {
     public bool IsCancelled => Status == TaskItemStatus.Cancelled;
     public bool IsOver => !IsCancelled && EstimateMinutes is int e && TotalMinutes > e;
@@ -685,8 +691,8 @@ public static class ReportCatalog
         new(ReportKind.MeanTimeToResolve, "Mean time to resolve",
             "Average time from creation to completion, for tasks completed in the period."),
         new(ReportKind.TimeUtilisation, "Time utilisation",
-            "Where the time logged in the period went: by project, person, day, task type and source, then every task worked on, most time first, with who logged it.",
-            ByPerson: true, SprintQuickPick: true),
+            "How much of each person's available time they logged in the period, day by day, and where the logged time went: by project, task type and source, then every task worked on.",
+            ByProject: false, ByPerson: true, SprintQuickPick: true),
         new(ReportKind.EstimateAccuracy, "Estimate accuracy",
             "Tasks completed in the period, grouped by assignee: the estimate against all time logged on them. A shared task is under each of its assignees and counts once overall."),
         new(ReportKind.ProjectStatus, "Project status",

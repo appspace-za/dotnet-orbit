@@ -5,10 +5,12 @@ namespace Orbit.Application;
 /// <summary>
 /// The pure part of the Time utilisation report (§12): turns the time <c>ReportingService</c> reads in SQL into the report.
 /// <list type="bullet">
-/// <item>The window is <c>from</c> to <c>to</c>, both days included; an entry counts in it by its own date. Its project and
-/// department are its task's, which the service applies in SQL.</item>
-/// <item>The Person options are the people with time in the window, worked out before the Person filter applies; the filter then
-/// keeps only that person's entries, and narrows the people who logged nothing to them.</item>
+/// <item>The window is <c>from</c> to <c>to</c>, both days included; an entry counts in it by its own date.</item>
+/// <item>It is about people (decision 150): the people of the department reported on - by their home department - who were employed
+/// in the window or logged time in it, and all of their time, on any department's task.</item>
+/// <item>The Person options are those people, worked out before the Person filter applies; the filter then keeps only that person's
+/// entries, and narrows the people who logged nothing to them.</item>
+/// <item>A task the viewer can't open is listed by number and department only (<see cref="TimeUtilisationTaskFacts.Restricted"/>).</item>
 /// <item><i>To date</i> on a task is everyone's time on it, ever, whatever the filter: the estimate is for the whole task, so the
 /// comparison is <see cref="TimeReportRules.Compare"/>'s, over each task once.</item>
 /// <item>Every task stands alone: time on a subtask isn't rolled into its parent (§6.10).</item>
@@ -19,27 +21,27 @@ public static class TimeUtilisationRules
     private const string Unknown = "Unknown";
 
     /// <summary>
-    /// The report. <paramref name="entries"/> are the window's time, summed by task, person and day, every person's (the department
-    /// and project applied); <paramref name="tasks"/> the facts of their tasks; <paramref name="toDate"/> each person's time on those
-    /// tasks to date; <paramref name="people"/> the names of everyone in the entries and of <paramref name="covered"/>, the people
-    /// listed when they logged nothing (decision 44). An entry outside the window, or on a task not in <paramref name="tasks"/>, is
-    /// dropped.
+    /// The report. <paramref name="people"/> are everyone the department scope covers (§6.3), whatever their dates;
+    /// <paramref name="employed"/> those of them employed on some day of the window, listed even when they logged nothing;
+    /// <paramref name="entries"/> the window's time of those people, summed by task, person and day; <paramref name="tasks"/> the facts
+    /// of their tasks; <paramref name="toDate"/> each person's time on those tasks to date. An entry outside the window, on a task not
+    /// in <paramref name="tasks"/> or by someone not in <paramref name="people"/>, is dropped.
     /// </summary>
     public static TimeUtilisationReport Build(
         DateOnly from, DateOnly to, IEnumerable<TimeUtilisationEntry> entries, IReadOnlyDictionary<Guid, TimeUtilisationTaskFacts> tasks,
         IEnumerable<TimeUtilisationPersonTime> toDate, IReadOnlyDictionary<Guid, TimeUtilisationProjectFacts> projects,
-        IReadOnlyDictionary<Guid, ReportPerson> people, IEnumerable<Guid> covered, Guid? personId)
+        IReadOnlyDictionary<Guid, ReportPerson> people, IReadOnlySet<Guid> employed, Guid? personId)
     {
-        var inWindow = entries.Where(e => e.Date >= from && e.Date <= to && tasks.ContainsKey(e.TaskId)).ToList();
+        var inWindow = entries.Where(e => e.Date >= from && e.Date <= to && tasks.ContainsKey(e.TaskId) && people.ContainsKey(e.UserId)).ToList();
         string Name(Guid id) => people.TryGetValue(id, out var p) ? p.Name : Unknown;
 
-        var options = inWindow.Select(e => e.UserId).Distinct()
-            .Select(id => people.TryGetValue(id, out var p) ? p : new ReportPerson(id, Unknown, true))
+        var inReport = inWindow.Select(e => e.UserId).Concat(employed.Where(people.ContainsKey)).ToHashSet();
+        var options = inReport.Select(id => people[id])
             .OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
 
         var picked = personId is Guid only ? inWindow.Where(e => e.UserId == only).ToList() : inWindow;
-        var listed = covered.Distinct().Where(id => personId is not Guid only || id == only).ToList();
+        var listed = employed.Where(people.ContainsKey).Where(id => personId is not Guid only || id == only).ToList();
 
         var byPerson = picked.GroupBy(e => e.UserId)
             .Select(g => new TimeUtilisationPersonRow(g.Key, Name(g.Key), g.Sum(e => e.Minutes), g.Select(e => e.TaskId).Distinct().Count()))
@@ -67,8 +69,8 @@ public static class TimeUtilisationRules
                     .OrderByDescending(p => p.Minutes)
                     .ThenBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase)
                     .ToList();
-                return new TimeUtilisationTaskRow(t.Id, t.Number, t.Title, t.Status, t.Type, ProjectOf(projects, t.ProjectId), t.EstimateMinutes,
-                    g.Sum(e => e.Minutes), t.TotalMinutes, taskPeople);
+                return new TimeUtilisationTaskRow(t.Id, t.Number, t.Restricted ? "" : t.Title, t.Status, t.Type, ProjectOf(projects, t.ProjectId),
+                    t.EstimateMinutes, g.Sum(e => e.Minutes), t.TotalMinutes, taskPeople, t.DepartmentName, t.Restricted);
             })
             .OrderByDescending(r => r.Minutes)
             .ThenBy(r => r.Number, StringComparer.Ordinal)
@@ -92,10 +94,8 @@ public static class TimeUtilisationRules
                 .ToList(),
             BucketSize = size,
             Buckets = buckets.Select(b => b with { Minutes = picked.Where(e => e.Date >= b.From && e.Date <= b.To).Sum(e => e.Minutes) }).ToList(),
-            // Named only from what the report already holds: the people with time in the window and those it covers.
-            Person = personId is Guid chosen && (options.Any(o => o.Id == chosen) || listed.Contains(chosen))
-                ? people.TryGetValue(chosen, out var p) ? p : new ReportPerson(chosen, Unknown, true)
-                : null
+            // Named only when they are in the report: employed in the window or with time in it.
+            Person = personId is Guid chosen && inReport.Contains(chosen) ? people[chosen] : null
         };
     }
 

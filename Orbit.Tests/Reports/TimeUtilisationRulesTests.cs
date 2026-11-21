@@ -30,18 +30,25 @@ public class TimeUtilisationRulesTests
 
     private TimeUtilisationTaskFacts Task(
         int? estimate = null, int total = 0, TaskItemStatus status = TaskItemStatus.InProgress, Guid[]? assignees = null,
-        TaskType type = TaskType.Task, TaskSource source = TaskSource.Manual, Guid? projectId = null, string? number = null) =>
-        new(Guid.NewGuid(), number ?? $"T-26-{++_number:00000}", "Task", status, type, source, projectId, assignees ?? [], estimate, total);
+        TaskType type = TaskType.Task, TaskSource source = TaskSource.Manual, Guid? projectId = null, string? number = null,
+        string title = "Task", string department = "IT", bool restricted = false) =>
+        new(Guid.NewGuid(), number ?? $"T-26-{++_number:00000}", title, status, type, source, projectId, assignees ?? [], estimate, total,
+            department, restricted);
 
     private static TimeUtilisationEntry Entry(Guid user, TimeUtilisationTaskFacts task, int minutes, DateOnly? date = null) =>
         new(task.Id, user, date ?? Day, minutes);
 
+    /// <summary>
+    /// The report over <see cref="People"/> - everyone in the department scope (§6.3) - with <paramref name="employed"/> the people
+    /// employed on some day of the window.
+    /// </summary>
     private static TimeUtilisationReport Run(
-        IEnumerable<TimeUtilisationEntry> entries, IEnumerable<TimeUtilisationTaskFacts> tasks, IEnumerable<Guid>? covered = null,
+        IEnumerable<TimeUtilisationEntry> entries, IEnumerable<TimeUtilisationTaskFacts> tasks, IEnumerable<Guid>? employed = null,
         Guid? personId = null, IEnumerable<TimeUtilisationPersonTime>? toDate = null,
-        IReadOnlyDictionary<Guid, TimeUtilisationProjectFacts>? projects = null, DateOnly? from = null, DateOnly? to = null) =>
+        IReadOnlyDictionary<Guid, TimeUtilisationProjectFacts>? projects = null, DateOnly? from = null, DateOnly? to = null,
+        IReadOnlyDictionary<Guid, ReportPerson>? people = null) =>
         TimeUtilisationRules.Build(from ?? From, to ?? To, entries, tasks.ToDictionary(t => t.Id), toDate ?? [],
-            projects ?? new Dictionary<Guid, TimeUtilisationProjectFacts>(), People, covered ?? [], personId);
+            projects ?? new Dictionary<Guid, TimeUtilisationProjectFacts>(), people ?? People, (employed ?? []).ToHashSet(), personId);
 
     /// <summary>RPT-044: entries on the first and last days count; a day outside either end doesn't.</summary>
     [Fact]
@@ -72,23 +79,24 @@ public class TimeUtilisationRulesTests
         var t2 = Task(total: 30);
         TimeUtilisationEntry[] entries = [Entry(Alice, t1, 120), Entry(Bob, t1, 60), Entry(Bob, t2, 30)];
 
-        var report = Run(entries, [t1, t2], personId: Alice);
-        Assert.Equal(["Alice", "Bob"], report.PersonOptions.Select(p => p.Name));
+        var report = Run(entries, [t1, t2], employed: [Carol], personId: Alice);
+        Assert.Equal(["Alice", "Bob", "Carol"], report.PersonOptions.Select(p => p.Name));
         Assert.Equal(120, report.Summary.Minutes);
         var row = Assert.Single(report.Tasks);
         Assert.Equal((120, 300), (row.Minutes, row.TotalMinutes));
         Assert.Equal("Alice", Assert.Single(row.People).Name);
 
-        var nobody = Run(entries, [t1, t2], personId: Carol);
+        var nobody = Run(entries, [t1, t2], personId: Dan);
         Assert.Equal(["Alice", "Bob"], nobody.PersonOptions.Select(p => p.Name));
         Assert.Equal(0, nobody.Summary.Minutes);
         Assert.Empty(nobody.Tasks);
+        Assert.Null(nobody.Person);
     }
 
     /// <summary>
-    /// RPT-045: the person the Person filter picked is named when the report knows them - they logged time in the window, or are
-    /// among the people it covers - though they logged nothing in it, so stepping through sprints for someone never shows them as
-    /// Unknown; anyone else isn't named.
+    /// RPT-045: the person the Person filter picked is named when they are in the report - they logged time in the window or were
+    /// employed in it - though they logged nothing in it, so stepping through sprints for someone never shows them as Unknown; anyone
+    /// else isn't named.
     /// </summary>
     [Fact]
     public void The_chosen_person_is_named_though_they_logged_nothing_in_the_window()
@@ -97,9 +105,9 @@ public class TimeUtilisationRulesTests
         TimeUtilisationEntry[] entries = [Entry(Bob, t, 60)];
 
         Assert.Equal("Bob", Run(entries, [t], personId: Bob).Person?.Name);
-        Assert.Equal("Alice", Run(entries, [t], covered: [Alice], personId: Alice).Person?.Name);
-        Assert.Null(Run(entries, [t], covered: [Alice], personId: Eve).Person);
-        Assert.Null(Run(entries, [t], covered: [Alice]).Person);
+        Assert.Equal("Alice", Run(entries, [t], employed: [Alice], personId: Alice).Person?.Name);
+        Assert.Null(Run(entries, [t], employed: [Alice], personId: Eve).Person);
+        Assert.Null(Run(entries, [t], employed: [Alice]).Person);
     }
 
     /// <summary>RPT-046: the summary counts people and tasks, unestimated tasks, and a shared task's estimate once.</summary>
@@ -118,7 +126,7 @@ public class TimeUtilisationRulesTests
     }
 
     /// <summary>
-    /// RPT-047: By person by time then name, then the covered people who logged nothing, by name, at zero, and never doubled when
+    /// RPT-047: By person by time then name, then the employed people who logged nothing, by name, at zero, and never doubled when
     /// they did log time.
     /// </summary>
     [Fact]
@@ -127,7 +135,7 @@ public class TimeUtilisationRulesTests
         var t1 = Task();
         var t2 = Task();
         var report = Run([Entry(Alice, t1, 60), Entry(Bob, t1, 60), Entry(Bob, t2, 60), Entry(Dan, t2, 60)], [t1, t2],
-            covered: [Alice, Carol, Eve]);
+            employed: [Alice, Carol, Eve]);
 
         Assert.Equal(["Bob", "Alice", "Dan", "Carol", "Eve"], report.People.Select(p => p.Name));
         var bob = report.People[0];
@@ -141,8 +149,8 @@ public class TimeUtilisationRulesTests
     }
 
     /// <summary>
-    /// RPT-047: with the Person filter, only that person is considered: a covered person with no time is one zero row; someone from
-    /// another department with none is nothing.
+    /// RPT-047: with the Person filter, only that person is considered: an employed person with no time is one zero row; someone
+    /// neither employed nor with time is nothing.
     /// </summary>
     [Fact]
     public void The_person_filter_narrows_who_logged_nothing_to_that_person()
@@ -151,15 +159,15 @@ public class TimeUtilisationRulesTests
         var t2 = Task();
         TimeUtilisationEntry[] entries = [Entry(Alice, t1, 60), Entry(Bob, t1, 60), Entry(Bob, t2, 60), Entry(Dan, t2, 60)];
 
-        var carol = Run(entries, [t1, t2], covered: [Alice, Carol, Eve], personId: Carol);
+        var carol = Run(entries, [t1, t2], employed: [Alice, Carol, Eve], personId: Carol);
         Assert.Equal(["Carol"], carol.People.Select(p => p.Name));
         Assert.Equal((0, 1), (carol.Summary.People, carol.Summary.LoggedNothing));
 
-        var dan = Run(entries, [t1, t2], covered: [Alice, Carol, Eve], personId: Dan);
+        var dan = Run(entries, [t1, t2], employed: [Alice, Carol, Eve], personId: Dan);
         Assert.Equal(["Dan"], dan.People.Select(p => p.Name));
         Assert.Equal((1, 0), (dan.Summary.People, dan.Summary.LoggedNothing));
 
-        var eve = Run(entries, [t1, t2], covered: [Alice, Carol], personId: Eve);
+        var eve = Run(entries, [t1, t2], employed: [Alice, Carol], personId: Eve);
         Assert.Empty(eve.People);
         Assert.Equal(0, eve.Summary.LoggedNothing);
     }
@@ -292,17 +300,63 @@ public class TimeUtilisationRulesTests
         Assert.Equal(30, report.Buckets.Sum(b => b.Minutes));
     }
 
-    /// <summary>Review focus: an entry by a user with no name row is Unknown; an entry for a task not in the facts is dropped.</summary>
+    /// <summary>RPT-053: an entry by someone outside the people reported on is dropped, and so is one on a task not in the facts.</summary>
     [Fact]
-    public void An_unknown_person_is_named_unknown_and_an_unknown_tasks_time_is_dropped()
+    public void Entries_outside_the_people_or_the_tasks_are_dropped()
     {
         var t = Task();
         var stranger = Guid.NewGuid();
-        var report = Run([Entry(stranger, t, 30), new TimeUtilisationEntry(Guid.NewGuid(), Alice, Day, 999)], [t]);
+        var report = Run([Entry(stranger, t, 30), Entry(Alice, t, 15), new TimeUtilisationEntry(Guid.NewGuid(), Alice, Day, 999)], [t]);
 
-        Assert.Equal(30, report.Summary.Minutes);
-        Assert.Equal("Unknown", Assert.Single(report.People).Name);
-        Assert.Equal("Unknown", Assert.Single(report.PersonOptions).Name);
-        Assert.Equal("Unknown", Assert.Single(Assert.Single(report.Tasks).People).Name);
+        Assert.Equal(15, report.Summary.Minutes);
+        Assert.Equal("Alice", Assert.Single(report.People).Name);
+        Assert.Equal("Alice", Assert.Single(report.PersonOptions).Name);
+        Assert.Equal("Alice", Assert.Single(Assert.Single(report.Tasks).People).Name);
+    }
+
+    /// <summary>
+    /// RPT-053: the report holds the people of the department scope who were employed in the window or logged time in it - so a
+    /// leaver with time is in it and someone gone before the window isn't - by time, then the employed who logged nothing; the
+    /// Person options are the same people, by name.
+    /// </summary>
+    [Fact]
+    public void People_in_the_report_are_employed_or_logged_time()
+    {
+        var t = Task();
+        var eve = Guid.NewGuid();
+        var report = Run([Entry(Alice, t, 60), Entry(Carol, t, 30), Entry(eve, t, 45)], [t], employed: [Alice, Bob]);
+
+        Assert.Equal(["Alice", "Carol", "Bob"], report.People.Select(p => p.Name));
+        Assert.DoesNotContain(report.People, p => p.Name == "Dan");
+        Assert.Equal(90, report.Summary.Minutes);
+        Assert.Equal(["Alice", "Bob", "Carol"], report.PersonOptions.Select(p => p.Name));
+        Assert.Equal(1, report.Summary.LoggedNothing);
+    }
+
+    /// <summary>RPT-054: all of a person's time counts, on any department's tasks; the report has no project filter.</summary>
+    [Fact]
+    public void All_of_a_persons_time_counts_on_any_departments_tasks()
+    {
+        var mine = Task(department: "IT");
+        var theirs = Task(department: "Marketing");
+        var report = Run([Entry(Alice, mine, 60), Entry(Alice, theirs, 30)], [mine, theirs], employed: [Alice]);
+
+        Assert.Equal(90, report.Summary.Minutes);
+        Assert.Equal(["IT", "Marketing"], report.Tasks.Select(r => r.DepartmentName).Order());
+        Assert.False(ReportCatalog.Get(ReportKind.TimeUtilisation).ByProject);
+    }
+
+    /// <summary>RPT-059: a task the viewer can't open is listed by number and department, with no title; its time still counts.</summary>
+    [Fact]
+    public void Restricted_tasks_are_shown_by_number_and_department()
+    {
+        var secret = Task(title: "Secret", department: "Marketing", restricted: true);
+        var open = Task(title: "Open work");
+        var report = Run([Entry(Alice, secret, 60), Entry(Alice, open, 30)], [secret, open], employed: [Alice]);
+
+        var hidden = report.Tasks.Single(r => r.TaskId == secret.Id);
+        Assert.Equal((true, "", secret.Number, "Marketing", 60), (hidden.Restricted, hidden.Title, hidden.Number, hidden.DepartmentName, hidden.Minutes));
+        var shown = report.Tasks.Single(r => r.TaskId == open.Id);
+        Assert.Equal((false, "Open work"), (shown.Restricted, shown.Title));
     }
 }

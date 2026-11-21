@@ -94,7 +94,7 @@ public static class ReportPdfEndpoint
         static string PeopleOf(TimeUtilisationTaskRow t) => string.Join("\n", t.People.Select(p =>
             $"{p.Name} {Minutes(p.Minutes)} ({ShareText(p.Minutes, t.Minutes)})" + (p.IsAssignee ? " · assignee" : "")));
         var tasks = r.Tasks.Select(t => (IReadOnlyList<string>)
-            [$"{t.Number} {t.Title}\n{(t.Project is { } p ? $"{p.Number} {p.Name}".Trim() : "No project")}", t.Type.ToString(),
+            [$"{t.Number} {(t.Restricted ? $"({t.DepartmentName})" : t.Title)}\n{(t.Project is { } p ? $"{p.Number} {p.Name}".Trim() : "No project")}", t.Type.ToString(),
              t.Status.Label(), Minutes(t.Minutes), ShareText(t.Minutes, s.Minutes), Estimate(t.EstimateMinutes), Minutes(t.TotalMinutes),
              Marker(t.Status, t.EstimateMinutes, t.IsOver), PeopleOf(t)]).ToList();
         if (tasks.Count > 0)

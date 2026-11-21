@@ -145,15 +145,27 @@ else
                     <tr>
                         <td>
                             <div class="orbit-gap-row">
-                                <span><span class="orbit-number">@t.Number</span><a href="@($"/Tasks/Details/{t.TaskId}")" class="orbit-title">@t.Title</a></span>
+                                @if (t.Restricted)
+                                {
+                                    @* A task the viewer can't open (§12): its number and department, no title or link. *@
+                                    <span><span class="orbit-number">@t.Number</span><span class="orbit-muted">@t.DepartmentName</span></span>
+                                }
+                                else
+                                {
+                                    <span><span class="orbit-number">@t.Number</span><a href="@($"/Tasks/Details/{t.TaskId}")" class="orbit-title">@t.Title</a></span>
+                                }
                                 @if (t.Type != TaskType.Task)
                                 {
                                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="TaskLook.Type(t.Type)" Class="@TaskLook.TypeClass(t.Type)" title="Type">@t.Type</MudChip>
                                 }
                             </div>
-                            @if (t.Project is { } p)
+                            @if (t.Project is { } p && t.Restricted)
                             {
-                                <div class="orbit-sub"><a href="@($"/Projects/Details/{p.Id}")">@($"{p.Number} {p.Name}".Trim())</a></div>
+                                <div class="orbit-sub">@($"{p.Number} {p.Name}".Trim())</div>
+                            }
+                            else if (t.Project is { } linked)
+                            {
+                                <div class="orbit-sub"><a href="@($"/Projects/Details/{linked.Id}")">@($"{linked.Number} {linked.Name}".Trim())</a></div>
                             }
                             else
                             {

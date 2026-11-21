@@ -41,12 +41,12 @@ public class TimeUtilisationChartsTests
                 number++;
                 var task = new TimeUtilisationTaskFacts(Guid.NewGuid(), $"T-26-{number:00000}", $"Task {number}", TaskItemStatus.InProgress,
                     (TaskType)(number % 8), (TaskSource)(number % 5), number % 10 == 0 ? null : projectIds[number % projects], [person],
-                    number % 3 == 0 ? null : 120, i * 60);
+                    number % 3 == 0 ? null : 120, i * 60, "IT", false);
                 tasks[task.Id] = task;
                 entries.Add(new TimeUtilisationEntry(task.Id, person, from.AddDays(number % days), i * 60));
             }
         }
-        return TimeUtilisationRules.Build(from, to, entries, tasks, [], projectFacts, names, [], null);
+        return TimeUtilisationRules.Build(from, to, entries, tasks, [], projectFacts, names, new HashSet<Guid>(), null);
     }
 
     private static readonly DateOnly From = new(2026, 10, 1);
