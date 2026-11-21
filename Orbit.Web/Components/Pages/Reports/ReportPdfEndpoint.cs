@@ -40,7 +40,7 @@ public static class ReportPdfEndpoint
                 return AccessDeniedReason.Forbid(http, ex);
             }
             var bytes = ReportPdfBuilder.Build(run.Definition.Title, run.FilterSummary, Tables(run),
-                landscape: run.ProjectReport is not null || run.AssetReport is not null || run.SprintReport is not null);
+                landscape: run.ProjectReport is not null || run.AssetReport is not null || run.SprintReport is not null || run.TimeSpent is not null);
             return Results.File(bytes, "application/pdf", run.FileName);
         }).RequireAuthorization(Policies.Permission(Permission.ReportsView));
         return endpoints;
@@ -66,7 +66,42 @@ public static class ReportPdfEndpoint
         if (run.ProjectReport is not null) tables.AddRange(ProjectStatusTables(run.ProjectReport));
         if (run.AssetReport is not null) tables.AddRange(AssetStatusTables(run.AssetReport));
         if (run.SprintReport is not null) tables.AddRange(SprintStatusSections(run.SprintReport));
+        if (run.TimeSpent is not null) tables.AddRange(TimeSpentSections(run.TimeSpent));
         return tables;
+    }
+
+    /// <summary>
+    /// Time spent (decision 149): the five charts, the summary, By person and By task - one row per task, its people in one cell, so
+    /// a month's couple of hundred tasks stay a table rather than a table each.
+    /// </summary>
+    public static IEnumerable<ReportPdfBuilder.Section> TimeSpentSections(TimeSpentReport r)
+    {
+        foreach (var charts in TimeSpentCharts.PdfSections(r)) yield return charts;
+
+        var s = r.Summary;
+        static string Minutes(int m) => TimeFormat.Minutes(m);
+        yield return new ReportPdfBuilder.Table(["Logged", "People", "Tasks", "Estimated", "Logged to date", "Variance"],
+            [[
+                Minutes(s.Minutes), s.People + (s.LoggedNothing > 0 ? $"\n{s.LoggedNothing} logged nothing" : ""),
+                Tasks(s.Tasks, s.UnestimatedTasks), Estimated(s.Estimate), Actual(s.Estimate),
+                Variance(s.Estimate) + (s.Estimate.OverTasks > 0 ? $"\n{s.Estimate.OverTasks} over estimate" : "")
+            ]], "Summary", [1.3f, 1.6f, 2, 1.4f, 1.5f, 2]);
+
+        var people = r.People.Select(p => (IReadOnlyList<string>)
+            [p.Name, Minutes(p.Minutes), p.LoggedNothing ? "-" : ShareText(p.Minutes, s.Minutes), p.Tasks.ToString()]).ToList();
+        if (people.Count > 0) people.Add(["Total", Minutes(s.Minutes), "", s.Tasks.ToString()]);
+        yield return new ReportPdfBuilder.Table(["Person", "Logged", "Share", "Tasks"], people, "By person", [4, 1.4f, 1, 1]);
+
+        static string PeopleOf(TimeSpentTaskRow t) => string.Join("\n", t.People.Select(p =>
+            $"{p.Name} {Minutes(p.Minutes)} ({ShareText(p.Minutes, t.Minutes)})" + (p.IsAssignee ? " · assignee" : "")));
+        var tasks = r.Tasks.Select(t => (IReadOnlyList<string>)
+            [$"{t.Number} {t.Title}\n{(t.Project is { } p ? $"{p.Number} {p.Name}".Trim() : "No project")}", t.Type.ToString(),
+             t.Status.Label(), Minutes(t.Minutes), ShareText(t.Minutes, s.Minutes), Estimate(t.EstimateMinutes), Minutes(t.TotalMinutes),
+             Marker(t.Status, t.EstimateMinutes, t.IsOver), PeopleOf(t)]).ToList();
+        if (tasks.Count > 0)
+            tasks.Add(["Total", "", "", Minutes(s.Minutes), "", Estimated(s.Estimate), Actual(s.Estimate), Variance(s.Estimate), ""]);
+        yield return new ReportPdfBuilder.Table(["Task", "Type", "Status", "Logged", "Share", "Estimate", "To date", "", "People"], tasks,
+            "By task", [4.2f, 1.2f, 1.4f, 1.1f, 0.9f, 1.1f, 1.1f, 1.4f, 3.6f]);
     }
 
     /// <summary>

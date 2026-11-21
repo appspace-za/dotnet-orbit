@@ -115,6 +115,40 @@ public class TimeSpentChartsTests
         Assert.DoesNotContain(sources, s => s == "Api");
     }
 
+    /// <summary>
+    /// RPT-051: a large report's PDF builds - 40 people, 200 tasks and 30 projects over 400 days (monthly) - its charts folded to fit
+    /// a page, which QuestPDF needs of a picture. So does an empty one.
+    /// </summary>
+    [Fact]
+    public void A_large_reports_pdf_builds()
+    {
+        var from = new DateOnly(2025, 1, 1);
+        var report = Report(from, from.AddDays(399), people: 40, projects: 30, tasksEach: 5);
+        Assert.Equal((200, TimeBucketSize.Month), (report.Tasks.Count, report.BucketSize));
+
+        QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
+        var pdf = Orbit.Reporting.ReportPdfBuilder.Build("Time spent", "2025-01-01 to 2026-02-04",
+            [.. ReportPdfEndpoint.TimeSpentSections(report)], landscape: true);
+        Assert.NotEmpty(pdf);
+        Assert.NotEmpty(Orbit.Reporting.ReportPdfBuilder.Build("Time spent", "Nothing", [.. ReportPdfEndpoint.TimeSpentSections(Report(From, To, people: 0))],
+            landscape: true));
+    }
+
+    /// <summary>RPT-051: the PDF's sections: the charts, then the summary, By person and By task, each task naming its people.</summary>
+    [Fact]
+    public void The_pdf_has_the_charts_then_the_summary_people_and_tasks()
+    {
+        var report = Report(From, To, people: 2);
+        var sections = ReportPdfEndpoint.TimeSpentSections(report).ToList();
+        Assert.Equal(2, sections.OfType<Orbit.Reporting.ReportPdfBuilder.Charts>().Count());
+        var tables = sections.OfType<Orbit.Reporting.ReportPdfBuilder.Table>().ToList();
+        Assert.Equal(["Summary", "By person", "By task"], tables.Select(t => t.Caption));
+        var byTask = tables[2];
+        Assert.Equal("People", byTask.Headers[^1]);
+        Assert.Contains("Person 2 2h (100%) · assignee", byTask.Rows[0][^1]);
+        Assert.Equal("Total", byTask.Rows[^1][0]);
+    }
+
     /// <summary>RPT-051: with no time logged, every chart says so.</summary>
     [Fact]
     public void Every_chart_says_so_when_nothing_was_logged()
