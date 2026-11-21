@@ -70,3 +70,45 @@ public enum AvailabilityView
 /// </summary>
 public sealed record AvailabilityCell(
     DateOnly Date, string Text, bool Reduced, bool Holiday, bool Blank, IReadOnlyList<string> Reasons, string Hover);
+
+/// <summary>A work pattern to set from a date (spec §6.22); a pattern already on that date is replaced.</summary>
+public sealed record WorkPatternInput(DateOnly EffectiveFrom, WeekMinutes Week);
+
+/// <summary>A stretch of unavailable time to record or change: all day when <see cref="MinutesPerDay"/> is null.</summary>
+public sealed record UnavailableInput(DateOnly From, DateOnly To, int? MinutesPerDay, UnavailableReason Reason, string? Note);
+
+/// <summary>Which unavailable time the person page lists: still to end (the default), ended, or all.</summary>
+public enum UnavailableFilter
+{
+    Upcoming,
+    Past,
+    All
+}
+
+public sealed record AvailabilityPerson(Guid Id, string Name, string? DepartmentName);
+
+/// <summary>A person's row in the team grid: a cell per day and their availability over the period.</summary>
+public sealed record AvailabilityGridRow(AvailabilityPerson Person, IReadOnlyList<AvailabilityCell> Cells, int AvailableMinutes);
+
+/// <summary>
+/// The team grid (spec §6.22): the people the viewer manages, a cell per day. <see cref="OwnOnly"/> is a viewer who manages only
+/// themselves, whom the page sends to their own page instead.
+/// </summary>
+public sealed record AvailabilityGrid(
+    AvailabilityView View, DateOnly From, DateOnly To, IReadOnlyList<AvailabilityGridRow> Rows, bool CanChooseDepartment,
+    Guid? DepartmentId, bool OwnOnly);
+
+/// <summary>One of a person's work patterns, with who set it.</summary>
+public sealed record PatternHistoryRow(Guid Id, DateOnly EffectiveFrom, WeekMinutes Week, string SetBy, DateTime SetAt);
+
+/// <summary>A stretch of unavailable time as the person page lists it, with the minutes it actually took off.</summary>
+public sealed record UnavailableRow(
+    Guid Id, DateOnly From, DateOnly To, int? MinutesPerDay, UnavailableReason Reason, string? Note, int RemovedMinutes);
+
+/// <summary>
+/// A person's availability page (spec §6.22): their pattern in effect today and its weekly total, every pattern newest first, the
+/// unavailable time the filter picks, and whether the viewer may change the pattern.
+/// </summary>
+public sealed record PersonAvailability(
+    AvailabilityPerson Person, int WeeklyMinutesToday, WeekMinutes? Current, IReadOnlyList<PatternHistoryRow> History,
+    IReadOnlyList<UnavailableRow> Unavailable, bool CanChangePattern);

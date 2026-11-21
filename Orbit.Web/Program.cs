@@ -175,6 +175,8 @@ builder.Services.AddScoped<DirectoryImportService>();
 builder.Services.AddScoped<ReportingService>();
 builder.Services.AddScoped<DashboardService>();
 builder.Services.AddScoped<WorkingCalendarService>();
+builder.Services.AddScoped<AvailabilityFactsReader>();
+builder.Services.AddScoped<AvailabilityService>();
 builder.Services.AddScoped<CriticalPathService>();
 builder.Services.AddScoped<AssetService>();
 builder.Services.AddScoped<AssetTypeService>();
