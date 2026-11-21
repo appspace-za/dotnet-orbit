@@ -74,6 +74,58 @@ public sealed record PersonTaskTimeRow(
     public bool IsOver => !IsCancelled && EstimateMinutes is int e && TotalMinutes > e;
 }
 
+/// <summary>One person's time on one task on one day of Time spent's window (§12), summed in SQL.</summary>
+public sealed record TimeSpentEntry(Guid TaskId, Guid UserId, DateOnly Date, int Minutes);
+
+/// <summary>One person's time on one task to date, on any day.</summary>
+public sealed record TimeSpentPersonTime(Guid TaskId, Guid UserId, int Minutes);
+
+/// <summary>What Time spent needs to know about a task. <see cref="TotalMinutes"/> is all time logged on it to date, by anyone.</summary>
+public sealed record TimeSpentTaskFacts(
+    Guid Id, string Number, string Title, TaskItemStatus Status, TaskType Type, TaskSource Source, Guid? ProjectId,
+    IReadOnlyList<Guid> AssigneeIds, int? EstimateMinutes, int TotalMinutes)
+{
+    /// <summary>The task as the estimate comparison (<see cref="Orbit.Application.TimeReportRules.Compare"/>) reads it.</summary>
+    public TaskTimeFacts AsTimeFacts() => new(Id, Number, Title, Status, AssigneeIds, EstimateMinutes, TotalMinutes);
+}
+
+public sealed record TimeSpentProjectFacts(Guid Id, string Number, string Name);
+
+/// <summary>
+/// Time spent's tiles: the time in the window, the people who logged it and the covered people who logged nothing, the tasks it
+/// was logged on and how many have no estimate, and the estimate comparison over them, each task once.
+/// </summary>
+public sealed record TimeSpentSummary(int Minutes, int People, int LoggedNothing, int Tasks, int UnestimatedTasks, EstimateComparison Estimate);
+
+/// <summary>A person's time in the window and how many tasks it was on; a covered person who logged nothing reads zero.</summary>
+public sealed record TimeSpentPersonRow(Guid UserId, string Name, int Minutes, int Tasks)
+{
+    public bool LoggedNothing => Minutes == 0;
+}
+
+/// <summary>A person's time on a task: in the window, and to date.</summary>
+public sealed record TimeSpentTaskPerson(Guid UserId, string Name, int Minutes, int ToDateMinutes, bool IsAssignee);
+
+/// <summary>
+/// A task worked on in the window: <see cref="Minutes"/> is the time in it (the person's, under the Person filter),
+/// <see cref="TotalMinutes"/> everyone's to date. <see cref="Project"/> is null for a task on no project.
+/// </summary>
+public sealed record TimeSpentTaskRow(
+    Guid TaskId, string Number, string Title, TaskItemStatus Status, TaskType Type, TimeSpentProjectFacts? Project,
+    int? EstimateMinutes, int Minutes, int TotalMinutes, IReadOnlyList<TimeSpentTaskPerson> People)
+{
+    public bool IsCancelled => Status == TaskItemStatus.Cancelled;
+    public bool IsOver => !IsCancelled && EstimateMinutes is int e && TotalMinutes > e;
+}
+
+/// <summary>
+/// Time spent (§12): where the time logged in a window went - by person, then every task worked on, most time first, with who
+/// logged it. <see cref="PersonOptions"/> are the people with time before the Person filter applies.
+/// </summary>
+public sealed record TimeSpentReport(
+    DateOnly From, DateOnly To, TimeSpentSummary Summary, IReadOnlyList<TimeSpentPersonRow> People,
+    IReadOnlyList<TimeSpentTaskRow> Tasks, IReadOnlyList<ReportPerson> PersonOptions);
+
 /// <summary>
 /// Estimate accuracy (§12): tasks completed in the range, grouped by assignee. A task several people share (§6.2.3) is under each
 /// of them with its whole estimate, and counts once in <see cref="DoneCount"/> and <see cref="Overall"/>.
