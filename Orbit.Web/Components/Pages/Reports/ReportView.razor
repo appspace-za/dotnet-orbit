@@ -47,6 +47,13 @@ else
                                Editable="true" AutoClose="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-filter" />
                 <MudDatePicker Label="To" Date="@PickerDate.Of(_to)" DateChanged="d => GoDate(ReportRun.ToKey, d, _to)" DateFormat="yyyy-MM-dd"
                                Editable="true" AutoClose="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-filter" />
+                @if (run.Definition.SprintQuickPick)
+                {
+                    @* A quick-pick, as on My Time (decision 148): it fills From and To with a sprint's days and shows the sprint while the
+                       period is exactly one sprint's, so it has no key of its own in the address. *@
+                    <FilterSelect Label="Sprint" Value="@(TimeRules.SprintForRange(run.Sprints, _from, _to)?.Id.ToString() ?? "")" ValueChanged="PickSprint"
+                                  Options="run.SprintOptions" Title="Fill From and To with a sprint's dates" Class="orbit-filter orbit-filter-wide" />
+                }
             }
             @if (run.CanChooseDepartment)
             {
@@ -56,6 +63,11 @@ else
             {
                 <FilterSelect Label="Project" Value="@(run.ProjectId?.ToString())" ValueChanged="v => Go(ReportRun.ProjectKey, v)" Options="_projects"
                               Class="orbit-filter orbit-filter-wide" />
+            }
+            @if (run.Definition.ByPerson)
+            {
+                <FilterSelect Label="Person" Value="@(run.PersonId?.ToString())" ValueChanged="v => Go(ReportRun.PersonKey, v)" Options="_people"
+                              Title="Only the time this person logged" />
             }
             @if (run.Definition.ByOwnerAndAssignee)
             {
@@ -152,10 +164,6 @@ else
                 </div>
             }
         }
-        else if (run.TimeByPerson is { } time)
-        {
-            <ReportTimeByPerson @key="run" Report="time" />
-        }
         else if (run.EstimateAccuracy is { } accuracy)
         {
             <ReportEstimateAccuracy @key="run" Report="accuracy" />
@@ -173,6 +181,11 @@ else
             @* No @key: the component stays across runs, so the groups opened stay open when a filter changes. *@
             <ReportSprintStatus Report="sprint" />
         }
+        else if (run.TimeSpent is { } spent)
+        {
+            @* No @key either: the tasks opened stay open when a filter changes. *@
+            <ReportTimeSpent Report="spent" />
+        }
     </MudPaper>
 }
 
@@ -186,9 +199,10 @@ else
     [SupplyParameterFromQuery(Name = ReportRun.OwnerKey)] public string? OwnerId { get; set; }
     [SupplyParameterFromQuery(Name = ReportRun.AssigneeKey)] public string? AssigneeId { get; set; }
     [SupplyParameterFromQuery(Name = ReportRun.SprintKey)] public string? SprintId { get; set; }
+    [SupplyParameterFromQuery(Name = ReportRun.PersonKey)] public string? PersonId { get; set; }
 
     private ReportRun? _run;
-    private IReadOnlyList<(string Value, string Text)> _departments = [], _projects = [], _owners = [], _assignees = [];
+    private IReadOnlyList<(string Value, string Text)> _departments = [], _projects = [], _owners = [], _assignees = [], _people = [];
     private bool _loading;
     /// <summary>
     /// The period in the address, which the date pickers show. Read before the report loads, never from it: a MudDatePicker handed
@@ -199,7 +213,7 @@ else
 
     protected override async Task OnParametersSetAsync()
     {
-        var address = ReportAddress.Parse(Kind, From, To, ProjectId, DepartmentId, OwnerId, AssigneeId, SprintId);
+        var address = ReportAddress.Parse(Kind, From, To, ProjectId, DepartmentId, OwnerId, AssigneeId, SprintId, PersonId);
         (_from, _to) = address.Period(DateOnly.FromDateTime(DateTime.UtcNow));
         _loading = true;
         await Load(async s =>
@@ -209,6 +223,7 @@ else
             _projects = WithAll(run.ProjectOptions);
             _owners = WithAll(run.OwnerOptions);
             _assignees = WithAll(run.AssigneeOptions);
+            _people = WithAll(run.PersonFilterOptions);
             _run = run;
         });
         _loading = false;
@@ -222,6 +237,17 @@ else
     {
         if (PickerDate.Day(picked) == shown) return;
         Go(key, PickerDate.Write(picked));
+    }
+
+    /// <summary>
+    /// A sprint picked from the quick-pick: the report reloads at the sprint's first and last days, in one navigation. The select may
+    /// hand back the sprint already shown, and the pickers then echo their new dates (GoDate): neither goes anywhere.
+    /// </summary>
+    private void PickSprint(string? value)
+    {
+        if (!Guid.TryParse(value, out var id) || _run!.Sprints.FirstOrDefault(s => s.Id == id) is not { } sprint) return;
+        if (sprint.StartDate == _from && sprint.EndDate == _to) return;
+        Nav.NavigateTo($"/Reports/View?{_run.RangeQuery(sprint.StartDate, sprint.EndDate)}");
     }
 
     private static IReadOnlyList<(string Value, string Text)> WithAll(IReadOnlyList<(string Value, string Text)> options) => [("", "All"), .. options];

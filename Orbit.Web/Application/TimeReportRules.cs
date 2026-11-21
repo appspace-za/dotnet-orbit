@@ -4,12 +4,13 @@ using Orbit.Data.Entities;
 namespace Orbit.Application;
 
 /// <summary>
-/// The pure part of the time reports (§12): turns the aggregates <c>ReportingService</c> reads in SQL into report rows.
+/// The pure part of the time reports (§12) shared by the others: the estimate comparison every report makes, and Estimate
+/// accuracy. Time spent has rules of its own (<see cref="TimeSpentRules"/>).
 /// <list type="bullet">
 /// <item>Estimates are compared over tasks that have one and aren't Cancelled, against all time logged on them to date.</item>
 /// <item>Every task stands alone: subtask time isn't rolled into the parent (§6.10).</item>
-/// <item>A task several people worked on shows under each of them, but totals count it once.</item>
-/// <item>So does a task several people are assigned to (§6.2.3), whole: an estimate is never split between them.</item>
+/// <item>A task several people are assigned to (§6.2.3) is under each of them, whole - an estimate is never split between them -
+/// and totals count it once.</item>
 /// </list>
 /// </summary>
 public static class TimeReportRules
@@ -31,46 +32,6 @@ public static class TimeReportRules
             estimated.Sum(t => t.EstimateMinutes!.Value),
             estimated.Sum(t => t.TotalMinutes),
             estimated.Count(t => t.TotalMinutes > t.EstimateMinutes!.Value));
-    }
-
-    /// <summary>
-    /// Time by person: one row per person with time in the range, plus a zero row for each of <paramref name="people"/>
-    /// who logged none, ordered by time logged (most first) then name; each row's tasks ordered by that person's time on them.
-    /// </summary>
-    public static TimeByPersonReport TimeByPerson(
-        IEnumerable<LoggedTime> logged, IReadOnlyDictionary<Guid, TaskTimeFacts> tasks, Func<Guid?, string> name,
-        IEnumerable<Guid>? people = null)
-    {
-        // Merge duplicates defensively (the SQL groups by user and task already) and drop tasks we know nothing about.
-        var entries = logged.Where(l => tasks.ContainsKey(l.TaskId))
-            .GroupBy(l => (l.UserId, l.TaskId))
-            .Select(g => new LoggedTime(g.Key.UserId, g.Key.TaskId, g.Sum(l => l.Minutes)))
-            .ToList();
-
-        var rows = entries.GroupBy(l => l.UserId)
-            .Select(g =>
-            {
-                var facts = g.Select(l => tasks[l.TaskId]).ToList();
-                var lines = g.Select(l =>
-                    {
-                        var t = tasks[l.TaskId];
-                        return new PersonTaskTimeRow(t.Id, t.Number, t.Title, t.Status, t.EstimateMinutes, l.Minutes, t.TotalMinutes);
-                    })
-                    .OrderByDescending(r => r.LoggedMinutes).ThenBy(r => r.Number, StringComparer.Ordinal)
-                    .ToList();
-                return new PersonTimeRow(g.Key, name(g.Key), g.Sum(l => l.Minutes), facts.Count,
-                    facts.Count(t => t.EstimateMinutes is null), Compare(facts), lines);
-            })
-            .ToList();
-        var withTime = rows.Select(r => r.UserId).ToHashSet();
-        rows = rows.Concat((people ?? []).Distinct().Where(id => !withTime.Contains(id))
-                .Select(id => new PersonTimeRow(id, name(id), 0, 0, 0, EstimateComparison.None, [])))
-            .OrderByDescending(r => r.LoggedMinutes).ThenBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase)
-            .ToList();
-
-        var distinct = entries.Select(l => l.TaskId).Distinct().Select(id => tasks[id]).ToList();
-        return new TimeByPersonReport(rows, entries.Sum(l => l.Minutes), distinct.Count,
-            distinct.Count(t => t.EstimateMinutes is null), Compare(distinct));
     }
 
     /// <summary>

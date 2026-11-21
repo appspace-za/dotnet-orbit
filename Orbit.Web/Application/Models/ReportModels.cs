@@ -8,19 +8,21 @@ public enum ReportKind
     CreatedByPerson,
     MeanTimeToRespond,
     MeanTimeToResolve,
-    TimeByPerson,
     EstimateAccuracy,
     ProjectStatus,
     AssetStatus,
-    SprintStatus
+    SprintStatus,
+    TimeSpent
 }
 
 /// <summary>
 /// A report's filters. <see cref="OwnerId"/> and <see cref="AssigneeId"/> pick projects for the project status report
-/// (<see cref="ReportDefinition.ByOwnerAndAssignee"/>) and are ignored by the others.
+/// (<see cref="ReportDefinition.ByOwnerAndAssignee"/>) and are ignored by the others. <see cref="PersonId"/> keeps only the time a
+/// person logged, on Time spent (<see cref="ReportDefinition.ByPerson"/>) alone.
 /// </summary>
 public sealed record ReportFilter(
-    DateTime FromUtc, DateTime ToUtc, Guid? ProjectId, Guid? DepartmentId, Guid? OwnerId = null, Guid? AssigneeId = null);
+    DateTime FromUtc, DateTime ToUtc, Guid? ProjectId, Guid? DepartmentId, Guid? OwnerId = null, Guid? AssigneeId = null,
+    Guid? PersonId = null);
 
 public sealed record PersonCountRow(Guid? UserId, string Name, int Count);
 
@@ -33,9 +35,6 @@ public sealed record PersonCountReport(IReadOnlyList<PersonCountRow> Rows, int T
 public sealed record PersonAverageRow(Guid? UserId, string Name, int Count, double AverageHours);
 
 public sealed record MeanTimeReport(IReadOnlyList<PersonAverageRow> Rows, int OverallCount, double? OverallAverageHours);
-
-/// <summary>One person's time on one task within a report's date range, summed in SQL (§12 Time by person).</summary>
-public sealed record LoggedTime(Guid UserId, Guid TaskId, int Minutes);
 
 /// <summary>What the time reports need to know about a task. <see cref="TotalMinutes"/> is all time logged on it to date, by anyone.</summary>
 public sealed record TaskTimeFacts(
@@ -55,24 +54,89 @@ public sealed record EstimateComparison(int EstimatedTasks, int EstimatedMinutes
     public double? VariancePercent => EstimatedMinutes == 0 ? null : VarianceMinutes * 100.0 / EstimatedMinutes;
 }
 
+/// <summary>One person's time on one task on one day of Time spent's window (§12), summed in SQL.</summary>
+public sealed record TimeSpentEntry(Guid TaskId, Guid UserId, DateOnly Date, int Minutes);
+
+/// <summary>One person's time on one task to date, on any day.</summary>
+public sealed record TimeSpentPersonTime(Guid TaskId, Guid UserId, int Minutes);
+
+/// <summary>What Time spent needs to know about a task. <see cref="TotalMinutes"/> is all time logged on it to date, by anyone.</summary>
+public sealed record TimeSpentTaskFacts(
+    Guid Id, string Number, string Title, TaskItemStatus Status, TaskType Type, TaskSource Source, Guid? ProjectId,
+    IReadOnlyList<Guid> AssigneeIds, int? EstimateMinutes, int TotalMinutes)
+{
+    /// <summary>The task as the estimate comparison (<see cref="Orbit.Application.TimeReportRules.Compare"/>) reads it.</summary>
+    public TaskTimeFacts AsTimeFacts() => new(Id, Number, Title, Status, AssigneeIds, EstimateMinutes, TotalMinutes);
+}
+
+public sealed record TimeSpentProjectFacts(Guid Id, string Number, string Name);
+
 /// <summary>
-/// Time by person (§12): who logged how much in the range. The totals count each task once, so a task two people
-/// worked on shows under both rows but isn't estimated twice in <see cref="Total"/>.
+/// Time spent's tiles: the time in the window, the people who logged it and the covered people who logged nothing, the tasks it
+/// was logged on and how many have no estimate, and the estimate comparison over them, each task once.
 /// </summary>
-public sealed record TimeByPersonReport(
-    IReadOnlyList<PersonTimeRow> Rows, int TotalLoggedMinutes, int TotalTasks, int TotalUnestimatedTasks, EstimateComparison Total);
+public sealed record TimeSpentSummary(int Minutes, int People, int LoggedNothing, int Tasks, int UnestimatedTasks, EstimateComparison Estimate);
 
-public sealed record PersonTimeRow(
-    Guid UserId, string Name, int LoggedMinutes, int TaskCount, int UnestimatedTasks, EstimateComparison Estimate,
-    IReadOnlyList<PersonTaskTimeRow> Tasks);
+/// <summary>A person's time in the window and how many tasks it was on; a covered person who logged nothing reads zero.</summary>
+public sealed record TimeSpentPersonRow(Guid UserId, string Name, int Minutes, int Tasks)
+{
+    public bool LoggedNothing => Minutes == 0;
+}
 
-/// <summary>A task one person worked on: <see cref="LoggedMinutes"/> is their time in the range, <see cref="TotalMinutes"/> everyone's to date.</summary>
-public sealed record PersonTaskTimeRow(
-    Guid TaskId, string Number, string Title, TaskItemStatus Status, int? EstimateMinutes, int LoggedMinutes, int TotalMinutes)
+/// <summary>A person's time on a task: in the window, and to date.</summary>
+public sealed record TimeSpentTaskPerson(Guid UserId, string Name, int Minutes, int ToDateMinutes, bool IsAssignee);
+
+/// <summary>
+/// A task worked on in the window: <see cref="Minutes"/> is the time in it (the person's, under the Person filter),
+/// <see cref="TotalMinutes"/> everyone's to date. <see cref="Project"/> is null for a task on no project.
+/// </summary>
+public sealed record TimeSpentTaskRow(
+    Guid TaskId, string Number, string Title, TaskItemStatus Status, TaskType Type, TimeSpentProjectFacts? Project,
+    int? EstimateMinutes, int Minutes, int TotalMinutes, IReadOnlyList<TimeSpentTaskPerson> People)
 {
     public bool IsCancelled => Status == TaskItemStatus.Cancelled;
     public bool IsOver => !IsCancelled && EstimateMinutes is int e && TotalMinutes > e;
 }
+
+/// <summary>
+/// Time spent (§12): where the time logged in a window went - by person, then every task worked on, most time first, with who
+/// logged it. <see cref="PersonOptions"/> are the people with time before the Person filter applies.
+/// </summary>
+public sealed record TimeSpentReport(
+    DateOnly From, DateOnly To, TimeSpentSummary Summary, IReadOnlyList<TimeSpentPersonRow> People,
+    IReadOnlyList<TimeSpentTaskRow> Tasks, IReadOnlyList<ReportPerson> PersonOptions)
+{
+    /// <summary>The time by project, most first, with No project (a null <c>Project</c>) last.</summary>
+    public IReadOnlyList<TimeSpentProjectRow> Projects { get; init; } = [];
+    public IReadOnlyList<TimeSpentTypeRow> Types { get; init; } = [];
+    public IReadOnlyList<TimeSpentSourceRow> Sources { get; init; } = [];
+    /// <summary>Whether <see cref="Buckets"/> are days, weeks or months, by the window's length.</summary>
+    public TimeBucketSize BucketSize { get; init; }
+    public IReadOnlyList<TimeBucket> Buckets { get; init; } = [];
+    /// <summary>
+    /// The person the Person filter picked, when the report knows them - they logged time in the window or are among the people
+    /// it covers - so they keep their name in a window where they logged nothing; null otherwise.
+    /// </summary>
+    public ReportPerson? Person { get; init; }
+}
+
+/// <summary>What one column of Time spent's per-period chart covers: a day, an ISO week (Monday to Sunday) or a calendar month.</summary>
+public enum TimeBucketSize
+{
+    Day,
+    Week,
+    Month
+}
+
+/// <summary>A day, week or month of the window, clipped to it, and the time logged in it.</summary>
+public sealed record TimeBucket(DateOnly From, DateOnly To, int Minutes = 0);
+
+/// <summary>A project's time in the window; a null <see cref="Project"/> is the tasks on no project.</summary>
+public sealed record TimeSpentProjectRow(TimeSpentProjectFacts? Project, int Minutes);
+
+public sealed record TimeSpentTypeRow(TaskType Type, int Minutes);
+
+public sealed record TimeSpentSourceRow(TaskSource Source, int Minutes);
 
 /// <summary>
 /// Estimate accuracy (§12): tasks completed in the range, grouped by assignee. A task several people share (§6.2.3) is under each
@@ -597,10 +661,12 @@ public sealed record SprintStatusReport(
 /// <summary>
 /// A report in the catalogue. <see cref="ByProject"/> false hides the project filter: assets belong to no project.
 /// <see cref="ByOwnerAndAssignee"/> shows the Owner and Assignee filters, which pick projects. <see cref="BySprint"/> takes a sprint
-/// in place of the date range, and an Assignee filter that picks tasks.
+/// in place of the date range, and an Assignee filter that picks tasks. <see cref="ByPerson"/> shows the Person filter, which keeps
+/// the time a person logged; <see cref="SprintQuickPick"/> a Sprint dropdown beside the dates that fills them with a sprint's.
 /// </summary>
 public sealed record ReportDefinition(
-    ReportKind Kind, string Title, string Description, bool ByProject = true, bool ByOwnerAndAssignee = false, bool BySprint = false)
+    ReportKind Kind, string Title, string Description, bool ByProject = true, bool ByOwnerAndAssignee = false, bool BySprint = false,
+    bool ByPerson = false, bool SprintQuickPick = false)
 {
     /// <summary>The Assignee filter shows.</summary>
     public bool ByAssignee => ByOwnerAndAssignee || BySprint;
@@ -618,8 +684,9 @@ public static class ReportCatalog
             "Average time from creation until the task first left Todo, for tasks created in the period."),
         new(ReportKind.MeanTimeToResolve, "Mean time to resolve",
             "Average time from creation to completion, for tasks completed in the period."),
-        new(ReportKind.TimeByPerson, "Time by person",
-            "Time each person logged in the period, and for the tasks they worked on, each task's estimate against all time logged on it to date."),
+        new(ReportKind.TimeSpent, "Time spent",
+            "Where the time logged in the period went: by project, person, day, task type and source, then every task worked on, most time first, with who logged it.",
+            ByPerson: true, SprintQuickPick: true),
         new(ReportKind.EstimateAccuracy, "Estimate accuracy",
             "Tasks completed in the period, grouped by assignee: the estimate against all time logged on them. A shared task is under each of its assignees and counts once overall."),
         new(ReportKind.ProjectStatus, "Project status",

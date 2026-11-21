@@ -603,11 +603,12 @@ range and optional project and department filters, shows each report on screen a
 *Closed count by person*, *Created count by person*, *Mean time to respond*, *Mean time to resolve*, and two time
 reports:
 
-- **Time by person** - the time each person logged in the period, and for the tasks they worked on, each task's
-  estimate against all time logged on it to date (cancelled tasks aside). Expand a person to see their tasks, with
-  the ones over estimate flagged. A task several people worked on shows under each of them but counts once in the total.
-  Active people in the department reported on (the project's department when only a project is chosen, everyone when
-  neither is) who logged nothing in the period are listed too, with 0, greyed out at the bottom.
+- **Time spent** - where the time logged in the period went: tiles, then the time per day (per week past two months,
+  per month past a year), by project, by person, by task type and by task source; every person's total, with the
+  department's active people who logged nothing greyed at the end; then every task worked on, most time first,
+  with its estimate against all time logged on it to date. Open a task to see who logged time on it. A **Sprint**
+  dropdown beside the dates fills them with a sprint's, and a **Person** filter narrows it to the time one person
+  logged. It replaced *Time by person*; old links to that report open this one.
 - **Estimate accuracy** - tasks completed in the period, grouped by assignee: estimated against actual time, the
   variance, and how many ran over. Expand a row to see its tasks, largest overrun first.
 

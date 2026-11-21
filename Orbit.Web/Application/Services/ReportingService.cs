@@ -118,30 +118,53 @@ public sealed class ReportingService(ApplicationDbContext db, IActorProvider act
     }
 
     /// <summary>
-    /// Time logged in the period (by entry date) per person, with each task's estimate against all time logged on it
-    /// to date. Scoped by the task's project and department, like time logging itself (§6.2.1). The people the report
-    /// covers (<see cref="PeopleAsync"/>) are listed with zero when they logged nothing.
+    /// Time spent (§12): where the time logged in the period (by entry date) went - by person, project, type, source and day, then
+    /// every task worked on with who logged it. Entries are scoped by their task's project and department, as time logging itself is
+    /// (§6.2.1). The time is read once, summed by task, person and day, with every person's entries: the Person filter applies in
+    /// <see cref="TimeSpentRules.Build"/>, after the options it offers are worked out. The people the report covers
+    /// (<see cref="PeopleAsync"/>) are listed when they logged nothing.
     /// </summary>
-    public async Task<TimeByPersonReport> TimeByPersonAsync(ReportFilter f, CancellationToken ct = default)
+    public async Task<TimeSpentReport> TimeSpentAsync(ReportFilter f, CancellationToken ct = default)
     {
         var actor = await RequireReportsAsync(ct);
         var from = DateOnly.FromDateTime(f.FromUtc);
-        var to = DateOnly.FromDateTime(f.ToUtc);
-        var logged = await Apply(db.TimeEntries.AsNoTracking(), f, actor)
+        var to = DateOnly.FromDateTime(f.ToUtc); // the day after the period
+        var entries = await Apply(db.TimeEntries.AsNoTracking(), f, actor)
             .Where(e => e.Date >= from && e.Date < to)
-            .GroupBy(e => new { e.UserId, e.TaskId })
-            .Select(g => new LoggedTime(g.Key.UserId, g.Key.TaskId, g.Sum(e => e.DurationMinutes)))
+            .GroupBy(e => new { e.TaskId, e.UserId, e.Date })
+            .Select(g => new TimeSpentEntry(g.Key.TaskId, g.Key.UserId, g.Key.Date, g.Sum(e => e.DurationMinutes)))
             .ToListAsync(ct);
-        var taskIds = logged.Select(l => l.TaskId).Distinct().ToList();
-        var tasks = taskIds.Count == 0 ? new Dictionary<Guid, TaskTimeFacts>()
-            : await Facts(db.Tasks.AsNoTracking().Where(t => taskIds.Contains(t.Id))).ToDictionaryAsync(t => t.Id, ct);
-        var people = await PeopleAsync(f, actor, ct);
-        var names = await NamesAsync(logged.Select(l => l.UserId).Concat(people).Select(id => (Guid?)id), ct);
-        return TimeReportRules.TimeByPerson(logged, tasks, id => Name(id, names, "Unknown"), people);
+
+        var taskIds = entries.Select(e => e.TaskId).Distinct().ToList();
+        var tasks = new Dictionary<Guid, TimeSpentTaskFacts>();
+        List<TimeSpentPersonTime> toDate = [];
+        var projects = new Dictionary<Guid, TimeSpentProjectFacts>();
+        if (taskIds.Count > 0)
+        {
+            tasks = await db.Tasks.AsNoTracking().Where(t => taskIds.Contains(t.Id))
+                .Select(t => new TimeSpentTaskFacts(t.Id, t.Number, t.Title, t.Status, t.Type, t.Source, t.ProjectId,
+                    t.Assignments.Select(x => x.UserId).ToList(), t.EstimateMinutes, t.TimeEntries.Sum(e => (int?)e.DurationMinutes) ?? 0))
+                .ToDictionaryAsync(t => t.Id, ct);
+            toDate = await db.TimeEntries.AsNoTracking().Where(e => taskIds.Contains(e.TaskId))
+                .GroupBy(e => new { e.TaskId, e.UserId })
+                .Select(g => new TimeSpentPersonTime(g.Key.TaskId, g.Key.UserId, g.Sum(e => e.DurationMinutes)))
+                .ToListAsync(ct);
+            var projectIds = tasks.Values.Select(t => t.ProjectId).OfType<Guid>().Distinct().ToList();
+            projects = await db.Projects.AsNoTracking().Where(p => projectIds.Contains(p.Id))
+                .Select(p => new TimeSpentProjectFacts(p.Id, p.Number, p.Name))
+                .ToDictionaryAsync(p => p.Id, ct);
+        }
+
+        var covered = await PeopleAsync(f, actor, ct);
+        var ids = entries.Select(e => e.UserId).Concat(covered).Distinct().ToList();
+        var people = await db.Users.AsNoTracking().Where(u => ids.Contains(u.Id))
+            .Select(u => new ReportPerson(u.Id, u.IsSystemAccount ? ClaudeName : u.DisplayName, u.IsActive || u.IsSystemAccount))
+            .ToDictionaryAsync(u => u.Id, ct);
+        return TimeSpentRules.Build(from, to.AddDays(-1), entries, tasks, toDate, projects, people, covered, f.PersonId);
     }
 
     /// <summary>
-    /// The people Time by person lists even with nothing logged: active people (never the Claude user) whose own
+    /// The people Time spent lists even with nothing logged (decision 44): active people (never the Claude user) whose own
     /// department is the one reported on - the project's when only a project is chosen - or everyone when neither is.
     /// </summary>
     private async Task<List<Guid>> PeopleAsync(ReportFilter f, Actor actor, CancellationToken ct)
