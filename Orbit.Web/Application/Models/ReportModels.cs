@@ -114,6 +114,8 @@ public sealed record TimeUtilisationCell(
     public bool Over => AvailableMinutes == 0 && Minutes > 0;
     /// <summary>No availability and nothing logged, and not a holiday.</summary>
     public bool Empty => AvailableMinutes == 0 && Minutes == 0 && !AllHoliday;
+    /// <summary>Nothing to show but a dash: empty, or a holiday nobody logged time on. Time logged on a holiday shows, as over.</summary>
+    public bool Blank => Empty || (AllHoliday && Minutes == 0);
 }
 
 /// <summary>A person's row of the timesheet grid, with its totals.</summary>

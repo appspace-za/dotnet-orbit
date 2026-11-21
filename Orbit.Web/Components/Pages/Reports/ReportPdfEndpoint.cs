@@ -107,7 +107,7 @@ public static class ReportPdfEndpoint
         yield return new ReportPdfBuilder.Table(["Person", "Available", "Unavailable", "Logged", "Utilisation", "Unlogged", "Tasks"], people,
             "By person", [3.4f, 1.2f, 1.2f, 1.2f, 1.6f, 1.2f, 0.8f]);
 
-        yield return TimesheetTable(r);
+        foreach (var grid in TimesheetTables(r)) yield return grid;
 
         static string PeopleOf(TimeUtilisationTaskRow t) => string.Join("\n", t.People.Select(p =>
             $"{p.Name} {Minutes(p.Minutes)} ({ShareText(p.Minutes, t.Minutes)})" + (p.IsAssignee ? " · assignee" : "")));
@@ -121,12 +121,17 @@ public static class ReportPdfEndpoint
             "By task", [4.2f, 1.2f, 1.4f, 1.1f, 0.9f, 1.1f, 1.1f, 1.4f, 3.6f]);
     }
 
+    /// <summary>A timesheet table holds at most this many buckets beside the names: more and QuestPDF can't fit a cell in its column.</summary>
+    public const int TimesheetColumnsPerTable = 31;
+
     /// <summary>
     /// The timesheet grid for the PDF (§12): a row per person, by name, a column per day (per ISO week past 31 days, per month past
-    /// 366), each cell logged / available in hours - "*" under the target, "U" with unavailable time, "hol" a holiday, "-" nothing to
-    /// show, "over" time logged with no availability - and the person's total. Cells can't be shaded in a PDF table, so the marks say it.
+    /// 366), each cell logged / available in hours - "*" under the target, "U" with unavailable time, "hol" a holiday nobody logged
+    /// on, "-" nothing to show, "over" time logged with no availability, a holiday included - and the person's total. Cells can't be
+    /// shaded in a PDF table, so the marks say it. Past <see cref="TimesheetColumnsPerTable"/> buckets (a year in weeks, years in
+    /// months) the grid is split into tables of that many, each captioned with its part, the total on the last.
     /// </summary>
-    private static ReportPdfBuilder.Table TimesheetTable(TimeUtilisationReport r)
+    private static IEnumerable<ReportPdfBuilder.Table> TimesheetTables(TimeUtilisationReport r)
     {
         var c = CultureInfo.InvariantCulture;
         static string H(int m) => GridHours(m);
@@ -137,21 +142,38 @@ public static class ReportPdfEndpoint
             _ => cell.From.ToString("MMM yyyy", c)
         };
         static string Cell(TimeUtilisationCell cell) =>
-            cell.AllHoliday ? "hol"
-            : cell.Over ? $"{H(cell.Minutes)} over"
-            : cell.Empty ? (cell.Unavailable ? "U" : "-")
+            cell.Over ? $"{H(cell.Minutes)} over"
+            : cell.AllHoliday && cell.Blank ? "hol"
+            : cell.Blank ? (cell.Unavailable ? "U" : "-")
             : $"{H(cell.Minutes)}/{H(cell.AvailableMinutes)}" + (cell.UnderTarget ? "*" : "") + (cell.Unavailable ? " U" : "");
-        var first = r.PdfGrid.FirstOrDefault();
-        IReadOnlyList<string> headers = first is null
-            ? ["Person", "Total"]
-            : ["Person", .. first.Cells.Select(Header), "Total"];
-        var rows = r.PdfGrid.Select(g => (IReadOnlyList<string>)
-            [g.Name, .. g.Cells.Select(Cell), $"{H(g.Minutes)}/{H(g.AvailableMinutes)}" + (g.UtilisationPercent is int p ? $" · {p}%" : "")]).ToList();
-        var widths = new List<float> { 3f };
-        widths.AddRange(Enumerable.Repeat(1f, headers.Count - 2));
-        widths.Add(2f);
-        return new ReportPdfBuilder.Table(headers, rows,
-            $"Timesheet by day (logged / available, hours; * under {r.TargetPercent}%, U unavailable time, hol public holiday)", widths, FontSize: 7f);
+        var title = r.PdfGridBucketSize switch
+        {
+            TimeBucketSize.Day => "Timesheet by day",
+            TimeBucketSize.Week => "Timesheet by week",
+            _ => "Timesheet by month"
+        };
+        var legend = $"(logged / available, hours; * under {r.TargetPercent}%, U unavailable time, hol public holiday)";
+        var buckets = r.PdfGrid.FirstOrDefault()?.Cells.Count ?? 0;
+        var parts = Math.Max(1, (buckets + TimesheetColumnsPerTable - 1) / TimesheetColumnsPerTable);
+        for (var part = 0; part < parts; part++)
+        {
+            var skip = part * TimesheetColumnsPerTable;
+            var last = part == parts - 1;
+            var first = r.PdfGrid.FirstOrDefault();
+            List<string> headers = ["Person", .. first is null ? [] : first.Cells.Skip(skip).Take(TimesheetColumnsPerTable).Select(Header)];
+            if (last) headers.Add("Total");
+            var rows = r.PdfGrid.Select(g =>
+            {
+                List<string> row = [g.Name, .. g.Cells.Skip(skip).Take(TimesheetColumnsPerTable).Select(Cell)];
+                if (last) row.Add($"{H(g.Minutes)}/{H(g.AvailableMinutes)}" + (g.UtilisationPercent is int p ? $" · {p}%" : ""));
+                return (IReadOnlyList<string>)row;
+            }).ToList();
+            var widths = new List<float> { 3f };
+            widths.AddRange(Enumerable.Repeat(1f, headers.Count - (last ? 2 : 1)));
+            if (last) widths.Add(2f);
+            yield return new ReportPdfBuilder.Table(headers, rows,
+                $"{title}{(parts > 1 ? $" ({part + 1} of {parts})" : "")} {legend}", widths, FontSize: 7f);
+        }
     }
 
     /// <summary>

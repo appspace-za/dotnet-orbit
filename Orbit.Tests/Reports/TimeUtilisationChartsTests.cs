@@ -165,6 +165,56 @@ public class TimeUtilisationChartsTests
             landscape: true));
     }
 
+    /// <summary>
+    /// RPT-051 (final review #1): a year-long report's PDF builds - its weekly timesheet, 53 columns, is split into tables of at most
+    /// 31, each captioned by its bucket and its part, so no column is too narrow for QuestPDF to lay out.
+    /// </summary>
+    [Fact]
+    public void A_year_long_reports_pdf_builds_with_the_timesheet_split()
+    {
+        var from = new DateOnly(2026, 1, 1);
+        var report = Report(from, from.AddDays(365), people: 25, projects: 3);
+        Assert.Equal(TimeBucketSize.Week, report.PdfGridBucketSize);
+
+        var sections = ReportPdfEndpoint.TimeUtilisationSections(report).ToList();
+        var grids = sections.OfType<Orbit.Reporting.ReportPdfBuilder.Table>().Where(t => t.Caption!.StartsWith("Timesheet")).ToList();
+        Assert.Equal(2, grids.Count);
+        Assert.All(grids, g => Assert.True(g.Headers.Count <= 33));
+        Assert.Equal(["Timesheet by week (1 of 2)", "Timesheet by week (2 of 2)"], grids.Select(g => g.Caption!.Split(" (logged")[0]));
+        Assert.Equal("Total", grids[1].Headers[^1]);
+        Assert.Equal(report.PdfGrid[0].Cells.Count, grids.Sum(g => g.Headers.Count - 1) - 1);
+
+        QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
+        Assert.NotEmpty(Orbit.Reporting.ReportPdfBuilder.Build("Time utilisation", "2026", sections, landscape: true));
+    }
+
+    /// <summary>
+    /// RPT-058 (final review #2): time logged on a public holiday shows in its cell - "over", as there was nothing available - rather
+    /// than vanishing behind the holiday mark while the row's total counts it.
+    /// </summary>
+    [Fact]
+    public void Time_logged_on_a_holiday_shows_in_the_pdf_grid()
+    {
+        var holiday = new DateOnly(2026, 12, 16);
+        var (from, to) = (holiday.AddDays(-2), holiday.AddDays(2));
+        var person = Guid.NewGuid();
+        var task = new TimeUtilisationTaskFacts(Guid.NewGuid(), "T-26-00001", "On call", TaskItemStatus.InProgress, TaskType.Task,
+            TaskSource.Manual, null, [person], null, 120, "IT", false);
+        var days = AvailabilityRules.Days(new PersonAvailabilityFacts(person, false,
+                [new PatternFacts(Guid.NewGuid(), new DateOnly(2020, 1, 1), new WeekMinutes(480, 480, 480, 480, 480, 0, 0))], [],
+                [new EmploymentPeriod(new DateOnly(2020, 1, 1), null)]),
+            new Dictionary<DateOnly, string> { [holiday] = "Day of Reconciliation", [holiday.AddDays(1)] = "Another" }, from, to);
+        var report = TimeUtilisationRules.Build(from, to, [new TimeUtilisationEntry(task.Id, person, holiday, 120)],
+            new Dictionary<Guid, TimeUtilisationTaskFacts> { [task.Id] = task }, [], new Dictionary<Guid, TimeUtilisationProjectFacts>(),
+            new Dictionary<Guid, ReportPerson> { [person] = new(person, "Ops", true) },
+            new Dictionary<Guid, ReportAvailability> { [person] = new(true, days) }, 80, null);
+
+        var grid = ReportPdfEndpoint.TimeUtilisationSections(report).OfType<Orbit.Reporting.ReportPdfBuilder.Table>()
+            .Single(t => t.Caption!.StartsWith("Timesheet"));
+        Assert.Equal("2 over", grid.Rows[0][3]);
+        Assert.Equal("hol", grid.Rows[0][4]);
+    }
+
     /// <summary>RPT-051: the PDF's sections: the charts, then the summary, By person and By task, each task naming its people.</summary>
     [Fact]
     public void The_pdf_has_the_charts_then_the_summary_people_and_tasks()

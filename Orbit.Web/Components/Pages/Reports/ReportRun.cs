@@ -173,6 +173,8 @@ public sealed class ReportRun
         if (!run.Definition.ByAssignee) run.AssigneeId = null;
         if (!run.Definition.ByPerson) run.PersonId = null;
         var (from, to) = filters.Period(DateOnly.FromDateTime(DateTime.UtcNow));
+        // Time utilisation works out every person's every day, so a mistyped year can't make it two thousand years (decision 150).
+        if (filters.Kind == ReportKind.TimeUtilisation) (from, to) = TimeUtilisationRules.Clamp(from, to);
         run.From = from;
         run.To = to;
 

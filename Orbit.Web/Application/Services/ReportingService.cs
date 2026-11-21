@@ -133,6 +133,7 @@ public sealed class ReportingService(
         var actor = await RequireReportsAsync(ct);
         var from = DateOnly.FromDateTime(f.FromUtc);
         var to = DateOnly.FromDateTime(f.ToUtc); // the day after the period
+        (from, _) = TimeUtilisationRules.Clamp(from, to.AddDays(-1));
         var restricted = RestrictedDepartment(actor);
         var departmentId = restricted ?? f.DepartmentId;
 

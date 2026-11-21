@@ -460,6 +460,38 @@ public class TimeUtilisationRulesTests
         Assert.Equal((900, 1440), (report.Grid[0].Minutes, report.Grid[0].AvailableMinutes));
     }
 
+    /// <summary>
+    /// RPT-058 (final review #2): a holiday with time logged on it is not blank - the cell shows the time, over its nothing available -
+    /// while a holiday with nothing logged, or a day with no availability and nothing logged, is.
+    /// </summary>
+    [Fact]
+    public void A_holiday_with_time_logged_is_not_blank()
+    {
+        var t = Task();
+        var holidays = new Dictionary<DateOnly, string> { [Wk(2)] = "Day of Goodwill", [Wk(3)] = "Another" };
+        var report = Week([Entry(Alice, t, 120, Wk(2))], [t],
+            new Dictionary<Guid, ReportAvailability> { [Alice] = Avail(Mon, Wk(6), holidays: holidays) }, toSunday: true);
+
+        var cells = report.Grid[0].Cells;
+        Assert.Equal((true, true, false), (cells[2].AllHoliday, cells[2].Over, cells[2].Blank));
+        Assert.Equal((true, true), (cells[3].AllHoliday, cells[3].Blank));
+        Assert.True(cells[6].Blank);
+        Assert.False(cells[0].Blank);
+    }
+
+    /// <summary>
+    /// Final review #9: a period longer than ten years is cut to its last ten, so a typo in a date (0026 for 2026) can't make the
+    /// report work out two thousand years of days for every person.
+    /// </summary>
+    [Fact]
+    public void A_period_is_cut_to_its_last_ten_years()
+    {
+        var to = new DateOnly(2026, 11, 21);
+        Assert.Equal((to.AddDays(-(TimeUtilisationRules.MaxPeriodDays - 1)), to), TimeUtilisationRules.Clamp(new DateOnly(26, 10, 1), to));
+        Assert.Equal((new DateOnly(2026, 1, 1), to), TimeUtilisationRules.Clamp(new DateOnly(2026, 1, 1), to));
+        Assert.Equal(3653, TimeUtilisationRules.MaxPeriodDays);
+    }
+
     /// <summary>RPT-058: past 31 days the PDF's grid goes weekly while the page's stays daily to 62; every minute is in one PDF cell.</summary>
     [Fact]
     public void The_pdf_grid_uses_weeks_past_31_days()

@@ -149,6 +149,16 @@ public static class TimeUtilisationRules
     /// <summary>A column per day for a window up to this many days long, both ends included.</summary>
     public const int MaxDailyDays = 62;
 
+    /// <summary>
+    /// The longest period the report covers, about ten years: it works out every person's every day, so a typo in a date (0026 for
+    /// 2026) mustn't make that two thousand years.
+    /// </summary>
+    public const int MaxPeriodDays = 3653;
+
+    /// <summary>The period cut to its last <see cref="MaxPeriodDays"/> days when it is longer.</summary>
+    public static (DateOnly From, DateOnly To) Clamp(DateOnly from, DateOnly to) =>
+        to.DayNumber - from.DayNumber + 1 > MaxPeriodDays ? (to.AddDays(-(MaxPeriodDays - 1)), to) : (from, to);
+
     /// <summary>The PDF's timesheet grid fits about this many day columns on a landscape page, so it goes weekly beyond it.</summary>
     public const int PdfMaxDailyDays = 31;
 

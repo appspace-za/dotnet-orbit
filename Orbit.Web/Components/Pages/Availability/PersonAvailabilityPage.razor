@@ -162,8 +162,9 @@ else
         _openedAdd = Add;
         await EditUnavailableAsync(null, day);
         // This isn't an event handler, so nothing re-renders by itself; dropping Add from the address reloads the page and keeps a
-        // refresh from opening the form again.
-        Nav.NavigateTo(Address(_filter), replace: true);
+        // refresh from opening the form again - but only while the browser is still here: Back while the form was open has already
+        // left (MudBlazor closes a dialog when the address changes), and replacing that entry would bounce the person back.
+        if (AvailabilityAddress.IsAddOpen(Nav.Uri, UserId)) Nav.NavigateTo(Address(_filter), replace: true);
     }
 
     private async Task LoadAsync() => await Load(async s => _view = await s.Get<AvailabilityService>().PersonAsync(UserId, _filter));

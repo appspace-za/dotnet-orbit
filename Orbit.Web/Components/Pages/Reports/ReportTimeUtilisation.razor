@@ -178,7 +178,7 @@ else
                         @foreach (var c in row.Cells)
                         {
                             <td class="@CellClass(c)" title="@CellTitle(c)">
-                                @if (c.AllHoliday || c.Empty)
+                                @if (c.Blank)
                                 {
                                     <span>-</span>
                                 }
@@ -395,12 +395,14 @@ else
         _ => $"{c.From:MMM}<br />{c.From:yyyy}"
     };
 
+    /// <summary>A holiday stays greyed; time logged on it (or on any day with nothing available) also reads as over.</summary>
     private static string CellClass(TimeUtilisationCell c) =>
-        c.AllHoliday ? "orbit-av-holiday" : c.Over ? "orbit-ts-over" : c.UnderTarget ? "orbit-ts-short" : c.Empty ? "orbit-av-off" : "";
+        (c.AllHoliday ? "orbit-av-holiday " : "") +
+        (c.Over ? "orbit-ts-over" : c.AllHoliday ? "" : c.UnderTarget ? "orbit-ts-short" : c.Empty ? "orbit-av-off" : "");
 
     private static string CellTitle(TimeUtilisationCell c) =>
-        c.AllHoliday ? "Public holiday"
-        : $"Logged {TimeFormat.Minutes(c.Minutes)} · available {TimeFormat.Minutes(c.AvailableMinutes)}" +
+        c.AllHoliday && c.Minutes == 0 ? "Public holiday"
+        : (c.AllHoliday ? "Public holiday · " : "") + $"Logged {TimeFormat.Minutes(c.Minutes)} · available {TimeFormat.Minutes(c.AvailableMinutes)}" +
           (c.Unavailable ? $" · unavailable {TimeFormat.Minutes(c.UnavailableMinutes)}" : "");
 
     /// <summary>"40h estimated · 46h logged · 3 over estimate", or "nothing estimated".</summary>

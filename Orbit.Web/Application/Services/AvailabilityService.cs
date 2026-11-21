@@ -170,6 +170,7 @@ public sealed class AvailabilityService(ApplicationDbContext db, IActorProvider 
         var actor = await actors.GetAsync(ct);
         if (actor.UserId is not Guid me) return null;
         if (to < from) (from, to) = (to, from);
+        (from, to) = TimeUtilisationRules.Clamp(from, to);
         var known = await facts.ReadAsync([me], from, to, ct);
         if (!known.TryGetValue(me, out var mine)) return null;
         return AvailabilityRules.Days(mine, await facts.HolidaysAsync(from, to, ct), from, to).Sum(d => d.AvailableMinutes);
