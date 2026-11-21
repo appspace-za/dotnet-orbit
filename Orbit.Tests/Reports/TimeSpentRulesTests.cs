@@ -180,6 +180,101 @@ public class TimeSpentRulesTests
         Assert.Equal("Unknown project", report.Tasks.Single(t => t.TaskId == lost.Id).Project!.Name);
     }
 
+    /// <summary>
+    /// RPT-049: projects, types and sources with time, most first (ties in declared order), No project last whatever its time; each
+    /// adds up to the total.
+    /// </summary>
+    [Fact]
+    public void Projects_types_and_sources_are_ordered_by_time_and_add_up()
+    {
+        var p1 = new TimeSpentProjectFacts(Guid.NewGuid(), "P-26-00001", "Website");
+        var p2 = new TimeSpentProjectFacts(Guid.NewGuid(), "P-26-00002", "Network");
+        var a = Task(projectId: p1.Id, type: TaskType.Meeting, source: TaskSource.Manual);
+        var b = Task(projectId: p2.Id, type: TaskType.Task, source: TaskSource.Nagios);
+        var c = Task(type: TaskType.Request, source: TaskSource.Nagios);
+        var d = Task(type: TaskType.Task, source: TaskSource.Manual);
+        var report = Run([Entry(Alice, a, 60), Entry(Bob, b, 120), Entry(Alice, c, 60), Entry(Bob, d, 120)], [a, b, c, d],
+            projects: new Dictionary<Guid, TimeSpentProjectFacts> { [p1.Id] = p1, [p2.Id] = p2 });
+
+        Assert.Equal([(p2, 120), (p1, 60), (null, 180)], report.Projects.Select(p => (p.Project, p.Minutes)));
+        Assert.Equal([(TaskType.Task, 240), (TaskType.Meeting, 60), (TaskType.Request, 60)], report.Types.Select(t => (t.Type, t.Minutes)));
+        Assert.Equal([(TaskSource.Manual, 180), (TaskSource.Nagios, 180)], report.Sources.Select(s => (s.Source, s.Minutes)));
+        Assert.Equal(360, report.Projects.Sum(p => p.Minutes));
+        Assert.Equal(360, report.Types.Sum(t => t.Minutes));
+        Assert.Equal(360, report.Sources.Sum(s => s.Minutes));
+    }
+
+    /// <summary>RPT-049: with no task on a project, there is no No project row.</summary>
+    [Fact]
+    public void No_project_has_a_row_only_with_time()
+    {
+        var p = new TimeSpentProjectFacts(Guid.NewGuid(), "P-26-00001", "Website");
+        var t = Task(projectId: p.Id);
+        var report = Run([Entry(Alice, t, 60)], [t], projects: new Dictionary<Guid, TimeSpentProjectFacts> { [p.Id] = p });
+        Assert.Equal([p], report.Projects.Select(x => x.Project));
+    }
+
+    /// <summary>RPT-050: 62 days are daily, 63 and 366 weekly, 367 monthly.</summary>
+    [Theory]
+    [InlineData("2026-01-01", "2026-03-03", TimeBucketSize.Day, 62)]
+    [InlineData("2026-01-01", "2026-03-04", TimeBucketSize.Week, 10)]
+    [InlineData("2026-01-01", "2027-01-01", TimeBucketSize.Week, 53)]
+    [InlineData("2026-01-01", "2027-01-02", TimeBucketSize.Month, 13)]
+    public void Buckets_switch_from_days_to_weeks_to_months_by_range_length(string from, string to, TimeBucketSize size, int count)
+    {
+        var (actual, buckets) = TimeSpentRules.Buckets(DateOnly.Parse(from), DateOnly.Parse(to));
+        Assert.Equal((size, count), (actual, buckets.Count));
+        Assert.Equal(DateOnly.Parse(from), buckets[0].From);
+        Assert.Equal(DateOnly.Parse(to), buckets[^1].To);
+    }
+
+    /// <summary>RPT-050: weeks run Monday to Sunday, clipped at both ends, and one across New Year stays whole.</summary>
+    [Fact]
+    public void Weeks_run_monday_to_sunday_clipped_to_the_range()
+    {
+        var (_, weeks) = TimeSpentRules.Buckets(new DateOnly(2026, 10, 14), new DateOnly(2026, 12, 31));
+        Assert.Equal((new DateOnly(2026, 10, 14), new DateOnly(2026, 10, 18)), (weeks[0].From, weeks[0].To));
+        Assert.Equal((new DateOnly(2026, 10, 19), new DateOnly(2026, 10, 25)), (weeks[1].From, weeks[1].To));
+        Assert.Equal((new DateOnly(2026, 12, 28), new DateOnly(2026, 12, 31)), (weeks[^1].From, weeks[^1].To));
+
+        var (_, newYear) = TimeSpentRules.Buckets(new DateOnly(2026, 12, 2), new DateOnly(2027, 2, 28));
+        Assert.Contains(newYear, b => b.From == new DateOnly(2026, 12, 28) && b.To == new DateOnly(2027, 1, 3));
+    }
+
+    /// <summary>RPT-050: months are clipped at both ends, and every minute falls in exactly one bucket.</summary>
+    [Fact]
+    public void Every_minute_falls_in_exactly_one_bucket()
+    {
+        var t = Task();
+        var from = new DateOnly(2025, 1, 15);
+        var to = new DateOnly(2026, 3, 10);
+        var report = Run(
+            [
+                Entry(Alice, t, 10, from), Entry(Alice, t, 20, new DateOnly(2025, 6, 30)), Entry(Alice, t, 40, new DateOnly(2025, 7, 1)),
+                Entry(Alice, t, 80, to)
+            ], [t], from: from, to: to);
+
+        Assert.Equal(TimeBucketSize.Month, report.BucketSize);
+        Assert.Equal(15, report.Buckets.Count);
+        Assert.Equal((from, new DateOnly(2025, 1, 31), 10), (report.Buckets[0].From, report.Buckets[0].To, report.Buckets[0].Minutes));
+        Assert.Equal((new DateOnly(2026, 3, 1), to, 80), (report.Buckets[^1].From, report.Buckets[^1].To, report.Buckets[^1].Minutes));
+        Assert.Equal((20, 40), (report.Buckets[5].Minutes, report.Buckets[6].Minutes));
+        Assert.Equal(report.Summary.Minutes, report.Buckets.Sum(b => b.Minutes));
+    }
+
+    /// <summary>RPT-050: a daily report has a bucket for every day, with nothing on the days nobody logged.</summary>
+    [Fact]
+    public void Daily_buckets_cover_every_day()
+    {
+        var t = Task();
+        var report = Run([Entry(Alice, t, 30, new DateOnly(2026, 10, 3))], [t]);
+        Assert.Equal(TimeBucketSize.Day, report.BucketSize);
+        Assert.Equal(31, report.Buckets.Count);
+        Assert.All(report.Buckets, b => Assert.Equal(b.From, b.To));
+        Assert.Equal(30, report.Buckets[2].Minutes);
+        Assert.Equal(30, report.Buckets.Sum(b => b.Minutes));
+    }
+
     /// <summary>Review focus: an entry by a user with no name row is Unknown; an entry for a task not in the facts is dropped.</summary>
     [Fact]
     public void An_unknown_person_is_named_unknown_and_an_unknown_tasks_time_is_dropped()

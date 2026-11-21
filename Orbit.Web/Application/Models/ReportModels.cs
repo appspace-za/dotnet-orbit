@@ -124,7 +124,34 @@ public sealed record TimeSpentTaskRow(
 /// </summary>
 public sealed record TimeSpentReport(
     DateOnly From, DateOnly To, TimeSpentSummary Summary, IReadOnlyList<TimeSpentPersonRow> People,
-    IReadOnlyList<TimeSpentTaskRow> Tasks, IReadOnlyList<ReportPerson> PersonOptions);
+    IReadOnlyList<TimeSpentTaskRow> Tasks, IReadOnlyList<ReportPerson> PersonOptions)
+{
+    /// <summary>The time by project, most first, with No project (a null <c>Project</c>) last.</summary>
+    public IReadOnlyList<TimeSpentProjectRow> Projects { get; init; } = [];
+    public IReadOnlyList<TimeSpentTypeRow> Types { get; init; } = [];
+    public IReadOnlyList<TimeSpentSourceRow> Sources { get; init; } = [];
+    /// <summary>Whether <see cref="Buckets"/> are days, weeks or months, by the window's length.</summary>
+    public TimeBucketSize BucketSize { get; init; }
+    public IReadOnlyList<TimeBucket> Buckets { get; init; } = [];
+}
+
+/// <summary>What one column of Time spent's per-period chart covers: a day, an ISO week (Monday to Sunday) or a calendar month.</summary>
+public enum TimeBucketSize
+{
+    Day,
+    Week,
+    Month
+}
+
+/// <summary>A day, week or month of the window, clipped to it, and the time logged in it.</summary>
+public sealed record TimeBucket(DateOnly From, DateOnly To, int Minutes = 0);
+
+/// <summary>A project's time in the window; a null <see cref="Project"/> is the tasks on no project.</summary>
+public sealed record TimeSpentProjectRow(TimeSpentProjectFacts? Project, int Minutes);
+
+public sealed record TimeSpentTypeRow(TaskType Type, int Minutes);
+
+public sealed record TimeSpentSourceRow(TaskSource Source, int Minutes);
 
 /// <summary>
 /// Estimate accuracy (§12): tasks completed in the range, grouped by assignee. A task several people share (§6.2.3) is under each
