@@ -159,6 +159,17 @@ public class FilterQueryTests
         Assert.Equal((Today, new DateOnly(2026, 11, 5)), FilterQuery.Period(new DateOnly(2026, 11, 5), null, Today, 6));
     }
 
+    /// <summary>Decision 149: Time spent's address carries the person whose time it shows; a value that isn't an id is no filter.</summary>
+    [Fact]
+    public void A_report_address_reads_its_person()
+    {
+        var id = Guid.NewGuid();
+        Assert.Equal(id, Orbit.Components.Pages.Reports.ReportAddress.Parse("TimeSpent", null, null, null, null, null, null, null, id.ToString()).PersonId);
+        Assert.Null(Orbit.Components.Pages.Reports.ReportAddress.Parse("TimeSpent", null, null, null, null, null, null, null, "nobody").PersonId);
+        Assert.Equal(Orbit.Application.Models.ReportKind.TimeSpent,
+            Orbit.Components.Pages.Reports.ReportAddress.Parse("TimeSpent", null, null, null, null, null, null).Kind);
+    }
+
     /// <summary>Decision 143: a report's period is the last 31 days by default, and the page and its PDF read it the same way.</summary>
     [Fact]
     public void A_report_period_defaults_to_the_last_31_days()

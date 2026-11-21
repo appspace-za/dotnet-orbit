@@ -12,15 +12,18 @@ public enum ReportKind
     EstimateAccuracy,
     ProjectStatus,
     AssetStatus,
-    SprintStatus
+    SprintStatus,
+    TimeSpent
 }
 
 /// <summary>
 /// A report's filters. <see cref="OwnerId"/> and <see cref="AssigneeId"/> pick projects for the project status report
-/// (<see cref="ReportDefinition.ByOwnerAndAssignee"/>) and are ignored by the others.
+/// (<see cref="ReportDefinition.ByOwnerAndAssignee"/>) and are ignored by the others. <see cref="PersonId"/> keeps only the time a
+/// person logged, on Time spent (<see cref="ReportDefinition.ByPerson"/>) alone.
 /// </summary>
 public sealed record ReportFilter(
-    DateTime FromUtc, DateTime ToUtc, Guid? ProjectId, Guid? DepartmentId, Guid? OwnerId = null, Guid? AssigneeId = null);
+    DateTime FromUtc, DateTime ToUtc, Guid? ProjectId, Guid? DepartmentId, Guid? OwnerId = null, Guid? AssigneeId = null,
+    Guid? PersonId = null);
 
 public sealed record PersonCountRow(Guid? UserId, string Name, int Count);
 
@@ -676,10 +679,12 @@ public sealed record SprintStatusReport(
 /// <summary>
 /// A report in the catalogue. <see cref="ByProject"/> false hides the project filter: assets belong to no project.
 /// <see cref="ByOwnerAndAssignee"/> shows the Owner and Assignee filters, which pick projects. <see cref="BySprint"/> takes a sprint
-/// in place of the date range, and an Assignee filter that picks tasks.
+/// in place of the date range, and an Assignee filter that picks tasks. <see cref="ByPerson"/> shows the Person filter, which keeps
+/// the time a person logged; <see cref="SprintQuickPick"/> a Sprint dropdown beside the dates that fills them with a sprint's.
 /// </summary>
 public sealed record ReportDefinition(
-    ReportKind Kind, string Title, string Description, bool ByProject = true, bool ByOwnerAndAssignee = false, bool BySprint = false)
+    ReportKind Kind, string Title, string Description, bool ByProject = true, bool ByOwnerAndAssignee = false, bool BySprint = false,
+    bool ByPerson = false, bool SprintQuickPick = false)
 {
     /// <summary>The Assignee filter shows.</summary>
     public bool ByAssignee => ByOwnerAndAssignee || BySprint;
@@ -699,6 +704,9 @@ public static class ReportCatalog
             "Average time from creation to completion, for tasks completed in the period."),
         new(ReportKind.TimeByPerson, "Time by person",
             "Time each person logged in the period, and for the tasks they worked on, each task's estimate against all time logged on it to date."),
+        new(ReportKind.TimeSpent, "Time spent",
+            "Where the time logged in the period went: by project, person, day, task type and source, then every task worked on, most time first, with who logged it.",
+            ByPerson: true, SprintQuickPick: true),
         new(ReportKind.EstimateAccuracy, "Estimate accuracy",
             "Tasks completed in the period, grouped by assignee: the estimate against all time logged on them. A shared task is under each of its assignees and counts once overall."),
         new(ReportKind.ProjectStatus, "Project status",

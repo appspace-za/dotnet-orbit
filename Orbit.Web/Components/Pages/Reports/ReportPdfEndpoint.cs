@@ -24,7 +24,7 @@ public static class ReportPdfEndpoint
         {
             var q = http.Request.Query;
             var address = ReportAddress.Parse(q[ReportRun.KindKey], q[ReportRun.FromKey], q[ReportRun.ToKey], q[ReportRun.ProjectKey],
-                q[ReportRun.DepartmentKey], q[ReportRun.OwnerKey], q[ReportRun.AssigneeKey], q[ReportRun.SprintKey]);
+                q[ReportRun.DepartmentKey], q[ReportRun.OwnerKey], q[ReportRun.AssigneeKey], q[ReportRun.SprintKey], q[ReportRun.PersonKey]);
             ReportRun run;
             try
             {

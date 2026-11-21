@@ -14,14 +14,14 @@ namespace Orbit.Components.Pages.Reports;
 /// </summary>
 public sealed record ReportAddress(
     ReportKind Kind, DateOnly? From, DateOnly? To, Guid? ProjectId, Guid? DepartmentId, Guid? OwnerId, Guid? AssigneeId,
-    Guid? SprintId = null)
+    Guid? SprintId = null, Guid? PersonId = null)
 {
     public static ReportAddress Parse(
         string? kind, string? from, string? to, string? projectId, string? departmentId, string? ownerId, string? assigneeId,
-        string? sprintId = null) =>
+        string? sprintId = null, string? personId = null) =>
         new(FilterQuery.Enum<ReportKind>(kind) ?? ReportKind.ClosedByPerson, FilterQuery.Date(from), FilterQuery.Date(to),
             FilterChoice.Id(projectId), FilterChoice.Id(departmentId), FilterChoice.Id(ownerId), FilterChoice.Id(assigneeId),
-            FilterChoice.Id(sprintId));
+            FilterChoice.Id(sprintId), FilterChoice.Id(personId));
 
     /// <summary>The period reported on, the last 31 days by default; Sprint status replaces it with the sprint's days.</summary>
     public (DateOnly From, DateOnly To) Period(DateOnly today) => FilterQuery.Period(From, To, today, 30);
@@ -36,9 +36,9 @@ public sealed class ReportRun
 {
     // The address keys, as the Razor page bound them, so existing links and bookmarks keep working.
     public const string KindKey = "Kind", FromKey = "From", ToKey = "To", ProjectKey = "ProjectId", DepartmentKey = "DepartmentId",
-        OwnerKey = "OwnerId", AssigneeKey = "AssigneeId", SprintKey = "SprintId";
+        OwnerKey = "OwnerId", AssigneeKey = "AssigneeId", SprintKey = "SprintId", PersonKey = "PersonId";
 
-    private static readonly string[] Keys = [KindKey, SprintKey, FromKey, ToKey, ProjectKey, DepartmentKey, OwnerKey, AssigneeKey];
+    private static readonly string[] Keys = [KindKey, SprintKey, FromKey, ToKey, ProjectKey, DepartmentKey, OwnerKey, AssigneeKey, PersonKey];
 
     private ReportRun() { }
 
@@ -52,6 +52,8 @@ public sealed class ReportRun
     public Guid? AssigneeId { get; private set; }
     /// <summary>The sprint reported on (<see cref="ReportDefinition.BySprint"/>): the one chosen, or the one the report defaulted to.</summary>
     public Guid? SprintId { get; private set; }
+    /// <summary>Whose time Time spent shows (<see cref="ReportDefinition.ByPerson"/>): everyone's when null.</summary>
+    public Guid? PersonId { get; private set; }
 
     /// <summary>reports.view at Department scope fixes the department to the viewer's own (§6.5): the picker is hidden.</summary>
     public bool CanChooseDepartment { get; private set; }
@@ -63,6 +65,7 @@ public sealed class ReportRun
     public ProjectStatusReport? ProjectReport { get; private set; }
     public AssetStatusReport? AssetReport { get; private set; }
     public SprintStatusReport? SprintReport { get; private set; }
+    public TimeSpentReport? TimeSpent { get; private set; }
     public string FilterSummary { get; private set; } = string.Empty;
 
     /// <summary>The Project filter's projects (archived ones too, as reports look back), without "All". Only with options.</summary>
@@ -72,8 +75,21 @@ public sealed class ReportRun
     /// <summary>The Owner and Assignee filters (<see cref="ReportDefinition.ByOwnerAndAssignee"/>), from <see cref="ReportingService.ProjectReportPeopleAsync"/>.</summary>
     public IReadOnlyList<(string Value, string Text)> OwnerOptions { get; private set; } = [];
     public IReadOnlyList<(string Value, string Text)> AssigneeOptions { get; private set; } = [];
-    /// <summary>The Sprint filter's sprints (<see cref="ReportDefinition.BySprint"/>), with no "All". Only with options.</summary>
+    /// <summary>
+    /// The Sprint filter's sprints (<see cref="ReportDefinition.BySprint"/>), or the sprint quick-pick's
+    /// (<see cref="ReportDefinition.SprintQuickPick"/>), with no "All". Only with options.
+    /// </summary>
     public IReadOnlyList<(string Value, string Text)> SprintOptions { get; private set; } = [];
+    /// <summary>
+    /// The sprints the quick-pick offers (<see cref="ReportDefinition.SprintQuickPick"/>): those that have started, newest first. Read
+    /// with or without options, as the summary line names the sprint whose dates the period is (<see cref="TimeRules.SprintForRange"/>).
+    /// </summary>
+    public IReadOnlyList<Sprint> Sprints { get; private set; } = [];
+    /// <summary>
+    /// The Person filter's people (<see cref="ReportDefinition.ByPerson"/>), without "All": those with time in the period, from the
+    /// report. Only with options. Not <c>PersonOptions</c>, which names the helper that builds a person filter's options.
+    /// </summary>
+    public IReadOnlyList<(string Value, string Text)> PersonFilterOptions { get; private set; } = [];
 
     public string FileName => $"orbit-{Kind.ToString().ToLowerInvariant()}-{From:yyyyMMdd}-{To:yyyyMMdd}.pdf";
 
@@ -84,24 +100,49 @@ public sealed class ReportRun
     /// </summary>
     public string Query(string? key = null, string? value = null, params string[] clear)
     {
+        var filters = Filters();
+        if (key is not null) filters[key] = value;
+        foreach (var k in clear) filters[k] = null;
+        return Write(filters);
+    }
+
+    /// <summary>
+    /// The filters in force as a query string, with the period changed to <paramref name="from"/> to <paramref name="to"/>: the
+    /// sprint quick-pick's navigation (<see cref="ReportDefinition.SprintQuickPick"/>), which sets both dates at once.
+    /// </summary>
+    public string RangeQuery(DateOnly from, DateOnly to)
+    {
+        var filters = Filters();
+        filters[FromKey] = Day(from);
+        filters[ToKey] = Day(to);
+        return Write(filters);
+    }
+
+    private Dictionary<string, string?> Filters()
+    {
         var bySprint = Definition.BySprint;
-        var filters = new Dictionary<string, string?>
+        return new Dictionary<string, string?>
         {
             [KindKey] = Kind.ToString(),
             [SprintKey] = bySprint ? SprintId?.ToString() : null,
-            [FromKey] = bySprint ? null : From.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            [ToKey] = bySprint ? null : To.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            [FromKey] = bySprint ? null : Day(From),
+            [ToKey] = bySprint ? null : Day(To),
             [ProjectKey] = ProjectId?.ToString(),
             [DepartmentKey] = CanChooseDepartment ? DepartmentId?.ToString() : null,
             [OwnerKey] = OwnerId?.ToString(),
-            [AssigneeKey] = AssigneeId?.ToString()
+            [AssigneeKey] = AssigneeId?.ToString(),
+            [PersonKey] = PersonId?.ToString()
         };
-        if (key is not null) filters[key] = value;
-        foreach (var k in clear) filters[k] = null;
+    }
+
+    private static string Write(Dictionary<string, string?> filters)
+    {
         var query = new FilterQuery();
         foreach (var k in Keys) query.Add(k, filters[k]);
         return query.ToString();
     }
+
+    private static string Day(DateOnly d) => d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     /// <summary>
     /// Runs the report. <paramref name="withOptions"/> also lists the projects and departments the filters offer, which the page
@@ -117,7 +158,7 @@ public sealed class ReportRun
         var run = new ReportRun
         {
             Kind = filters.Kind, ProjectId = filters.ProjectId, DepartmentId = filters.DepartmentId,
-            OwnerId = filters.OwnerId, AssigneeId = filters.AssigneeId
+            OwnerId = filters.OwnerId, AssigneeId = filters.AssigneeId, PersonId = filters.PersonId
         };
         var restricted = ReportingService.RestrictedDepartment(actor);
         run.CanChooseDepartment = restricted is null;
@@ -126,13 +167,14 @@ public sealed class ReportRun
         if (!run.Definition.ByProject) run.ProjectId = null; // assets belong to no project
         if (!run.Definition.ByOwnerAndAssignee) run.OwnerId = null;
         if (!run.Definition.ByAssignee) run.AssigneeId = null;
+        if (!run.Definition.ByPerson) run.PersonId = null;
         var (from, to) = filters.Period(DateOnly.FromDateTime(DateTime.UtcNow));
         run.From = from;
         run.To = to;
 
         var fromUtc = DateTime.SpecifyKind(from.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
         var toUtc = DateTime.SpecifyKind(to.AddDays(1).ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
-        var filter = new ReportFilter(fromUtc, toUtc, run.ProjectId, run.DepartmentId, run.OwnerId, run.AssigneeId);
+        var filter = new ReportFilter(fromUtc, toUtc, run.ProjectId, run.DepartmentId, run.OwnerId, run.AssigneeId, run.PersonId);
 
         switch (run.Kind)
         {
@@ -144,6 +186,7 @@ public sealed class ReportRun
             case ReportKind.EstimateAccuracy: run.EstimateAccuracy = await reporting.EstimateAccuracyAsync(filter, ct); break;
             case ReportKind.ProjectStatus: run.ProjectReport = await reporting.ProjectStatusAsync(filter, ct); break;
             case ReportKind.AssetStatus: run.AssetReport = await reporting.AssetStatusAsync(filter, ct); break;
+            case ReportKind.TimeSpent: run.TimeSpent = await reporting.TimeSpentAsync(filter, ct); break;
             case ReportKind.SprintStatus:
                 run.SprintReport = await reporting.SprintStatusAsync(
                     new SprintReportFilter(filters.SprintId, run.ProjectId, run.DepartmentId, run.AssigneeId), ct);
@@ -163,6 +206,12 @@ public sealed class ReportRun
         }
 
         var parts = new List<string> { $"{from:yyyy-MM-dd} to {to:yyyy-MM-dd}" };
+        if (run.Definition.SprintQuickPick)
+        {
+            // Read with or without options: the summary names the sprint whose dates the period is exactly.
+            run.Sprints = await services.Get<SprintService>().ListStartedAsync(ct);
+            if (TimeRules.SprintForRange(run.Sprints, from, to) is { } sprint) parts.Add(sprint.Name);
+        }
         await AddDepartmentAsync(run, parts, departments, ct);
         ProjectStatusSummary? chosenProject = null;
         if (run.ProjectId is Guid p)
@@ -178,6 +227,7 @@ public sealed class ReportRun
             if (run.OwnerId is Guid o) parts.Add("Owner: " + PersonName(people.Owners, o));
             if (run.AssigneeId is Guid a) parts.Add("Assignee: " + PersonName(people.Assignees, a));
         }
+        if (run.TimeSpent is { } spent && run.PersonId is Guid person) parts.Add("Person: " + PersonName(spent.PersonOptions, person));
         run.FilterSummary = string.Join(" · ", parts);
 
         if (withOptions)
@@ -191,6 +241,9 @@ public sealed class ReportRun
                     options.Add((chosen.Id.ToString(), ProjectText(chosen.DepartmentName, chosen.Name, chosen.Status)));
                 run.ProjectOptions = options;
             }
+            // Labelled as My Time labels them (decision 148).
+            run.SprintOptions = run.Sprints.Select(s => (s.Id.ToString(), $"{s.Name} ({s.Status})")).ToList();
+            if (run.TimeSpent is { } report) run.PersonFilterOptions = PersonOptions(report.PersonOptions, run.PersonId);
             await DepartmentOptionsAsync(run, departments, ct);
         }
         return run;
