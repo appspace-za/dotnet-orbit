@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using Orbit.Application.Availability;
 using Orbit.Application.Models;
 using Orbit.Data;
 using Orbit.Data.Entities;
@@ -7,7 +9,8 @@ namespace Orbit.Application.Services;
 
 /// <summary>Operational reports (§12). Aggregates are computed in SQL and returned as plain DTOs.</summary>
 public sealed class ReportingService(
-    ApplicationDbContext db, IActorProvider actors, CriticalPathService criticalPath, AvailabilityFactsReader availabilityFacts)
+    ApplicationDbContext db, IActorProvider actors, CriticalPathService criticalPath, AvailabilityFactsReader availabilityFacts,
+    IOptions<ReportOptions> reportOptions)
 {
     private const string ClaudeName = "Claude";
 
@@ -175,12 +178,14 @@ public sealed class ReportingService(
                 .ToDictionaryAsync(p => p.Id, ct);
         }
 
+        // Each person's availability over the period, day by day (§6.22): their patterns, the holidays, their unavailable time.
         var last = to.AddDays(-1);
-        var availability = await availabilityFacts.ReadAsync(ids, from, last, ct);
-        var employed = availability.Values
-            .Where(a => !a.IsSystemAccount && a.Employment.Any(e => e.From <= last && (e.To is not DateOnly end || end >= from)))
-            .Select(a => a.UserId).ToHashSet();
-        return TimeUtilisationRules.Build(from, last, entries, tasks, toDate, projects, people, employed, f.PersonId);
+        var known = await availabilityFacts.ReadAsync(ids, from, last, ct);
+        var holidays = await availabilityFacts.HolidaysAsync(from, last, ct);
+        var availability = known.ToDictionary(k => k.Key,
+            k => new ReportAvailability(k.Value.Patterns.Count > 0, AvailabilityRules.Days(k.Value, holidays, from, last)));
+        return TimeUtilisationRules.Build(from, last, entries, tasks, toDate, projects, people, availability,
+            reportOptions.Value.EffectiveTarget, f.PersonId);
     }
 
     /// <summary>Tasks set to Done in the period, grouped by assignee: the estimate against all time logged on them.</summary>

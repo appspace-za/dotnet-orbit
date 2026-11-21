@@ -75,16 +75,51 @@ public sealed record TimeUtilisationTaskFacts(
 
 public sealed record TimeUtilisationProjectFacts(Guid Id, string Number, string Name);
 
-/// <summary>
-/// Time utilisation's tiles: the time in the window, the people who logged it and the covered people who logged nothing, the tasks it
-/// was logged on and how many have no estimate, and the estimate comparison over them, each task once.
-/// </summary>
-public sealed record TimeUtilisationSummary(int Minutes, int People, int LoggedNothing, int Tasks, int UnestimatedTasks, EstimateComparison Estimate);
+/// <summary>A person's availability over the window, day by day (spec §6.22), for Time utilisation; <see cref="HasPattern"/> false for someone with no work pattern.</summary>
+public sealed record ReportAvailability(bool HasPattern, IReadOnlyList<AvailabilityDay> Days);
 
-/// <summary>A person's time in the window and how many tasks it was on; a covered person who logged nothing reads zero.</summary>
-public sealed record TimeUtilisationPersonRow(Guid UserId, string Name, int Minutes, int Tasks)
+/// <summary>
+/// Time utilisation's tiles (decision 150): the time logged and the time available (with the unavailable time and the holidays taken off
+/// it), utilisation over the whole, how many people are under the target and how many logged nothing, the per-person gaps added up
+/// and how many people have one, the people who logged time, the tasks it was logged on and how many have no estimate, and the
+/// estimate comparison over them, each task once.
+/// </summary>
+public sealed record TimeUtilisationSummary(
+    int Minutes, int AvailableMinutes, int UnavailableMinutes, int HolidayDays, int? UtilisationPercent, int UnderTarget, int People,
+    int LoggedNothing, int UnloggedMinutes, int UnloggedPeople, int Tasks, int UnestimatedTasks, EstimateComparison Estimate);
+
+/// <summary>
+/// A person's period: available and unavailable time, time logged and on how many tasks, and whether they are under the target. Their
+/// gap (<see cref="UnloggedMinutes"/>) and excess (<see cref="OverMinutes"/>) are their own, never netted against anyone else's.
+/// </summary>
+public sealed record TimeUtilisationPersonRow(
+    Guid UserId, string Name, bool IsActive, bool HasPattern, int AvailableMinutes, int UnavailableMinutes, int Minutes, int Tasks,
+    bool UnderTarget)
 {
     public bool LoggedNothing => Minutes == 0;
+    public int UnloggedMinutes => Math.Max(0, AvailableMinutes - Minutes);
+    public int OverMinutes => Math.Max(0, Minutes - AvailableMinutes);
+    public int? UtilisationPercent => Orbit.Application.Availability.UtilisationRules.Percent(Minutes, AvailableMinutes);
+}
+
+/// <summary>
+/// One cell of the timesheet grid: a day, week or month of one person's - time logged against available, the unavailable time in it,
+/// whether every day of it is a holiday, and whether it is under the target.
+/// </summary>
+public sealed record TimeUtilisationCell(
+    DateOnly From, DateOnly To, int Minutes, int AvailableMinutes, int UnavailableMinutes, bool AllHoliday, bool UnderTarget)
+{
+    public bool Unavailable => UnavailableMinutes > 0;
+    /// <summary>Time logged with no availability against it.</summary>
+    public bool Over => AvailableMinutes == 0 && Minutes > 0;
+    /// <summary>No availability and nothing logged, and not a holiday.</summary>
+    public bool Empty => AvailableMinutes == 0 && Minutes == 0 && !AllHoliday;
+}
+
+/// <summary>A person's row of the timesheet grid, with its totals.</summary>
+public sealed record TimeUtilisationGridRow(Guid UserId, string Name, IReadOnlyList<TimeUtilisationCell> Cells, int Minutes, int AvailableMinutes)
+{
+    public int? UtilisationPercent => Orbit.Application.Availability.UtilisationRules.Percent(Minutes, AvailableMinutes);
 }
 
 /// <summary>A person's time on a task: in the window, and to date.</summary>
@@ -119,6 +154,14 @@ public sealed record TimeUtilisationReport(
     /// <summary>Whether <see cref="Buckets"/> are days, weeks or months, by the window's length.</summary>
     public TimeBucketSize BucketSize { get; init; }
     public IReadOnlyList<TimeBucket> Buckets { get; init; } = [];
+    /// <summary>The utilisation target in force (<c>Reports:UtilisationTargetPercent</c>).</summary>
+    public int TargetPercent { get; init; }
+    /// <summary>The timesheet grid on the page: one row per person, by name, a cell per bucket as the period chart's.</summary>
+    public TimeBucketSize GridBucketSize { get; init; }
+    public IReadOnlyList<TimeUtilisationGridRow> Grid { get; init; } = [];
+    /// <summary>The same grid for the PDF, whose page fits about 31 day columns: weekly past 31 days.</summary>
+    public TimeBucketSize PdfGridBucketSize { get; init; }
+    public IReadOnlyList<TimeUtilisationGridRow> PdfGrid { get; init; } = [];
     /// <summary>
     /// The person the Person filter picked, when the report knows them - they logged time in the window or are among the people
     /// it covers - so they keep their name in a window where they logged nothing; null otherwise.
@@ -134,8 +177,11 @@ public enum TimeBucketSize
     Month
 }
 
-/// <summary>A day, week or month of the window, clipped to it, and the time logged in it.</summary>
-public sealed record TimeBucket(DateOnly From, DateOnly To, int Minutes = 0);
+/// <summary>
+/// A day, week or month of the window, clipped to it: the time logged in it and the time available, and the people's gaps
+/// (<see cref="UnloggedMinutes"/>) and excess (<see cref="OverMinutes"/>) in it, each person's own, added up.
+/// </summary>
+public sealed record TimeBucket(DateOnly From, DateOnly To, int Minutes = 0, int AvailableMinutes = 0, int UnloggedMinutes = 0, int OverMinutes = 0);
 
 /// <summary>A project's time in the window; a null <see cref="Project"/> is the tasks on no project.</summary>
 public sealed record TimeUtilisationProjectRow(TimeUtilisationProjectFacts? Project, int Minutes);

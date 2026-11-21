@@ -46,7 +46,7 @@ public class TimeUtilisationChartsTests
                 entries.Add(new TimeUtilisationEntry(task.Id, person, from.AddDays(number % days), i * 60));
             }
         }
-        return TimeUtilisationRules.Build(from, to, entries, tasks, [], projectFacts, names, new HashSet<Guid>(), null);
+        return TimeUtilisationRules.Build(from, to, entries, tasks, [], projectFacts, names, new Dictionary<Guid, ReportAvailability>(), 80, null);
     }
 
     private static readonly DateOnly From = new(2026, 10, 1);

@@ -22,36 +22,48 @@ public static class TimeUtilisationRules
 
     /// <summary>
     /// The report. <paramref name="people"/> are everyone the department scope covers (§6.3), whatever their dates;
-    /// <paramref name="employed"/> those of them employed on some day of the window, listed even when they logged nothing;
-    /// <paramref name="entries"/> the window's time of those people, summed by task, person and day; <paramref name="tasks"/> the facts
-    /// of their tasks; <paramref name="toDate"/> each person's time on those tasks to date. An entry outside the window, on a task not
-    /// in <paramref name="tasks"/> or by someone not in <paramref name="people"/>, is dropped.
+    /// <paramref name="availability"/> each one's availability over the window, day by day (missing: no pattern and never employed) -
+    /// those employed on some day of it are listed even when they logged nothing; <paramref name="entries"/> the window's time of those
+    /// people, summed by task, person and day; <paramref name="tasks"/> the facts of their tasks; <paramref name="toDate"/> each person's
+    /// time on those tasks to date. An entry outside the window, on a task not in <paramref name="tasks"/> or by someone not in
+    /// <paramref name="people"/>, is dropped.
     /// </summary>
     public static TimeUtilisationReport Build(
         DateOnly from, DateOnly to, IEnumerable<TimeUtilisationEntry> entries, IReadOnlyDictionary<Guid, TimeUtilisationTaskFacts> tasks,
         IEnumerable<TimeUtilisationPersonTime> toDate, IReadOnlyDictionary<Guid, TimeUtilisationProjectFacts> projects,
-        IReadOnlyDictionary<Guid, ReportPerson> people, IReadOnlySet<Guid> employed, Guid? personId)
+        IReadOnlyDictionary<Guid, ReportPerson> people, IReadOnlyDictionary<Guid, ReportAvailability> availability, int targetPercent,
+        Guid? personId)
     {
         var inWindow = entries.Where(e => e.Date >= from && e.Date <= to && tasks.ContainsKey(e.TaskId) && people.ContainsKey(e.UserId)).ToList();
         string Name(Guid id) => people.TryGetValue(id, out var p) ? p.Name : Unknown;
+        IReadOnlyList<AvailabilityDay> DaysOf(Guid id) =>
+            availability.TryGetValue(id, out var a) ? a.Days.Where(d => d.Date >= from && d.Date <= to).ToList() : [];
 
-        var inReport = inWindow.Select(e => e.UserId).Concat(employed.Where(people.ContainsKey)).ToHashSet();
+        var employed = availability.Where(a => people.ContainsKey(a.Key) && a.Value.Days.Any(d => d.Employed && d.Date >= from && d.Date <= to))
+            .Select(a => a.Key);
+        var inReport = inWindow.Select(e => e.UserId).Concat(employed).ToHashSet();
         var options = inReport.Select(id => people[id])
             .OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
 
         var picked = personId is Guid only ? inWindow.Where(e => e.UserId == only).ToList() : inWindow;
-        var listed = employed.Where(people.ContainsKey).Where(id => personId is not Guid only || id == only).ToList();
+        var shown = inReport.Where(id => personId is not Guid only || id == only).ToList();
+        var byUser = picked.ToLookup(e => e.UserId);
+        var days = shown.ToDictionary(id => id, DaysOf);
 
-        var byPerson = picked.GroupBy(e => e.UserId)
-            .Select(g => new TimeUtilisationPersonRow(g.Key, Name(g.Key), g.Sum(e => e.Minutes), g.Select(e => e.TaskId).Distinct().Count()))
-            .OrderByDescending(r => r.Minutes)
+        // Lowest utilisation first, the people to follow up; those with no availability to measure against last.
+        var personRows = shown.Select(id =>
+            {
+                var mine = byUser[id].ToList();
+                var available = days[id].Sum(d => d.AvailableMinutes);
+                var minutes = mine.Sum(e => e.Minutes);
+                return new TimeUtilisationPersonRow(id, Name(id), people[id].IsActive, availability.TryGetValue(id, out var a) && a.HasPattern,
+                    available, days[id].Sum(d => d.UnavailableMinutes), minutes, mine.Select(e => e.TaskId).Distinct().Count(),
+                    Availability.UtilisationRules.UnderTarget(minutes, available, targetPercent));
+            })
+            .OrderBy(r => r.UtilisationPercent is null)
+            .ThenBy(r => r.UtilisationPercent ?? 0)
             .ThenBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase)
-            .ToList();
-        var withTime = byPerson.Select(r => r.UserId).ToHashSet();
-        var nothing = listed.Where(id => !withTime.Contains(id))
-            .Select(id => new TimeUtilisationPersonRow(id, Name(id), 0, 0))
-            .OrderBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
 
         var personToDate = toDate.GroupBy(t => (t.TaskId, t.UserId)).ToDictionary(g => g.Key, g => g.Sum(t => t.Minutes));
@@ -77,11 +89,34 @@ public static class TimeUtilisationRules
             .ToList();
 
         var worked = taskRows.Select(r => tasks[r.TaskId]).ToList();
-        var summary = new TimeUtilisationSummary(picked.Sum(e => e.Minutes), byPerson.Count, nothing.Count, worked.Count,
-            worked.Count(t => t.EstimateMinutes is null), TimeReportRules.Compare(worked.Select(t => t.AsTimeFacts())));
+        var logged = picked.Sum(e => e.Minutes);
+        var availableTotal = personRows.Sum(r => r.AvailableMinutes);
+        var summary = new TimeUtilisationSummary(logged, availableTotal, personRows.Sum(r => r.UnavailableMinutes),
+            days.Values.SelectMany(d => d).Where(d => d.Holiday is not null).Select(d => d.Date).Distinct().Count(),
+            Availability.UtilisationRules.Percent(logged, availableTotal), personRows.Count(r => r.UnderTarget),
+            personRows.Count(r => r.Minutes > 0), personRows.Count(r => r.LoggedNothing), personRows.Sum(r => r.UnloggedMinutes),
+            personRows.Count(r => r.UnloggedMinutes > 0), worked.Count, worked.Count(t => t.EstimateMinutes is null),
+            TimeReportRules.Compare(worked.Select(t => t.AsTimeFacts())));
+
+        var byName = personRows.OrderBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+        List<TimeUtilisationGridRow> Grid(IReadOnlyList<TimeBucket> buckets) => byName.Select(r =>
+        {
+            var cells = buckets.Select(b =>
+            {
+                var inBucket = days[r.UserId].Where(d => d.Date >= b.From && d.Date <= b.To).ToList();
+                var minutes = byUser[r.UserId].Where(e => e.Date >= b.From && e.Date <= b.To).Sum(e => e.Minutes);
+                var available = inBucket.Sum(d => d.AvailableMinutes);
+                return new TimeUtilisationCell(b.From, b.To, minutes, available, inBucket.Sum(d => d.UnavailableMinutes),
+                    inBucket.Count > 0 && inBucket.All(d => d.Holiday is not null),
+                    Availability.UtilisationRules.UnderTarget(minutes, available, targetPercent));
+            }).ToList();
+            return new TimeUtilisationGridRow(r.UserId, r.Name, cells, cells.Sum(c => c.Minutes), cells.Sum(c => c.AvailableMinutes));
+        }).ToList();
 
         var (size, buckets) = Buckets(from, to);
-        return new TimeUtilisationReport(from, to, summary, [.. byPerson, .. nothing], taskRows, options)
+        var grid = Grid(buckets);
+        var (pdfSize, pdfBuckets) = Buckets(from, to, PdfMaxDailyDays);
+        return new TimeUtilisationReport(from, to, summary, personRows, taskRows, options)
         {
             Projects = ByProject(taskRows),
             Types = taskRows.GroupBy(r => r.Type)
@@ -93,7 +128,19 @@ public static class TimeUtilisationRules
                 .OrderByDescending(r => r.Minutes).ThenBy(r => r.Source)
                 .ToList(),
             BucketSize = size,
-            Buckets = buckets.Select(b => b with { Minutes = picked.Where(e => e.Date >= b.From && e.Date <= b.To).Sum(e => e.Minutes) }).ToList(),
+            // Each bucket's gaps and excess are each person's own in it, added up, as the grid's cells hold them.
+            Buckets = buckets.Select((b, i) => b with
+            {
+                Minutes = picked.Where(e => e.Date >= b.From && e.Date <= b.To).Sum(e => e.Minutes),
+                AvailableMinutes = grid.Sum(g => g.Cells[i].AvailableMinutes),
+                UnloggedMinutes = grid.Sum(g => Math.Max(0, g.Cells[i].AvailableMinutes - g.Cells[i].Minutes)),
+                OverMinutes = grid.Sum(g => Math.Max(0, g.Cells[i].Minutes - g.Cells[i].AvailableMinutes))
+            }).ToList(),
+            TargetPercent = targetPercent,
+            GridBucketSize = size,
+            Grid = grid,
+            PdfGridBucketSize = pdfSize,
+            PdfGrid = pdfSize == size ? grid : Grid(pdfBuckets),
             // Named only when they are in the report: employed in the window or with time in it.
             Person = personId is Guid chosen && inReport.Contains(chosen) ? people[chosen] : null
         };
@@ -101,6 +148,9 @@ public static class TimeUtilisationRules
 
     /// <summary>A column per day for a window up to this many days long, both ends included.</summary>
     public const int MaxDailyDays = 62;
+
+    /// <summary>The PDF's timesheet grid fits about this many day columns on a landscape page, so it goes weekly beyond it.</summary>
+    public const int PdfMaxDailyDays = 31;
 
     /// <summary>A column per ISO week for a window up to this many days long; a column per month beyond it.</summary>
     public const int MaxWeeklyDays = 366;
@@ -110,10 +160,10 @@ public static class TimeUtilisationRules
     /// ISO week each (Monday to Sunday) up to <see cref="MaxWeeklyDays"/>, a calendar month each beyond. The first and last are
     /// clipped to the window, so every day of it is in exactly one.
     /// </summary>
-    public static (TimeBucketSize Size, IReadOnlyList<TimeBucket> Buckets) Buckets(DateOnly from, DateOnly to)
+    public static (TimeBucketSize Size, IReadOnlyList<TimeBucket> Buckets) Buckets(DateOnly from, DateOnly to, int maxDailyDays = MaxDailyDays)
     {
         var days = to.DayNumber - from.DayNumber + 1;
-        var size = days <= MaxDailyDays ? TimeBucketSize.Day : days <= MaxWeeklyDays ? TimeBucketSize.Week : TimeBucketSize.Month;
+        var size = days <= maxDailyDays ? TimeBucketSize.Day : days <= MaxWeeklyDays ? TimeBucketSize.Week : TimeBucketSize.Month;
         var buckets = new List<TimeBucket>();
         for (var start = from; start <= to;)
         {
