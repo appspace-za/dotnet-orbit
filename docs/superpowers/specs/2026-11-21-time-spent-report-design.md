@@ -120,8 +120,8 @@ A pure rule picks the bucket from the length of the range, *From* to *To* inclus
 - **Up to 62 days: days.** Title *Time per day*. One column per day, weekends greyed, labelled weekday and day (`Mon\n14`),
   as Sprint status's.
 - **63 to 366 days: weeks.** Title *Time per week*. One column per ISO week (Monday to Sunday); the first and last weeks are
-  clipped to the range. Labelled by the week's first day in the range (`14\nOct`); hovering shows the dates it covers
-  (`2026-10-14 to 2026-10-20`).
+  clipped to the range. Labelled by the week's first day in the range (`12\nOct`); hovering shows the dates it covers
+  (`2026-10-12 to 2026-10-18`).
 - **More than 366 days: months.** Title *Time per month*. One column per calendar month, clipped to the range, labelled
   `Oct\n2026`.
 
