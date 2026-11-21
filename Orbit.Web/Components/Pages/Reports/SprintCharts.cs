@@ -67,9 +67,11 @@ public static class SprintCharts
         [Outcome(r), Projects(r), ProjectTime(r), PeopleTasks(r), People(r), DaysTasks(r), Days(r)];
 
     /// <summary>The charts as the PDF lays them out: each run of wide charts one to a row, the others two to a row.</summary>
-    public static IEnumerable<ReportPdfBuilder.Charts> PdfSections(SprintStatusReport r)
+    public static IEnumerable<ReportPdfBuilder.Charts> PdfSections(SprintStatusReport r) => PdfSections(All(r));
+
+    /// <summary>Any report's charts as the PDF lays them out: each run of wide charts one to a row, the others two to a row.</summary>
+    public static IEnumerable<ReportPdfBuilder.Charts> PdfSections(IReadOnlyList<Chart> charts)
     {
-        var charts = All(r);
         for (var i = 0; i < charts.Count;)
         {
             var wide = charts[i].Wide;

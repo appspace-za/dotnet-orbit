@@ -21,6 +21,13 @@ public static class ReportText
 
     public static string Estimate(int? minutes) => minutes is int m ? TimeFormat.Minutes(m) : "-";
 
+    /// <summary>
+    /// A part's share of a whole as Time spent writes it (§12): a whole percentage, "&lt;1%" for a part above nothing that rounds to
+    /// 0, and "-" of nothing. Shares are rounded each on their own, so they needn't add up to 100%.
+    /// </summary>
+    public static string ShareText(int part, int whole) =>
+        SprintReportShare.Percent(part, whole) is not int p ? "-" : p == 0 && part > 0 ? "<1%" : $"{p}%";
+
     /// <summary>The note beside a task line: Cancelled, No estimate, Over estimate, or nothing.</summary>
     public static string Marker(TaskItemStatus status, int? estimate, bool isOver) =>
         status == TaskItemStatus.Cancelled ? "Cancelled" : EstimateNote(estimate, isOver);

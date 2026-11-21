@@ -352,6 +352,8 @@ a.orbit-plain:hover { background: var(--mud-palette-table-hover); }
 .orbit-chart .oc-not-planned { fill: var(--orbit-chart-not-planned); }
 .orbit-chart .oc-backlog { fill: var(--orbit-chart-backlog); }
 .orbit-chart .oc-other-sprint { fill: var(--orbit-chart-other-sprint); }
+/* Time spent's charts have one series, which takes the planned indigo and its dark shade. */
+.orbit-chart .oc-time { fill: var(--orbit-chart-planned); }
 .orbit-chart .oc-strong { fill: var(--mud-palette-text-primary); }
 .orbit-chart .oc-text { fill: var(--mud-palette-text-secondary); }
 .orbit-chart .oc-muted { fill: var(--mud-palette-text-disabled); }
