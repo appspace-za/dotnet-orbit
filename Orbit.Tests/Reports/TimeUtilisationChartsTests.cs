@@ -1,5 +1,6 @@
 using System.Xml.Linq;
 using Orbit.Application;
+using Orbit.Application.Availability;
 using Orbit.Application.Models;
 using Orbit.Components.Pages.Reports;
 using Orbit.Data.Entities;
@@ -20,8 +21,10 @@ public class TimeUtilisationChartsTests
     /// <summary>
     /// A report over <paramref name="from"/> to <paramref name="to"/>: <paramref name="projects"/> projects and
     /// <paramref name="people"/> people, each person logging on their own task, the n-th one n hours, every tenth on no project.
+    /// With <paramref name="available"/>, everyone works the full-time week throughout, so the n-th person's utilisation is the n-th
+    /// lowest.
     /// </summary>
-    internal static TimeUtilisationReport Report(DateOnly from, DateOnly to, int people = 2, int projects = 1, int tasksEach = 1)
+    internal static TimeUtilisationReport Report(DateOnly from, DateOnly to, int people = 2, int projects = 1, int tasksEach = 1, bool available = true)
     {
         var projectFacts = Enumerable.Range(1, projects)
             .Select(i => new TimeUtilisationProjectFacts(Guid.NewGuid(), $"P-26-{i:00000}", $"Project {i}"))
@@ -46,7 +49,14 @@ public class TimeUtilisationChartsTests
                 entries.Add(new TimeUtilisationEntry(task.Id, person, from.AddDays(number % days), i * 60));
             }
         }
-        return TimeUtilisationRules.Build(from, to, entries, tasks, [], projectFacts, names, new Dictionary<Guid, ReportAvailability>(), 80, null);
+        var fullTime = new WeekMinutes(480, 480, 480, 480, 480, 0, 0);
+        var availability = available
+            ? names.Keys.ToDictionary(id => id, id => new ReportAvailability(true, AvailabilityRules.Days(
+                new PersonAvailabilityFacts(id, false, [new PatternFacts(Guid.NewGuid(), new DateOnly(2020, 1, 1), fullTime)], [],
+                    [new EmploymentPeriod(new DateOnly(2020, 1, 1), null)]),
+                new Dictionary<DateOnly, string>(), from, to)))
+            : new Dictionary<Guid, ReportAvailability>();
+        return TimeUtilisationRules.Build(from, to, entries, tasks, [], projectFacts, names, availability, 80, null);
     }
 
     private static readonly DateOnly From = new(2026, 10, 1);
@@ -59,7 +69,8 @@ public class TimeUtilisationChartsTests
         var r = Report(From, To, people: 3, projects: 2);
         var charts = TimeUtilisationCharts.All(r);
 
-        Assert.Equal(["Time per day", "Time by project", "Time by person", "Time by task type", "Time by task source"], charts.Select(c => c.Title));
+        Assert.Equal(["Logged against available per day", "Utilisation by person", "Time by project", "Time by task type", "Time by task source"],
+            charts.Select(c => c.Title));
         Assert.Equal([true, false, false, false, false], charts.Select(c => c.Wide));
         Assert.Equal(("1280", "640"), (Width(charts[0].Svg), Width(charts[0].NarrowSvg!)));
         Assert.All(charts.Skip(1), c => Assert.Null(c.NarrowSvg));
@@ -70,9 +81,9 @@ public class TimeUtilisationChartsTests
 
     /// <summary>RPT-051: the period chart's title follows the bucket.</summary>
     [Theory]
-    [InlineData(31, "Time per day")]
-    [InlineData(100, "Time per week")]
-    [InlineData(400, "Time per month")]
+    [InlineData(31, "Logged against available per day")]
+    [InlineData(100, "Logged against available per week")]
+    [InlineData(400, "Logged against available per month")]
     public void The_period_chart_title_follows_the_bucket(int days, string title)
     {
         var from = new DateOnly(2026, 1, 1);
@@ -82,11 +93,11 @@ public class TimeUtilisationChartsTests
     }
 
     /// <summary>
-    /// RPT-051: past twelve, the projects and people charts keep the eleven with the most time and give the rest one bar; No project
-    /// is last; a bar's tip reads its time and its share of the total.
+    /// RPT-051: past twelve, the projects chart keeps the eleven with the most time and gives the rest one bar; No project is last; a
+    /// bar's tip reads its time and its share of the total.
     /// </summary>
     [Fact]
-    public void Projects_and_people_fold_past_twelve_with_no_project_last()
+    public void Projects_fold_past_twelve_with_no_project_last()
     {
         var r = Report(From, To, people: 30, projects: 14);
         Assert.Equal(14, r.Projects.Count(p => p.Project is not null));
@@ -95,10 +106,30 @@ public class TimeUtilisationChartsTests
         Assert.Contains("3 other projects", projects);
         Assert.True(projects.IndexOf("No project") > projects.IndexOf("3 other projects"));
         Assert.Contains("19 others", Texts(TimeUtilisationCharts.People(r).Svg));
+    }
 
-        var small = Report(From, To, people: 2);   // Person 1 60m, Person 2 120m: 180m in all
-        Assert.Contains("2h · 67%", Texts(TimeUtilisationCharts.People(small).Svg));
-        Assert.Contains("1h · 33%", Texts(TimeUtilisationCharts.People(small).Svg));
+    /// <summary>
+    /// RPT-060: the period chart stacks logged, unlogged and over with a legend; Utilisation by person puts the lowest first, keeps
+    /// the eleven lowest past twelve and gives the rest one bar, each tip reading logged of available and the percentage.
+    /// </summary>
+    [Fact]
+    public void The_period_and_person_charts_stack_logged_unlogged_and_over()
+    {
+        var r = Report(From, To, people: 15);
+        var period = Texts(TimeUtilisationCharts.Period(r).Svg);
+        Assert.Contains("Logged", period);
+        Assert.Contains("Unlogged", period);
+        Assert.Contains("Over", period);
+
+        var people = Texts(TimeUtilisationCharts.People(r).Svg);
+        Assert.True(people.IndexOf("Person 1") < people.IndexOf("Person 2"));
+        Assert.Contains("Person 11", people);
+        Assert.DoesNotContain("Person 12", people);
+        Assert.Contains("4 others", people);
+
+        // Person 2 logged 2h of October's 22 working days of 8h (176h): 1%.
+        Assert.Contains("2h of 176h · 1%", Texts(TimeUtilisationCharts.People(Report(From, To, people: 2)).Svg));
+        Assert.Contains("1h · no availability", Texts(TimeUtilisationCharts.People(Report(From, To, people: 2, available: false)).Svg));
     }
 
     /// <summary>RPT-051: types and sources are named as the app names them, and never fold.</summary>
@@ -142,19 +173,23 @@ public class TimeUtilisationChartsTests
         var sections = ReportPdfEndpoint.TimeUtilisationSections(report).ToList();
         Assert.Equal(2, sections.OfType<Orbit.Reporting.ReportPdfBuilder.Charts>().Count());
         var tables = sections.OfType<Orbit.Reporting.ReportPdfBuilder.Table>().ToList();
-        Assert.Equal(["Summary", "By person", "By task"], tables.Select(t => t.Caption));
-        var byTask = tables[2];
+        Assert.Equal(["Summary", "By person", "Timesheet by day", "By task"], tables.Select(t => t.Caption?.Split(" (")[0]));
+        var grid = tables[2];
+        Assert.Equal(7f, grid.FontSize);
+        Assert.Equal(["Person", .. Enumerable.Range(0, 31).Select(i => From.AddDays(i).ToString("ddd d", System.Globalization.CultureInfo.InvariantCulture)), "Total"], grid.Headers);
+        var byTask = tables[3];
         Assert.Equal("People", byTask.Headers[^1]);
         Assert.Contains("Person 2 2h (100%) · assignee", byTask.Rows[0][^1]);
         Assert.Equal("Total", byTask.Rows[^1][0]);
     }
 
-    /// <summary>RPT-051: with no time logged, every chart says so.</summary>
+    /// <summary>RPT-051: with nobody in the report, every chart says so; the period and person charts say there is no availability or time.</summary>
     [Fact]
     public void Every_chart_says_so_when_nothing_was_logged()
     {
-        var empty = Report(From, To, people: 0);
-        Assert.All(TimeUtilisationCharts.All(empty), c => Assert.Contains(TimeUtilisationCharts.Empty, c.Svg));
+        var charts = TimeUtilisationCharts.All(Report(From, To, people: 0));
+        Assert.All(charts.Take(2), c => Assert.Contains(TimeUtilisationCharts.EmptyAvailability, c.Svg));
+        Assert.All(charts.Skip(2), c => Assert.Contains(TimeUtilisationCharts.Empty, c.Svg));
     }
 
     /// <summary>RPT-051: a share reads as a whole percentage, "&lt;1%" above nothing that rounds to 0, and "-" of nothing.</summary>

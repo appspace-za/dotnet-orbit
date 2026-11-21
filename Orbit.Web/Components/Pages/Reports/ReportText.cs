@@ -21,6 +21,9 @@ public static class ReportText
 
     public static string Estimate(int? minutes) => minutes is int m ? TimeFormat.Minutes(m) : "-";
 
+    /// <summary>Hours in the timesheet grid (§12): to one decimal, without a unit - <c>7.5</c>, <c>2</c>, <c>0.8</c>.</summary>
+    public static string GridHours(int minutes) => (minutes / 60m).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+
     /// <summary>
     /// A part's share of a whole as Time utilisation writes it (§12): a whole percentage, "&lt;1%" for a part above nothing that rounds to
     /// 0, and "-" of nothing. Shares are rounded each on their own, so they needn't add up to 100%.
