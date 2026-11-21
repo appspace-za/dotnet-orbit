@@ -1,5 +1,8 @@
 @page "/Time/My"
 @inherits OrbitComponentBase
+@using Orbit.Application.Availability
+@using Microsoft.Extensions.Options
+@inject IOptions<ReportOptions> ReportSettings
 @* My Time (spec §6.10): the time the viewer logged in a date range - the last seven days by default - as entries with a total,
    and by day. The range lives in the address (From, To) and applies as soon as a date changes. The pickers show the range read
    from the address, never the loaded one: a MudDatePicker handed a date other than its own raises DateChanged with it, so the
@@ -35,6 +38,12 @@ else
                            Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-field-sm" />
         </div>
     </div>
+
+    @if (_available is int available)
+    {
+        <MudAlert Severity="@(UtilisationRules.UnderTarget(s.TotalMinutes, available, ReportSettings.Value.EffectiveTarget) ? Severity.Warning : Severity.Info)"
+                  Dense="true" Variant="Variant.Outlined" Class="mb-3">@UtilisationRules.MyTimeLine(s.TotalMinutes, available)</MudAlert>
+    }
 
     <MudGrid Spacing="3">
         <MudItem xs="12" lg="8">
@@ -99,6 +108,8 @@ else
     [SupplyParameterFromQuery] public string? To { get; set; }
 
     private MyTimeSummary? _summary;
+    /// <summary>The viewer's available minutes in the range (§6.22): their work pattern less holidays and unavailable time.</summary>
+    private int? _available;
     /// <summary>The range in the address, which the pickers show. Set before the entries load, so they show it while they do.</summary>
     private DateOnly _from, _to;
     /// <summary>The Sprint dropdown's sprints (active and completed, newest first), fetched with the first range and kept.</summary>
@@ -113,6 +124,7 @@ else
         await Load(async s =>
         {
             _summary = await s.Get<TimeEntryService>().MyTimeAsync(from, to);
+            _available = await s.Get<AvailabilityService>().MineAsync(from, to);
             if (_sprintsLoaded) return;
             _sprints = await s.Get<SprintService>().ListStartedAsync();
             _sprintOptions = _sprints.Select(sp => (sp.Id.ToString(), $"{sp.Name} ({sp.Status})")).ToList();
