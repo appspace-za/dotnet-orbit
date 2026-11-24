@@ -12,13 +12,13 @@ public enum ReportKind
     ProjectStatus,
     AssetStatus,
     SprintStatus,
-    TimeSpent
+    TimeUtilisation
 }
 
 /// <summary>
 /// A report's filters. <see cref="OwnerId"/> and <see cref="AssigneeId"/> pick projects for the project status report
 /// (<see cref="ReportDefinition.ByOwnerAndAssignee"/>) and are ignored by the others. <see cref="PersonId"/> keeps only the time a
-/// person logged, on Time spent (<see cref="ReportDefinition.ByPerson"/>) alone.
+/// person logged, on Time utilisation (<see cref="ReportDefinition.ByPerson"/>) alone.
 /// </summary>
 public sealed record ReportFilter(
     DateTime FromUtc, DateTime ToUtc, Guid? ProjectId, Guid? DepartmentId, Guid? OwnerId = null, Guid? AssigneeId = null,
@@ -54,65 +54,116 @@ public sealed record EstimateComparison(int EstimatedTasks, int EstimatedMinutes
     public double? VariancePercent => EstimatedMinutes == 0 ? null : VarianceMinutes * 100.0 / EstimatedMinutes;
 }
 
-/// <summary>One person's time on one task on one day of Time spent's window (§12), summed in SQL.</summary>
-public sealed record TimeSpentEntry(Guid TaskId, Guid UserId, DateOnly Date, int Minutes);
+/// <summary>One person's time on one task on one day of Time utilisation's window (§12), summed in SQL.</summary>
+public sealed record TimeUtilisationEntry(Guid TaskId, Guid UserId, DateOnly Date, int Minutes);
 
 /// <summary>One person's time on one task to date, on any day.</summary>
-public sealed record TimeSpentPersonTime(Guid TaskId, Guid UserId, int Minutes);
+public sealed record TimeUtilisationPersonTime(Guid TaskId, Guid UserId, int Minutes);
 
-/// <summary>What Time spent needs to know about a task. <see cref="TotalMinutes"/> is all time logged on it to date, by anyone.</summary>
-public sealed record TimeSpentTaskFacts(
+/// <summary>
+/// What Time utilisation needs to know about a task. <see cref="TotalMinutes"/> is all time logged on it to date, by anyone.
+/// <see cref="Restricted"/> is a task the viewer can't open, outside the departments their reports reach (§12): it is listed by number
+/// and department only.
+/// </summary>
+public sealed record TimeUtilisationTaskFacts(
     Guid Id, string Number, string Title, TaskItemStatus Status, TaskType Type, TaskSource Source, Guid? ProjectId,
-    IReadOnlyList<Guid> AssigneeIds, int? EstimateMinutes, int TotalMinutes)
+    IReadOnlyList<Guid> AssigneeIds, int? EstimateMinutes, int TotalMinutes, string DepartmentName, bool Restricted)
 {
     /// <summary>The task as the estimate comparison (<see cref="Orbit.Application.TimeReportRules.Compare"/>) reads it.</summary>
     public TaskTimeFacts AsTimeFacts() => new(Id, Number, Title, Status, AssigneeIds, EstimateMinutes, TotalMinutes);
 }
 
-public sealed record TimeSpentProjectFacts(Guid Id, string Number, string Name);
+public sealed record TimeUtilisationProjectFacts(Guid Id, string Number, string Name);
+
+/// <summary>A person's availability over the window, day by day (spec §6.22), for Time utilisation; <see cref="HasPattern"/> false for someone with no work pattern.</summary>
+public sealed record ReportAvailability(bool HasPattern, IReadOnlyList<AvailabilityDay> Days);
 
 /// <summary>
-/// Time spent's tiles: the time in the window, the people who logged it and the covered people who logged nothing, the tasks it
-/// was logged on and how many have no estimate, and the estimate comparison over them, each task once.
+/// Time utilisation's tiles (decision 150): the time logged and the time available (with the unavailable time and the holidays taken off
+/// it), utilisation over the whole, how many people are under the target and how many logged nothing, the per-person gaps added up
+/// and how many people have one, the people who logged time, the tasks it was logged on and how many have no estimate, and the
+/// estimate comparison over them, each task once.
 /// </summary>
-public sealed record TimeSpentSummary(int Minutes, int People, int LoggedNothing, int Tasks, int UnestimatedTasks, EstimateComparison Estimate);
+public sealed record TimeUtilisationSummary(
+    int Minutes, int AvailableMinutes, int UnavailableMinutes, int HolidayDays, int? UtilisationPercent, int UnderTarget, int People,
+    int LoggedNothing, int UnloggedMinutes, int UnloggedPeople, int Tasks, int UnestimatedTasks, EstimateComparison Estimate);
 
-/// <summary>A person's time in the window and how many tasks it was on; a covered person who logged nothing reads zero.</summary>
-public sealed record TimeSpentPersonRow(Guid UserId, string Name, int Minutes, int Tasks)
+/// <summary>
+/// A person's period: available and unavailable time, time logged and on how many tasks, and whether they are under the target. Their
+/// gap (<see cref="UnloggedMinutes"/>) and excess (<see cref="OverMinutes"/>) are their own, never netted against anyone else's.
+/// </summary>
+public sealed record TimeUtilisationPersonRow(
+    Guid UserId, string Name, bool IsActive, bool HasPattern, int AvailableMinutes, int UnavailableMinutes, int Minutes, int Tasks,
+    bool UnderTarget)
 {
     public bool LoggedNothing => Minutes == 0;
+    public int UnloggedMinutes => Math.Max(0, AvailableMinutes - Minutes);
+    public int OverMinutes => Math.Max(0, Minutes - AvailableMinutes);
+    public int? UtilisationPercent => Orbit.Application.Availability.UtilisationRules.Percent(Minutes, AvailableMinutes);
+}
+
+/// <summary>
+/// One cell of the timesheet grid: a day, week or month of one person's - time logged against available, the unavailable time in it,
+/// whether every day of it is a holiday, and whether it is under the target.
+/// </summary>
+public sealed record TimeUtilisationCell(
+    DateOnly From, DateOnly To, int Minutes, int AvailableMinutes, int UnavailableMinutes, bool AllHoliday, bool UnderTarget)
+{
+    public bool Unavailable => UnavailableMinutes > 0;
+    /// <summary>Time logged with no availability against it.</summary>
+    public bool Over => AvailableMinutes == 0 && Minutes > 0;
+    /// <summary>No availability and nothing logged, and not a holiday.</summary>
+    public bool Empty => AvailableMinutes == 0 && Minutes == 0 && !AllHoliday;
+    /// <summary>Nothing to show but a dash: empty, or a holiday nobody logged time on. Time logged on a holiday shows, as over.</summary>
+    public bool Blank => Empty || (AllHoliday && Minutes == 0);
+}
+
+/// <summary>A person's row of the timesheet grid, with its totals.</summary>
+public sealed record TimeUtilisationGridRow(Guid UserId, string Name, IReadOnlyList<TimeUtilisationCell> Cells, int Minutes, int AvailableMinutes)
+{
+    public int? UtilisationPercent => Orbit.Application.Availability.UtilisationRules.Percent(Minutes, AvailableMinutes);
 }
 
 /// <summary>A person's time on a task: in the window, and to date.</summary>
-public sealed record TimeSpentTaskPerson(Guid UserId, string Name, int Minutes, int ToDateMinutes, bool IsAssignee);
+public sealed record TimeUtilisationTaskPerson(Guid UserId, string Name, int Minutes, int ToDateMinutes, bool IsAssignee);
 
 /// <summary>
 /// A task worked on in the window: <see cref="Minutes"/> is the time in it (the person's, under the Person filter),
-/// <see cref="TotalMinutes"/> everyone's to date. <see cref="Project"/> is null for a task on no project.
+/// <see cref="TotalMinutes"/> everyone's to date. <see cref="Project"/> is null for a task on no project. A <see cref="Restricted"/>
+/// task has no <see cref="Title"/>: it is shown by number and department, unlinked.
 /// </summary>
-public sealed record TimeSpentTaskRow(
-    Guid TaskId, string Number, string Title, TaskItemStatus Status, TaskType Type, TimeSpentProjectFacts? Project,
-    int? EstimateMinutes, int Minutes, int TotalMinutes, IReadOnlyList<TimeSpentTaskPerson> People)
+public sealed record TimeUtilisationTaskRow(
+    Guid TaskId, string Number, string Title, TaskItemStatus Status, TaskType Type, TimeUtilisationProjectFacts? Project,
+    int? EstimateMinutes, int Minutes, int TotalMinutes, IReadOnlyList<TimeUtilisationTaskPerson> People, string DepartmentName,
+    bool Restricted)
 {
     public bool IsCancelled => Status == TaskItemStatus.Cancelled;
     public bool IsOver => !IsCancelled && EstimateMinutes is int e && TotalMinutes > e;
 }
 
 /// <summary>
-/// Time spent (§12): where the time logged in a window went - by person, then every task worked on, most time first, with who
+/// Time utilisation (§12): where the time logged in a window went - by person, then every task worked on, most time first, with who
 /// logged it. <see cref="PersonOptions"/> are the people with time before the Person filter applies.
 /// </summary>
-public sealed record TimeSpentReport(
-    DateOnly From, DateOnly To, TimeSpentSummary Summary, IReadOnlyList<TimeSpentPersonRow> People,
-    IReadOnlyList<TimeSpentTaskRow> Tasks, IReadOnlyList<ReportPerson> PersonOptions)
+public sealed record TimeUtilisationReport(
+    DateOnly From, DateOnly To, TimeUtilisationSummary Summary, IReadOnlyList<TimeUtilisationPersonRow> People,
+    IReadOnlyList<TimeUtilisationTaskRow> Tasks, IReadOnlyList<ReportPerson> PersonOptions)
 {
     /// <summary>The time by project, most first, with No project (a null <c>Project</c>) last.</summary>
-    public IReadOnlyList<TimeSpentProjectRow> Projects { get; init; } = [];
-    public IReadOnlyList<TimeSpentTypeRow> Types { get; init; } = [];
-    public IReadOnlyList<TimeSpentSourceRow> Sources { get; init; } = [];
+    public IReadOnlyList<TimeUtilisationProjectRow> Projects { get; init; } = [];
+    public IReadOnlyList<TimeUtilisationTypeRow> Types { get; init; } = [];
+    public IReadOnlyList<TimeUtilisationSourceRow> Sources { get; init; } = [];
     /// <summary>Whether <see cref="Buckets"/> are days, weeks or months, by the window's length.</summary>
     public TimeBucketSize BucketSize { get; init; }
     public IReadOnlyList<TimeBucket> Buckets { get; init; } = [];
+    /// <summary>The utilisation target in force (<c>Reports:UtilisationTargetPercent</c>).</summary>
+    public int TargetPercent { get; init; }
+    /// <summary>The timesheet grid on the page: one row per person, by name, a cell per bucket as the period chart's.</summary>
+    public TimeBucketSize GridBucketSize { get; init; }
+    public IReadOnlyList<TimeUtilisationGridRow> Grid { get; init; } = [];
+    /// <summary>The same grid for the PDF, whose page fits about 31 day columns: weekly past 31 days.</summary>
+    public TimeBucketSize PdfGridBucketSize { get; init; }
+    public IReadOnlyList<TimeUtilisationGridRow> PdfGrid { get; init; } = [];
     /// <summary>
     /// The person the Person filter picked, when the report knows them - they logged time in the window or are among the people
     /// it covers - so they keep their name in a window where they logged nothing; null otherwise.
@@ -120,7 +171,7 @@ public sealed record TimeSpentReport(
     public ReportPerson? Person { get; init; }
 }
 
-/// <summary>What one column of Time spent's per-period chart covers: a day, an ISO week (Monday to Sunday) or a calendar month.</summary>
+/// <summary>What one column of Time utilisation's per-period chart covers: a day, an ISO week (Monday to Sunday) or a calendar month.</summary>
 public enum TimeBucketSize
 {
     Day,
@@ -128,15 +179,18 @@ public enum TimeBucketSize
     Month
 }
 
-/// <summary>A day, week or month of the window, clipped to it, and the time logged in it.</summary>
-public sealed record TimeBucket(DateOnly From, DateOnly To, int Minutes = 0);
+/// <summary>
+/// A day, week or month of the window, clipped to it: the time logged in it and the time available, and the people's gaps
+/// (<see cref="UnloggedMinutes"/>) and excess (<see cref="OverMinutes"/>) in it, each person's own, added up.
+/// </summary>
+public sealed record TimeBucket(DateOnly From, DateOnly To, int Minutes = 0, int AvailableMinutes = 0, int UnloggedMinutes = 0, int OverMinutes = 0);
 
 /// <summary>A project's time in the window; a null <see cref="Project"/> is the tasks on no project.</summary>
-public sealed record TimeSpentProjectRow(TimeSpentProjectFacts? Project, int Minutes);
+public sealed record TimeUtilisationProjectRow(TimeUtilisationProjectFacts? Project, int Minutes);
 
-public sealed record TimeSpentTypeRow(TaskType Type, int Minutes);
+public sealed record TimeUtilisationTypeRow(TaskType Type, int Minutes);
 
-public sealed record TimeSpentSourceRow(TaskSource Source, int Minutes);
+public sealed record TimeUtilisationSourceRow(TaskSource Source, int Minutes);
 
 /// <summary>
 /// Estimate accuracy (§12): tasks completed in the range, grouped by assignee. A task several people share (§6.2.3) is under each
@@ -684,9 +738,9 @@ public static class ReportCatalog
             "Average time from creation until the task first left Todo, for tasks created in the period."),
         new(ReportKind.MeanTimeToResolve, "Mean time to resolve",
             "Average time from creation to completion, for tasks completed in the period."),
-        new(ReportKind.TimeSpent, "Time spent",
-            "Where the time logged in the period went: by project, person, day, task type and source, then every task worked on, most time first, with who logged it.",
-            ByPerson: true, SprintQuickPick: true),
+        new(ReportKind.TimeUtilisation, "Time utilisation",
+            "How much of each person's available time they logged in the period, day by day, and where the logged time went: by project, task type and source, then every task worked on.",
+            ByProject: false, ByPerson: true, SprintQuickPick: true),
         new(ReportKind.EstimateAccuracy, "Estimate accuracy",
             "Tasks completed in the period, grouped by assignee: the estimate against all time logged on them. A shared task is under each of its assignees and counts once overall."),
         new(ReportKind.ProjectStatus, "Project status",

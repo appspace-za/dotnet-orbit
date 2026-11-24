@@ -1,0 +1,146 @@
+@page "/Availability"
+@inherits OrbitListPage
+@* Availability (spec §6.22): the team grid - the active people the viewer manages, one row each, one column per day of a week or a
+   month, each cell the hours they are available after their work pattern, public holidays and unavailable time. A reduced day is
+   shaded with its reasons, a holiday greyed, a day the pattern doesn't work "-". A name opens the person's page; a cell opens it with
+   the add form ready for that day. View and Department are remembered (OrbitListPage); From is carried in the address but not
+   remembered, so the page opens on this week. A viewer who manages only themselves (Own) goes straight to their own page. *@
+
+<PageTitle>Availability - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_grid is null || _grid.OwnOnly)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var g = _grid;
+    var month = g.View == AvailabilityView.Month;
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">Availability</MudText>
+            <div class="orbit-subtitle">The hours each person is available: their work pattern, less public holidays and their unavailable time.</div>
+        </div>
+        <div class="orbit-actions">
+            @if (g.CanChooseDepartment)
+            {
+                <FilterSelect Label="Department" Value="@DepartmentId" ValueChanged="@(v => GoAsync(nameof(DepartmentId), v))" Options="_departments" />
+            }
+            <MudButtonGroup Variant="Variant.Outlined" Size="Size.Small">
+                <MudButton Variant="@(month ? Variant.Outlined : Variant.Filled)" Color="Color.Primary" OnClick="@(() => GoAsync(nameof(View), null))">Week</MudButton>
+                <MudButton Variant="@(month ? Variant.Filled : Variant.Outlined)" Color="Color.Primary" OnClick="@(() => GoAsync(nameof(View), "month"))">Month</MudButton>
+            </MudButtonGroup>
+            <div class="orbit-gap-row">
+                <MudIconButton Icon="@Icons.Material.Filled.ChevronLeft" Size="Size.Small" aria-label="Previous" title="Previous" OnClick="@(() => Step(-1))" />
+                <b class="text-nowrap">@PeriodText(g)</b>
+                <MudIconButton Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Small" aria-label="Next" title="Next" OnClick="@(() => Step(1))" />
+                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => GoCarried(nameof(From), null))">@(month ? "This month" : "This week")</MudButton>
+            </div>
+        </div>
+    </div>
+
+    <MudPaper Outlined="true" Class="orbit-card">
+        @if (g.Rows.Count == 0)
+        {
+            <p class="orbit-empty">Nobody to show.</p>
+        }
+        else
+        {
+            <div class="orbit-table-wrap">
+                <table class="@($"orbit-av-grid{(month ? " orbit-av-month" : "")}")">
+                    <thead>
+                        <tr>
+                            <th>Person</th>
+                            @for (var d = g.From; d <= g.To; d = d.AddDays(1))
+                            {
+                                var day = d;
+                                <th class="@(day.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday ? "orbit-av-weekend" : "")" title="@day.ToString("ddd yyyy-MM-dd")">
+                                    @(month ? day.ToString("ddd")[..1] : day.ToString("ddd"))<br />@day.Day
+                                </th>
+                            }
+                            <th>Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in g.Rows)
+                        {
+                            var r = row;
+                            <tr @key="r.Person.Id">
+                                <td><a href="@($"/Availability/{r.Person.Id}")" class="orbit-title">@r.Person.Name</a></td>
+                                @foreach (var c in r.Cells)
+                                {
+                                    var cell = c;
+                                    <td class="@CellClass(cell)" title="@cell.Hover">
+                                        @if (cell.Blank)
+                                        {
+                                            <span>&nbsp;</span>
+                                        }
+                                        else
+                                        {
+                                            <a href="@($"/Availability/{r.Person.Id}?Add={cell.Date:yyyy-MM-dd}")">
+                                                @cell.Text
+                                                @if (!month && cell.Reasons.Count > 0)
+                                                {
+                                                    <span class="orbit-av-reason">@string.Join(" ", cell.Reasons)</span>
+                                                }
+                                            </a>
+                                        }
+                                    </td>
+                                }
+                                <td><b>@TimeFormat.Minutes(r.AvailableMinutes)</b></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <div class="orbit-card-body orbit-small orbit-muted">Shaded: reduced by unavailable time. Greyed: public holiday. "-": not a working day in the person's pattern. Click a day to record unavailable time.</div>
+        }
+    </MudPaper>
+}
+
+@code {
+    protected override string MemoryKey => "availability";
+    protected override IReadOnlyList<string> FilterKeys => [nameof(View), nameof(DepartmentId)];
+    protected override IReadOnlyList<string> CarriedKeys => [nameof(From)];
+
+    [SupplyParameterFromQuery] public string? View { get; set; }
+    [SupplyParameterFromQuery] public string? From { get; set; }
+    [SupplyParameterFromQuery] public string? DepartmentId { get; set; }
+    [SupplyParameterFromQuery] public string? Reset { get; set; }
+
+    private AvailabilityGrid? _grid;
+    private IReadOnlyList<(string Value, string Text)> _departments = [];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (await GoToRememberedAsync(FilterQuery.Flag(Reset))) return;
+        var view = FilterQuery.Enum<AvailabilityView>(View) ?? AvailabilityView.Week;
+        var anchor = FilterQuery.Date(From) ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        Guid? me = null;
+        await Load(async s =>
+        {
+            me = (await s.Get<IActorProvider>().GetAsync()).UserId;
+            _grid = await s.Get<AvailabilityService>().GridAsync(view, anchor, FilterChoice.Id(DepartmentId));
+            if (_grid.CanChooseDepartment && _departments.Count == 0)
+                _departments = [("", "All"), .. (await s.Get<DepartmentService>().ListAsync()).Select(d => (d.Id.ToString(), d.Name))];
+        });
+        // Own manages only themselves: there is no team to show.
+        if (_grid?.OwnOnly == true && me is Guid self) Nav.NavigateTo($"/Availability/{self}", replace: true);
+    }
+
+    private void Step(int direction)
+    {
+        if (_grid is not { } g) return;
+        GoCarried(nameof(From), AvailabilityGridRules.Step(g.View, g.From, direction).ToString("yyyy-MM-dd"));
+    }
+
+    private static string PeriodText(AvailabilityGrid g) =>
+        g.View == AvailabilityView.Month ? g.From.ToString("MMMM yyyy") : $"{g.From:d MMM} – {g.To:d MMM yyyy}";
+
+    private static string CellClass(AvailabilityCell c) =>
+        c.Blank ? "orbit-av-blank" : c.Holiday ? "orbit-av-holiday" : c.Text == "-" ? "orbit-av-off" : c.Reduced ? "orbit-av-reduced" : "";
+}

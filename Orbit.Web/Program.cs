@@ -45,6 +45,7 @@ builder.Services.Configure<DatabaseOptions>(config.GetSection(DatabaseOptions.Se
 builder.Services.Configure<AgentOptions>(config.GetSection(AgentOptions.Section));
 builder.Services.Configure<SecurityOptions>(config.GetSection(SecurityOptions.Section));
 builder.Services.Configure<CriticalPathOptions>(config.GetSection(CriticalPathOptions.Section));
+builder.Services.Configure<ReportOptions>(config.GetSection(ReportOptions.Section));
 builder.Services.Configure<AttachmentOptions>(config.GetSection(AttachmentOptions.Section));
 builder.Services.Configure<AssetOptions>(config.GetSection(AssetOptions.Section));
 builder.Services.Configure<ActionOptions>(config.GetSection(ActionOptions.Section));
@@ -174,6 +175,8 @@ builder.Services.AddScoped<DirectoryImportService>();
 builder.Services.AddScoped<ReportingService>();
 builder.Services.AddScoped<DashboardService>();
 builder.Services.AddScoped<WorkingCalendarService>();
+builder.Services.AddScoped<AvailabilityFactsReader>();
+builder.Services.AddScoped<AvailabilityService>();
 builder.Services.AddScoped<CriticalPathService>();
 builder.Services.AddScoped<AssetService>();
 builder.Services.AddScoped<AssetTypeService>();
@@ -297,6 +300,12 @@ builder.Services.AddOrbitJobs(config);
 QuestPDF.Settings.License = LicenseType.Community;
 
 var app = builder.Build();
+
+// A utilisation target outside 1 to 100 falls back to 80 (spec §6.22); say so rather than quietly ignore the setting.
+var reportOptions = app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<ReportOptions>>().Value;
+if (reportOptions.EffectiveTarget != reportOptions.UtilisationTargetPercent)
+    app.Logger.LogWarning("Reports:UtilisationTargetPercent is {Configured}, outside 1 to 100; using {Target}.",
+        reportOptions.UtilisationTargetPercent, reportOptions.EffectiveTarget);
 
 // --- Pipeline -----------------------------------------------------------------------------
 app.UseForwardedHeaders();

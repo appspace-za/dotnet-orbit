@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using Orbit.Application.Availability;
 using Orbit.Application.Models;
 using Orbit.Data;
 using Orbit.Data.Entities;
@@ -12,7 +14,8 @@ public sealed class UserAdminService(
     UserManager<ApplicationUser> userManager,
     IActorProvider actors,
     AuditService audit,
-    LdapSettingsService ldapSettings)
+    LdapSettingsService ldapSettings,
+    IOptions<CriticalPathOptions> criticalPath)
 {
     public async Task<IReadOnlyList<UserSummary>> ListAsync(CancellationToken ct = default)
     {
@@ -64,6 +67,9 @@ public sealed class UserAdminService(
         // A directory user gets no password hash at all: the directory is the only thing that can vouch for them.
         Throw(isDirectoryUser ? await userManager.CreateAsync(user) : await userManager.CreateAsync(user, input.Password!));
         Throw(await userManager.AddToRoleAsync(user, role.Name));
+        // Everyone starts on the standard week (§6.22); whoever manages their availability changes it.
+        var calendar = await db.WorkingCalendars.AsNoTracking().FirstOrDefaultAsync(c => c.Id == WellKnownIds.WorkingCalendarId, ct) ?? new WorkingCalendar();
+        db.WorkPatterns.Add(WorkPatterns.Default(user.Id, calendar.WorkingDays, criticalPath.Value.HoursPerWorkingDay, DateOnly.FromDateTime(user.CreatedAt)));
 
         audit.Add(actor, AuditEntity.User, user.Id, AuditAction.Created, departmentId, displayName, input.DirectoryDn is null
             ? new { email, role = role.Name, roleId = role.Id, departmentId, managerId, authSource = input.AuthSource }

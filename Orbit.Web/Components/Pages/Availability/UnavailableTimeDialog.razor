@@ -1,0 +1,94 @@
+@* Record or change a stretch of unavailable time (spec §6.22): from and to (one day by default), all day or so many hours a day, a
+   reason and an optional note. The service checks the dates, hours and note and says what to fix; a refusal keeps what was typed.
+   Closes with true once saved. *@
+<MudDialog>
+    <DialogContent>
+        <div class="orbit-form-row">
+            <MudDatePicker Date="PickerDate.Of(_from)" DateChanged="FromChanged" Label="From" DateFormat="yyyy-MM-dd" Editable="true" AutoClose="true"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-field-sm" />
+            <MudDatePicker Date="PickerDate.Of(_to)" DateChanged="@(d => _to = PickerDate.Day(d) ?? _to)" Label="To" DateFormat="yyyy-MM-dd" Editable="true"
+                           AutoClose="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-field-sm" />
+        </div>
+        <MudRadioGroup T="bool" @bind-Value="_allDay" Class="my-2">
+            <MudRadio T="bool" Value="true" Color="Color.Primary">All day</MudRadio>
+            <MudRadio T="bool" Value="false" Color="Color.Primary">Hours a day</MudRadio>
+        </MudRadioGroup>
+        @if (!_allDay)
+        {
+            <MudTextField T="string" @bind-Value="_hours" Label="Hours a day" HelperText="In quarter hours, e.g. 3 or 2.5" InputMode="@(InputMode.@decimal)"
+                          Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-field-sm" />
+        }
+        <MudSelect T="UnavailableReason" @bind-Value="_reason" Label="Reason" Variant="Variant.Outlined" Margin="Margin.Dense" Class="orbit-field-sm mt-2">
+            @foreach (var r in Enum.GetValues<UnavailableReason>())
+            {
+                <MudSelectItem T="UnavailableReason" Value="r">@r</MudSelectItem>
+            }
+        </MudSelect>
+        <MudTextField T="string" @bind-Value="_note" Label="Note" Lines="2" MaxLength="500" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-2"
+                      HelperText="Seen only by this person and whoever manages their availability." />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="SaveAsync">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = null!;
+    [Parameter, EditorRequired] public Guid UserId { get; set; }
+    /// <summary>The entry to change; null to record a new one.</summary>
+    [Parameter] public UnavailableRow? Entry { get; set; }
+    /// <summary>A new entry's day (a grid cell clicked); today otherwise.</summary>
+    [Parameter] public DateOnly? Day { get; set; }
+
+    private DateOnly _from, _to;
+    private bool _allDay = true;
+    private string? _hours;
+    private UnavailableReason _reason = UnavailableReason.Leave;
+    private string? _note;
+    private bool _busy;
+
+    protected override void OnInitialized()
+    {
+        if (Entry is { } e)
+        {
+            (_from, _to, _reason, _note) = (e.From, e.To, e.Reason, e.Note);
+            _allDay = e.MinutesPerDay is null;
+            _hours = e.MinutesPerDay is int m ? AvailabilityInputRules.FormatHours(m).TrimEnd('h') : null;
+            return;
+        }
+        _from = _to = Day ?? DateOnly.FromDateTime(DateTime.UtcNow);
+    }
+
+    /// <summary>A later start moves the end along with it, so a one-day entry stays one day.</summary>
+    private void FromChanged(DateTime? value)
+    {
+        if (PickerDate.Day(value) is not DateOnly day) return;
+        if (_to < day || _to == _from) _to = day;
+        _from = day;
+    }
+
+    private async Task SaveAsync()
+    {
+        int? minutes = null;
+        if (!_allDay)
+        {
+            if (!AvailabilityInputRules.TryParseHours(_hours, out var m) || m == 0)
+            {
+                Error("Hours a day must be between 15 minutes and 24 hours, in quarter hours.");
+                return;
+            }
+            minutes = m;
+        }
+        var input = new UnavailableInput(_from, _to, minutes, _reason, _note);
+        _busy = true;
+        var saved = await Act(async s =>
+        {
+            var service = s.Get<AvailabilityService>();
+            if (Entry is { } e) await service.UpdateUnavailableAsync(e.Id, input);
+            else await service.AddUnavailableAsync(UserId, input);
+        });
+        _busy = false;
+        if (saved) Dialog.Close(DialogResult.Ok(true));
+    }
+}

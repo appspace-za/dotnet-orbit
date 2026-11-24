@@ -33,7 +33,7 @@ else
         <div class="orbit-table-wrap">
             <MudSimpleTable Hover="true" Elevation="0" Class="orbit-tasks">
                 <thead>
-                    <tr><th>Name</th><th>Email</th><th>Role</th><th>Department</th><th>Manager</th><th>Status</th><th>Created</th><th></th></tr>
+                    <tr><th>Name</th><th>Email</th><th>Role</th><th>Department</th><th>Manager</th><th title="The work pattern in effect today (§6.22)">Weekly hours</th><th>Status</th><th>Created</th><th></th></tr>
                 </thead>
                 <tbody>
                     @foreach (var u in _users)
@@ -54,6 +54,16 @@ else
                             <td><MudChip T="string" Size="Size.Small" Color="RoleLook.Chip(u.Role)">@u.Role.Name</MudChip></td>
                             <td class="@muted">@(u.DepartmentName ?? "-")</td>
                             <td class="@muted">@(u.ManagerName ?? "-")</td>
+                            <td class="@($"text-nowrap {muted}")">
+                                @if (_weekly.TryGetValue(u.Id, out var weekly))
+                                {
+                                    <a href="@($"/Availability/{u.Id}")" title="Availability">@TimeFormat.Minutes(weekly)</a>
+                                }
+                                else
+                                {
+                                    <span>-</span>
+                                }
+                            </td>
                             <td>
                                 <span class="orbit-gap-row">
                                     @if (u.IsActive)
@@ -84,7 +94,13 @@ else
 
 @code {
     private IReadOnlyList<UserSummary>? _users;
+    /// <summary>Each person's weekly hours in the pattern in effect today (§6.22); the Claude user has none.</summary>
+    private IReadOnlyDictionary<Guid, int> _weekly = new Dictionary<Guid, int>();
 
-    protected override async Task OnParametersSetAsync() => await Load(async s => _users = await s.Get<UserAdminService>().ListAsync());
+    protected override async Task OnParametersSetAsync() => await Load(async s =>
+    {
+        _users = await s.Get<UserAdminService>().ListAsync();
+        _weekly = await s.Get<AvailabilityService>().WeeklyMinutesTodayAsync();
+    });
 
 }

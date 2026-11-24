@@ -240,6 +240,18 @@ public enum SprintStatus
 }
 
 /// <summary>
+/// Why a person is unavailable for part of a day or for days (spec §6.22). Shown only to the person and to whoever manages their
+/// availability: reports and the activity log carry the hours, never the reason.
+/// </summary>
+public enum UnavailableReason
+{
+    Leave,
+    Sick,
+    Training,
+    Other
+}
+
+/// <summary>
 /// How a <see cref="TaskDependency"/> ties its two tasks together (spec §6.15) - the four standard project-management
 /// link types. Read as "the successor can't <em>start</em> until the predecessor <em>finishes</em>", and so on.
 /// </summary>

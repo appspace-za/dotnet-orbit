@@ -352,8 +352,13 @@ a.orbit-plain:hover { background: var(--mud-palette-table-hover); }
 .orbit-chart .oc-not-planned { fill: var(--orbit-chart-not-planned); }
 .orbit-chart .oc-backlog { fill: var(--orbit-chart-backlog); }
 .orbit-chart .oc-other-sprint { fill: var(--orbit-chart-other-sprint); }
-/* Time spent's charts have one series, which takes the planned indigo and its dark shade. */
+/* Time utilisation's charts: logged time takes the planned indigo and its dark shade; a person's unlogged gap a neutral grey and
+   time logged beyond what they had available amber, each with a dark shade (§12, decision 150). */
 .orbit-chart .oc-time { fill: var(--orbit-chart-planned); }
+.orbit-chart { --orbit-chart-unlogged: #a8abb8; --orbit-chart-over: #d97706; }
+.orbit-dark .orbit-chart { --orbit-chart-unlogged: #565a6b; --orbit-chart-over: #f59e0b; }
+.orbit-chart .oc-unlogged { fill: var(--orbit-chart-unlogged); }
+.orbit-chart .oc-over { fill: var(--orbit-chart-over); }
 .orbit-chart .oc-strong { fill: var(--mud-palette-text-primary); }
 .orbit-chart .oc-text { fill: var(--mud-palette-text-secondary); }
 .orbit-chart .oc-muted { fill: var(--mud-palette-text-disabled); }
@@ -502,3 +507,34 @@ a.orbit-plain:hover { background: var(--mud-palette-table-hover); }
     box-shadow: 0 -1px 3px rgba(0, 0, 0, .2);
 }
 #blazor-error-ui .dismiss { float: right; cursor: pointer; background: none; border: 0; font-size: 1.25rem; line-height: 1; }
+
+/* Availability (spec §6.22): a person's work pattern and the dialog that changes it. */
+.orbit-availability-days th, .orbit-availability-days td { text-align: center; }
+.orbit-availability-week { display: grid; grid-template-columns: repeat(7, minmax(56px, 1fr)); gap: .5rem; }
+.orbit-availability-week .mud-input-control { margin: 0; }
+@media (max-width: 599.98px) { .orbit-availability-week { grid-template-columns: repeat(4, minmax(56px, 1fr)); } }
+/* The team grid (spec §6.22): a person per row, a day per column; the name column stays in view while the days scroll. */
+.orbit-av-grid { border-collapse: collapse; width: 100%; font-size: .85rem; }
+.orbit-av-grid th, .orbit-av-grid td { text-align: center; white-space: nowrap; padding: .35rem .5rem; border-bottom: 1px solid var(--mud-palette-lines-default); }
+.orbit-av-grid th { font-weight: 600; color: var(--mud-palette-text-secondary); line-height: 1.2; }
+.orbit-av-grid th:first-child, .orbit-av-grid td:first-child { text-align: left; position: sticky; left: 0; z-index: 1; background: var(--mud-palette-surface); }
+.orbit-av-grid td a { display: block; color: inherit; text-decoration: none; }
+.orbit-av-grid td a:hover { text-decoration: underline; }
+.orbit-av-grid th.orbit-av-weekend { color: var(--mud-palette-text-disabled); }
+.orbit-av-reduced { background: color-mix(in srgb, var(--mud-palette-warning) 20%, transparent); }
+.orbit-av-holiday { background: var(--mud-palette-action-disabled-background); color: var(--mud-palette-text-disabled); }
+.orbit-av-off, .orbit-av-blank { color: var(--mud-palette-text-disabled); }
+.orbit-av-reason { display: block; font-size: .7rem; color: var(--mud-palette-text-secondary); }
+.orbit-av-month th, .orbit-av-month td { padding: .3rem .2rem; font-size: .75rem; }
+/* Time utilisation (§12): a person's logged time against what they had available, with a mark at the target; the timesheet grid's
+   short, over and holiday cells. The grid reuses the team grid's layout (orbit-av-grid). */
+.orbit-util-bar { position: relative; height: 10px; border-radius: 5px; min-width: 80px; }
+.orbit-util-bar > div { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 5px; }
+.orbit-util-available { background: var(--mud-palette-lines-default); }
+.orbit-util-logged { background: var(--mud-palette-primary); }
+.orbit-util-over { background: var(--orbit-util-over, #d97706); }
+.orbit-util-target { width: 2px; border-radius: 0 !important; top: -3px !important; bottom: -3px !important; background: var(--mud-palette-text-primary); left: auto; }
+.orbit-ts-short { background: color-mix(in srgb, var(--mud-palette-warning) 22%, transparent); }
+.orbit-ts-over { color: #b45309; font-weight: 600; }
+.orbit-dark .orbit-ts-over { color: #f59e0b; }
+.orbit-ts-mark { font-size: .7rem; color: var(--mud-palette-text-secondary); margin-left: 2px; }

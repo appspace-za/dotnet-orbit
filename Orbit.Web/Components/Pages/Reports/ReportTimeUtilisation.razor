@@ -1,0 +1,412 @@
+@* Time utilisation (spec §12, decisions 149, 150): how much of each person's available time they logged, and where the logged time
+   went. Six tiles; five charts (TimeUtilisationCharts, the same SVG as the PDF's: logged against available per day, week or month
+   across the top, then utilisation by person beside time by project, and time by task type beside source); By person, lowest
+   utilisation first; the timesheet grid, a person by bucket of logged against available; then By task, every task worked on, most
+   time first, each opening on the people who logged time on it. No reason for anyone's unavailable time is shown (§6.22).
+   ReportView keeps this component across runs (no @key), so the tasks opened stay open when a filter changes. *@
+
+@{
+    var s = Report.Summary;
+    var target = Report.TargetPercent;
+    var maxPerson = Report.People.Count == 0 ? 0 : Report.People.Max(p => Math.Max(p.Minutes, p.AvailableMinutes));
+    var maxTask = Report.Tasks.Count == 0 ? 0 : Report.Tasks.Max(t => t.Minutes);
+}
+<div class="orbit-report-summary">
+    <div class="orbit-stats orbit-stats-6">
+        <MudPaper Outlined="true" Class="orbit-stat">
+            <div class="orbit-stat-label" title="Each person's work pattern, less public holidays and their unavailable time, within their employment">Available</div>
+            <div class="orbit-stat-value">@TimeFormat.Minutes(s.AvailableMinutes)</div>
+            <div class="orbit-sub">@Parts(s.UnavailableMinutes > 0 ? $"{TimeFormat.Minutes(s.UnavailableMinutes)} unavailable" : null, s.HolidayDays > 0 ? Plural(s.HolidayDays, "holiday") : null)</div>
+        </MudPaper>
+        <MudPaper Outlined="true" Class="orbit-stat">
+            <div class="orbit-stat-label">Logged</div>
+            <div class="orbit-stat-value">@TimeFormat.Minutes(s.Minutes)</div>
+            <div class="orbit-sub">on @Tasks(s.Tasks)</div>
+        </MudPaper>
+        <MudPaper Outlined="true" Class="orbit-stat">
+            <div class="orbit-stat-label" title="Time logged against time available, over everyone in the report">Utilisation</div>
+            <div class="orbit-stat-value">@(s.UtilisationPercent is int u ? $"{u}%" : "-")</div>
+            <div class="orbit-sub">@Parts(s.UnderTarget > 0 ? $"{s.UnderTarget} under {target}%" : null, s.LoggedNothing > 0 ? $"{s.LoggedNothing} logged nothing" : null)</div>
+        </MudPaper>
+        <MudPaper Outlined="true" Class="orbit-stat">
+            <div class="orbit-stat-label" title="Each person's available time they didn't log, added up: one person's overtime doesn't hide another's gap">Unlogged</div>
+            <div class="orbit-stat-value">@TimeFormat.Minutes(s.UnloggedMinutes)</div>
+            @if (s.UnloggedPeople > 0)
+            {
+                <div class="orbit-sub">across @Plural(s.UnloggedPeople, "person", "people")</div>
+            }
+        </MudPaper>
+        <MudPaper Outlined="true" Class="orbit-stat">
+            <div class="orbit-stat-label">Tasks</div>
+            <div class="orbit-stat-value">@s.Tasks</div>
+            @if (s.UnestimatedTasks > 0)
+            {
+                <div class="orbit-sub">@s.UnestimatedTasks unestimated</div>
+            }
+        </MudPaper>
+        <MudPaper Outlined="true" Class="orbit-stat">
+            <div class="orbit-stat-label" title="All time logged to date on the estimated tasks worked on (cancelled ones aside), against their estimates">Estimate variance</div>
+            <div class="orbit-stat-value @ReportText.VarianceClass(s.Estimate.VarianceMinutes)">@(s.Estimate.EstimatedTasks == 0 ? "-" : TimeFormat.Signed(s.Estimate.VarianceMinutes))</div>
+            <div class="orbit-sub">@EstimateLine(s.Estimate)</div>
+        </MudPaper>
+    </div>
+
+    <div class="orbit-chart-grid">
+        @foreach (var chart in _charts)
+        {
+            <MudPaper Outlined="true" Class="@(chart.Wide ? "orbit-chart orbit-chart-wide" : "orbit-chart")">
+                <MudText Typo="Typo.subtitle2" HtmlTag="h2" Class="mb-2">@chart.Title</MudText>
+                @if (chart.NarrowSvg is { } narrow)
+                {
+                    @* Drawn twice: the wide one beside two columns of charts, the half-width one when they are one to a row. *@
+                    <div class="orbit-chart-body orbit-chart-wide-only">@((MarkupString)chart.Svg)</div>
+                    <div class="orbit-chart-body orbit-chart-narrow-only">@((MarkupString)narrow)</div>
+                }
+                else
+                {
+                    <div class="orbit-chart-body">@((MarkupString)chart.Svg)</div>
+                }
+            </MudPaper>
+        }
+    </div>
+</div>
+
+<MudText Typo="Typo.subtitle2" HtmlTag="h2" Class="px-4 pt-2 pb-2">By person</MudText>
+@if (Report.People.Count == 0)
+{
+    <p class="orbit-empty">Nobody to report on for the selected filters.</p>
+}
+else
+{
+    <div class="orbit-table-wrap">
+        <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks orbit-report">
+            <thead>
+                <tr>
+                    <th style="width:22%">Person</th>
+                    <th class="text-right" title="Their work pattern, less public holidays and their unavailable time">Available</th>
+                    <th class="text-right" title="Their unavailable time in the period">Unavailable</th>
+                    <th class="text-right">Logged</th>
+                    <th class="text-right" title="Logged against available">Utilisation</th>
+                    <th class="text-right" title="Available time they didn't log">Unlogged</th>
+                    <th style="width:14%"></th>
+                    <th class="text-right" title="The tasks they logged time on">Tasks</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var p in Report.People)
+                {
+                    <tr>
+                        <td>
+                            <div class="orbit-gap-row">
+                                <span>@p.Name@(p.IsActive ? "" : " (inactive)")</span>
+                                @if (!p.HasPattern)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">No work pattern</MudChip>
+                                }
+                            </div>
+                        </td>
+                        <td class="text-right">@TimeFormat.Minutes(p.AvailableMinutes)</td>
+                        <td class="text-right">@(p.UnavailableMinutes > 0 ? TimeFormat.Minutes(p.UnavailableMinutes) : "-")</td>
+                        <td class="text-right"><b>@TimeFormat.Minutes(p.Minutes)</b></td>
+                        <td class="text-right">
+                            <div class="orbit-gap-row" style="justify-content:flex-end">
+                                <span>@(p.UtilisationPercent is int u ? $"{u}%" : "no availability")</span>
+                                @if (p.UnderTarget)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Warning">Under @target%</MudChip>
+                                }
+                            </div>
+                        </td>
+                        <td class="text-right">@TimeFormat.Minutes(p.UnloggedMinutes)</td>
+                        <td>
+                            <div class="orbit-util-bar" title="@TimeUtilisationCharts.Of(p.Minutes, p.AvailableMinutes)">
+                                <div class="orbit-util-available" style="@Width(p.AvailableMinutes, maxPerson)"></div>
+                                <div class="@(p.OverMinutes > 0 ? "orbit-util-over" : "orbit-util-logged")" style="@Width(p.Minutes, maxPerson)"></div>
+                                @if (p.AvailableMinutes > 0)
+                                {
+                                    <div class="orbit-util-target" style="@Left(p.AvailableMinutes * target / 100, maxPerson)"></div>
+                                }
+                            </div>
+                        </td>
+                        <td class="text-right">@p.Tasks</td>
+                    </tr>
+                }
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td><b>Total</b></td>
+                    <td class="text-right"><b>@TimeFormat.Minutes(s.AvailableMinutes)</b></td>
+                    <td class="text-right"><b>@TimeFormat.Minutes(s.UnavailableMinutes)</b></td>
+                    <td class="text-right"><b>@TimeFormat.Minutes(s.Minutes)</b></td>
+                    <td class="text-right"><b>@(s.UtilisationPercent is int all ? $"{all}%" : "-")</b></td>
+                    <td class="text-right"><b>@TimeFormat.Minutes(s.UnloggedMinutes)</b></td>
+                    <td></td>
+                    <td class="text-right" title="Each task once, though several people worked on it"><b>@s.Tasks</b></td>
+                </tr>
+            </tfoot>
+        </MudSimpleTable>
+    </div>
+}
+
+<MudText Typo="Typo.subtitle2" HtmlTag="h2" Class="px-4 pt-4 pb-2">@GridTitle</MudText>
+@if (Report.Grid.Count == 0)
+{
+    <p class="orbit-empty">Nobody to report on for the selected filters.</p>
+}
+else
+{
+    <div class="orbit-table-wrap">
+        <table class="@($"orbit-av-grid{(Report.Grid[0].Cells.Count > 14 ? " orbit-av-month" : "")}")">
+            <thead>
+                <tr>
+                    <th>Person</th>
+                    @foreach (var c in Report.Grid[0].Cells)
+                    {
+                        <th class="@(Report.GridBucketSize == TimeBucketSize.Day && c.From.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday ? "orbit-av-weekend" : "")"
+                            title="@(c.From == c.To ? c.From.ToString("ddd yyyy-MM-dd") : $"{c.From:yyyy-MM-dd} to {c.To:yyyy-MM-dd}")">
+                            @((MarkupString)BucketLabel(c))
+                        </th>
+                    }
+                    <th>Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in Report.Grid)
+                {
+                    <tr>
+                        <td>@row.Name</td>
+                        @foreach (var c in row.Cells)
+                        {
+                            <td class="@CellClass(c)" title="@CellTitle(c)">
+                                @if (c.Blank)
+                                {
+                                    <span>-</span>
+                                }
+                                else
+                                {
+                                    <span>@H(c.Minutes)/@H(c.AvailableMinutes)</span>
+                                    @if (c.Over)
+                                    {
+                                        <span class="orbit-ts-mark">Over</span>
+                                    }
+                                }
+                                @if (c.Unavailable)
+                                {
+                                    <span class="orbit-ts-mark">U</span>
+                                }
+                            </td>
+                        }
+                        <td class="text-nowrap"><b>@H(row.Minutes)/@H(row.AvailableMinutes)</b>@(row.UtilisationPercent is int pct ? $" · {pct}%" : "")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <div class="orbit-card-body orbit-small orbit-muted">Logged / available, in hours. Shaded: under @target% of the time available. U: unavailable time. Greyed: public holiday. Over: time logged with no availability.</div>
+}
+
+<MudText Typo="Typo.subtitle2" HtmlTag="h2" Class="px-4 pt-4 pb-2">By task</MudText>
+@if (Report.Tasks.Count == 0)
+{
+    <p class="orbit-empty">No time logged for the selected filters.</p>
+}
+else
+{
+    <div class="orbit-table-wrap">
+        <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks orbit-report">
+            <thead>
+                <tr>
+                    <th>Task</th>
+                    <th>Status</th>
+                    <th class="text-right" title="Time logged on it in the period, and its share of all the time logged">Logged</th>
+                    <th style="width:10%"></th>
+                    <th class="text-right" title="The people who logged time on it in the period">People</th>
+                    <th class="text-right">Estimate</th>
+                    <th class="text-right" title="All time logged on it to date, by anyone">To date</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var t in Report.Tasks)
+                {
+                    var id = t.TaskId;
+                    var open = _open.Contains(id);
+                    <tr>
+                        <td>
+                            <div class="orbit-gap-row">
+                                @if (t.Restricted)
+                                {
+                                    @* A task the viewer can't open (§12): its number and department, no title or link. *@
+                                    <span><span class="orbit-number">@t.Number</span><span class="orbit-muted">@t.DepartmentName</span></span>
+                                }
+                                else
+                                {
+                                    <span><span class="orbit-number">@t.Number</span><a href="@($"/Tasks/Details/{t.TaskId}")" class="orbit-title">@t.Title</a></span>
+                                }
+                                @if (t.Type != TaskType.Task)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="TaskLook.Type(t.Type)" Class="@TaskLook.TypeClass(t.Type)" title="Type">@t.Type</MudChip>
+                                }
+                            </div>
+                            @if (t.Project is { } p && t.Restricted)
+                            {
+                                <div class="orbit-sub">@($"{p.Number} {p.Name}".Trim())</div>
+                            }
+                            else if (t.Project is { } linked)
+                            {
+                                <div class="orbit-sub"><a href="@($"/Projects/Details/{linked.Id}")">@($"{linked.Number} {linked.Name}".Trim())</a></div>
+                            }
+                            else
+                            {
+                                <div class="orbit-sub">No project</div>
+                            }
+                        </td>
+                        <td><MudChip T="string" Size="Size.Small" Color="TaskLook.Status(t.Status)">@t.Status.Label()</MudChip></td>
+                        <td class="text-right">
+                            <b>@TimeFormat.Minutes(t.Minutes)</b>
+                            <div class="orbit-sub">@ReportText.ShareText(t.Minutes, s.Minutes)</div>
+                        </td>
+                        <td><MudProgressLinear Value="@ReportText.Share(t.Minutes, maxTask)" Color="Color.Primary" Rounded="true" Size="Size.Medium" /></td>
+                        <td class="text-right">
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" OnClick="() => Toggle(id)"
+                                       EndIcon="@(open ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                                       aria-expanded="@(open ? "true" : "false")" title="Show who logged time on it">@t.People.Count</MudButton>
+                        </td>
+                        <td class="text-right">@ReportText.Estimate(t.EstimateMinutes)</td>
+                        <td class="text-right">@TimeFormat.Minutes(t.TotalMinutes)</td>
+                        <td>
+                            @if (t.IsOver)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Warning" title="More time has been logged than was estimated">Over estimate</MudChip>
+                            }
+                            else if (ReportText.Marker(t.Status, t.EstimateMinutes, t.IsOver) is { Length: > 0 } note)
+                            {
+                                <span class="orbit-muted">@note</span>
+                            }
+                        </td>
+                    </tr>
+                    @if (open)
+                    {
+                        <tr class="orbit-report-detail">
+                            <td colspan="8" class="pa-0">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th class="orbit-muted ps-10">Person</th>
+                                            <th class="orbit-muted text-right" title="Their time on the task in the period">Logged</th>
+                                            <th class="orbit-muted text-right" title="Their share of the task's time in the period">Share</th>
+                                            <th class="orbit-muted text-right" title="Their time on the task to date">To date</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var x in t.People)
+                                        {
+                                            <tr>
+                                                <td class="ps-10">@x.Name</td>
+                                                <td class="text-right">@TimeFormat.Minutes(x.Minutes)</td>
+                                                <td class="text-right">@ReportText.ShareText(x.Minutes, t.Minutes)</td>
+                                                <td class="text-right">@TimeFormat.Minutes(x.ToDateMinutes)</td>
+                                                <td>
+                                                    @if (x.IsAssignee)
+                                                    {
+                                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" title="Assigned to the task">Assignee</MudChip>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td>
+                        <b>Total</b>
+                        <div class="orbit-sub" title="The tasks worked on, each once">@Tasks(s.Tasks)</div>
+                    </td>
+                    <td></td>
+                    <td class="text-right"><b>@TimeFormat.Minutes(s.Minutes)</b></td>
+                    <td></td>
+                    <td></td>
+                    <td class="text-right" title="The estimates of the tasks that have one (cancelled ones aside)"><b>@ReportText.Estimated(s.Estimate)</b></td>
+                    <td class="text-right" title="All time logged to date on those estimated tasks"><b>@ReportText.Actual(s.Estimate)</b></td>
+                    <td class="@ReportText.VarianceClass(s.Estimate.VarianceMinutes)"><b>@ReportText.Variance(s.Estimate)</b></td>
+                </tr>
+            </tfoot>
+        </MudSimpleTable>
+    </div>
+}
+<div class="orbit-card-footer">
+    Time counts in the period by the day it was logged for, first and last days included. The report is about people: those whose home
+    department is the one reported on (as it is now), employed in the period or with time in it, and all of their time, on any
+    department's task; a task you can't open shows only its number and department. A person's available time is their work pattern,
+    less public holidays and their unavailable time, within their employment. Utilisation is logged against available, and unlogged
+    is each person's own gap, never netted against anyone's overtime; under @Report.TargetPercent% is under target. To date is always everyone's
+    time on the task, on any day; Estimated, To date and variance compare the estimated tasks worked on (cancelled ones aside) with all
+    time logged on them to date. A task several people worked on counts once in the totals. The charts and the timesheet have a column
+    per day for a period up to 62 days, per ISO week (Monday to Sunday) up to 366 days, and per month beyond. Past twelve, the projects
+    chart keeps the eleven with the most time and the people chart the eleven lowest utilisations, and the rest share a bar.
+</div>
+
+@code {
+    [Parameter, EditorRequired] public TimeUtilisationReport Report { get; set; } = null!;
+
+    /// <summary>The tasks whose people are showing, by id, so they stay open when a filter changes and the report reloads.</summary>
+    private readonly HashSet<Guid> _open = [];
+    private IReadOnlyList<SprintCharts.Chart> _charts = [];
+
+    protected override void OnParametersSet() => _charts = TimeUtilisationCharts.All(Report);
+
+    private void Toggle(Guid id)
+    {
+        if (!_open.Remove(id)) _open.Add(id);
+    }
+
+    private static string Tasks(int n) => n == 1 ? "1 task" : $"{n} tasks";
+
+    private static string Plural(int n, string one, string? many = null) => n == 1 ? $"1 {one}" : $"{n} {many ?? one + "s"}";
+
+    /// <summary>The parts there are, joined with " · ".</summary>
+    private static string Parts(params string?[] parts) => string.Join(" · ", parts.Where(p => p is not null));
+
+    private static string H(int minutes) => ReportText.GridHours(minutes);
+
+    private static string Width(int part, int whole) =>
+        FormattableString.Invariant($"width:{(whole <= 0 ? 0 : Math.Min(100.0, part * 100.0 / whole)):0.#}%");
+
+    private static string Left(int part, int whole) =>
+        FormattableString.Invariant($"left:{(whole <= 0 ? 0 : Math.Min(100.0, part * 100.0 / whole)):0.#}%");
+
+    private string GridTitle => Report.GridBucketSize switch
+    {
+        TimeBucketSize.Day => "Timesheet by day",
+        TimeBucketSize.Week => "Timesheet by week",
+        _ => "Timesheet by month"
+    };
+
+    private string BucketLabel(TimeUtilisationCell c) => Report.GridBucketSize switch
+    {
+        TimeBucketSize.Day => $"{c.From:ddd}<br />{c.From.Day}",
+        TimeBucketSize.Week => $"{c.From.Day}<br />{c.From:MMM}",
+        _ => $"{c.From:MMM}<br />{c.From:yyyy}"
+    };
+
+    /// <summary>A holiday stays greyed; time logged on it (or on any day with nothing available) also reads as over.</summary>
+    private static string CellClass(TimeUtilisationCell c) =>
+        (c.AllHoliday ? "orbit-av-holiday " : "") +
+        (c.Over ? "orbit-ts-over" : c.AllHoliday ? "" : c.UnderTarget ? "orbit-ts-short" : c.Empty ? "orbit-av-off" : "");
+
+    private static string CellTitle(TimeUtilisationCell c) =>
+        c.AllHoliday && c.Minutes == 0 ? "Public holiday"
+        : (c.AllHoliday ? "Public holiday · " : "") + $"Logged {TimeFormat.Minutes(c.Minutes)} · available {TimeFormat.Minutes(c.AvailableMinutes)}" +
+          (c.Unavailable ? $" · unavailable {TimeFormat.Minutes(c.UnavailableMinutes)}" : "");
+
+    /// <summary>"40h estimated · 46h logged · 3 over estimate", or "nothing estimated".</summary>
+    private static string EstimateLine(EstimateComparison e) =>
+        e.EstimatedTasks == 0 ? "nothing estimated"
+        : $"{ReportText.Estimated(e)} estimated · {ReportText.Actual(e)} logged" + (e.OverTasks > 0 ? $" · {e.OverTasks} over estimate" : "");
+}

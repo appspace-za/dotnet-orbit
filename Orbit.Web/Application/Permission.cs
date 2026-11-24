@@ -16,6 +16,7 @@ public static class Permission
     public const string ProjectsCreate = "projects.create";
     public const string ProjectsEdit = "projects.edit";
     public const string TimeLog = "time.log";
+    public const string AvailabilityManage = "availability.manage";
     public const string SprintsManage = "sprints.manage";
     public const string ReportsView = "reports.view";
     public const string AuditView = "audit.view";

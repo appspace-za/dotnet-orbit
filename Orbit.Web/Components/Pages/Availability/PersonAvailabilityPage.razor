@@ -1,0 +1,235 @@
+@page "/Availability/{UserId:guid}"
+@* A person's availability (spec §6.22): their work pattern - the hours they are expected to work each weekday, in effect from a date -
+   with every earlier and later one, and their unavailable time. Anyone who manages their availability records unavailable time here
+   (themselves at Own); changing the pattern takes availability.manage from Department up. Show (upcoming, past, all) is in the
+   address; ?Add=2026-11-24, from a team grid cell, opens the add form for that day once the page is up. *@
+
+<PageTitle>@(_view?.Person.Name ?? "Availability") - Orbit</PageTitle>
+
+@if (Refusal is not null)
+{
+    <AccessDenied Message="@Refusal" />
+}
+else if (_view is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var v = _view;
+    <div class="orbit-page-header">
+        <div>
+            <MudText Typo="Typo.h5" HtmlTag="h1">@v.Person.Name</MudText>
+            <div class="orbit-subtitle">
+                @(v.Person.DepartmentName ?? "No department") · @TimeFormat.Minutes(v.WeeklyMinutesToday) a week
+            </div>
+        </div>
+        @if (v.CanChangePattern)
+        {
+            <div class="orbit-actions">
+                <MudButton Variant="Variant.Outlined" Href="/Availability">Team availability</MudButton>
+            </div>
+        }
+    </div>
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" lg="5">
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header">
+                    <b>Work pattern</b>
+                    @if (v.CanChangePattern)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" OnClick="ChangePatternAsync">Change from…</MudButton>
+                    }
+                </div>
+                <div class="orbit-table-wrap">
+                    <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks orbit-availability-days">
+                        <thead><tr>@foreach (var d in Days) { <th>@d.ToString()[..3]</th> }<th>Week</th></tr></thead>
+                        <tbody>
+                            <tr>
+                                @foreach (var d in Days)
+                                {
+                                    <td>@Hours(v.Current?.For(d) ?? 0)</td>
+                                }
+                                <td><b>@TimeFormat.Minutes(v.Current?.Total ?? 0)</b></td>
+                            </tr>
+                        </tbody>
+                    </MudSimpleTable>
+                </div>
+                <div class="orbit-card-body orbit-small orbit-muted">The hours this person is expected to log each weekday. Public holidays and their unavailable time come off it.</div>
+            </MudPaper>
+
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header"><b>Pattern history</b></div>
+                <div class="orbit-table-wrap">
+                    <MudSimpleTable Dense="true" Elevation="0" Class="orbit-tasks">
+                        <thead><tr><th>In effect from</th><th>Days</th><th>Week</th><th>Set by</th><th></th></tr></thead>
+                        <tbody>
+                            @foreach (var p in v.History)
+                            {
+                                var row = p;
+                                <tr @key="row.Id">
+                                    <td class="text-nowrap">@Ui.Day(row.EffectiveFrom)</td>
+                                    <td class="orbit-small">@DaysText(row.Week)</td>
+                                    <td class="text-nowrap">@TimeFormat.Minutes(row.Week.Total)</td>
+                                    <td class="orbit-small orbit-muted">@row.SetBy, @Ui.When(row.SetAt)</td>
+                                    <td class="text-right">
+                                        @if (v.CanChangePattern && v.History.Count > 1)
+                                        {
+                                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy"
+                                                       OnClick="@(() => RemovePatternAsync(row))">Remove</MudButton>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </div>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" lg="7">
+            <MudPaper Outlined="true" Class="orbit-card">
+                <div class="orbit-card-header">
+                    <b>Unavailable time</b>
+                    <div class="orbit-gap-row">
+                        @foreach (var f in Enum.GetValues<UnavailableFilter>())
+                        {
+                            var filter = f;
+                            <MudChip T="string" Size="Size.Small" Variant="@(filter == _filter ? Variant.Filled : Variant.Outlined)"
+                                     Color="@(filter == _filter ? Color.Primary : Color.Default)" OnClick="@(() => ShowFilter(filter))">@filter</MudChip>
+                        }
+                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => EditUnavailableAsync(null, null))">Add</MudButton>
+                    </div>
+                </div>
+                <div class="orbit-table-wrap">
+                    <MudSimpleTable Dense="true" Hover="true" Elevation="0" Class="orbit-tasks">
+                        <thead><tr><th>Dates</th><th>Hours</th><th>Reason</th><th>Note</th><th title="What it took off, after the pattern, holidays and overlaps">Removed</th><th></th></tr></thead>
+                        <tbody>
+                            @if (v.Unavailable.Count == 0)
+                            {
+                                <tr><td colspan="6" class="orbit-muted">@EmptyText</td></tr>
+                            }
+                            @foreach (var u in v.Unavailable)
+                            {
+                                var entry = u;
+                                <tr @key="entry.Id">
+                                    <td class="text-nowrap">@(entry.From == entry.To ? Ui.Day(entry.From) : $"{Ui.Day(entry.From)} → {Ui.Day(entry.To)}")</td>
+                                    <td class="text-nowrap">@(entry.MinutesPerDay is int m ? $"{Hours(m)} a day" : "All day")</td>
+                                    <td>@entry.Reason</td>
+                                    <td class="orbit-small">@entry.Note</td>
+                                    <td class="text-nowrap">@TimeFormat.Minutes(entry.RemovedMinutes)</td>
+                                    <td class="text-right text-nowrap">
+                                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" OnClick="@(() => EditUnavailableAsync(entry, null))">Edit</MudButton>
+                                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" Disabled="_busy" OnClick="@(() => RemoveUnavailableAsync(entry))">Remove</MudButton>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </div>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    private static readonly DayOfWeek[] Days =
+        [DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday];
+
+    [Parameter] public Guid UserId { get; set; }
+    [SupplyParameterFromQuery] public string? Show { get; set; }
+    [SupplyParameterFromQuery] public string? Add { get; set; }
+
+    private PersonAvailability? _view;
+    private UnavailableFilter _filter;
+    private bool _busy;
+    /// <summary>The day ?Add asked for, opened once the page has rendered; the last one opened, so a reload doesn't open it again.</summary>
+    private DateOnly? _pendingAdd;
+    private string? _openedAdd;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _filter = FilterQuery.Enum<UnavailableFilter>(Show) ?? UnavailableFilter.Upcoming;
+        if (Add != _openedAdd && FilterQuery.Date(Add) is DateOnly day) _pendingAdd = day;
+        await LoadAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_pendingAdd is not DateOnly day || _view is null) return;
+        _pendingAdd = null;
+        _openedAdd = Add;
+        await EditUnavailableAsync(null, day);
+        // This isn't an event handler, so nothing re-renders by itself; dropping Add from the address reloads the page and keeps a
+        // refresh from opening the form again - but only while the browser is still here: Back while the form was open has already
+        // left (MudBlazor closes a dialog when the address changes), and replacing that entry would bounce the person back.
+        if (AvailabilityAddress.IsAddOpen(Nav.Uri, UserId)) Nav.NavigateTo(Address(_filter), replace: true);
+    }
+
+    private async Task LoadAsync() => await Load(async s => _view = await s.Get<AvailabilityService>().PersonAsync(UserId, _filter));
+
+    private void ShowFilter(UnavailableFilter filter) => Nav.NavigateTo(Address(filter));
+
+    private string Address(UnavailableFilter filter) =>
+        new FilterQuery().Add(nameof(Show), filter == UnavailableFilter.Upcoming ? null : filter.ToString().ToLowerInvariant()).At($"/Availability/{UserId}");
+
+    private string EmptyText => _filter switch
+    {
+        UnavailableFilter.Upcoming => "Nothing coming up.",
+        UnavailableFilter.Past => "Nothing recorded in the past.",
+        _ => "No unavailable time recorded."
+    };
+
+    private static string Hours(int minutes) => minutes == 0 ? "-" : AvailabilityInputRules.FormatHours(minutes);
+
+    private static string DaysText(WeekMinutes w) => string.Join(" · ", Days.Where(d => w.For(d) > 0).Select(d => $"{d.ToString()[..3]} {Hours(w.For(d))}")) is { Length: > 0 } t ? t : "No hours";
+
+    private async Task ChangePatternAsync()
+    {
+        var parameters = new DialogParameters<WorkPatternDialog> { { x => x.UserId, UserId }, { x => x.History, _view!.History } };
+        var dialog = await Dialogs.ShowAsync<WorkPatternDialog>("Change work pattern", parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is { Canceled: false })
+        {
+            Success("Work pattern saved.");
+            await LoadAsync();
+        }
+    }
+
+    private async Task RemovePatternAsync(PatternHistoryRow row)
+    {
+        if (!await Confirm("Remove work pattern", $"Remove the pattern in effect from {Ui.Day(row.EffectiveFrom)}? The one before it carries on from that date.", "Remove")) return;
+        _busy = true;
+        if (await Act(async s => await s.Get<AvailabilityService>().RemovePatternAsync(row.Id)))
+        {
+            Success("Work pattern removed.");
+            await LoadAsync();
+        }
+        _busy = false;
+    }
+
+    private async Task EditUnavailableAsync(UnavailableRow? entry, DateOnly? day)
+    {
+        var parameters = new DialogParameters<UnavailableTimeDialog> { { x => x.UserId, UserId }, { x => x.Entry, entry }, { x => x.Day, day } };
+        var dialog = await Dialogs.ShowAsync<UnavailableTimeDialog>(entry is null ? "Add unavailable time" : "Change unavailable time", parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is { Canceled: false })
+        {
+            Success(entry is null ? "Unavailable time added." : "Unavailable time saved.");
+            await LoadAsync();
+        }
+    }
+
+    private async Task RemoveUnavailableAsync(UnavailableRow entry)
+    {
+        var dates = entry.From == entry.To ? Ui.Day(entry.From) : $"{Ui.Day(entry.From)} to {Ui.Day(entry.To)}";
+        if (!await Confirm("Remove unavailable time", $"Remove the unavailable time on {dates}?", "Remove")) return;
+        _busy = true;
+        if (await Act(async s => await s.Get<AvailabilityService>().RemoveUnavailableAsync(entry.Id)))
+        {
+            Success("Unavailable time removed.");
+            await LoadAsync();
+        }
+        _busy = false;
+    }
+}
