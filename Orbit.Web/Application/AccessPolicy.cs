@@ -115,6 +115,23 @@ public static class AccessPolicy
     /// <summary>Logging time for somebody else on a task: time.log in the task's department.</summary>
     public static bool CanLogTimeForOthers(Actor a, TaskItem t) => a.CanInDepartment(Permission.TimeLog, t.DepartmentId);
 
+    /// <summary>
+    /// availability.manage (§6.22): a person's unavailable time. Own = the actor themself; Department = the actor and the people whose
+    /// home department is the actor's; All = everyone. By the person's home department, as for whom a task is created for.
+    /// </summary>
+    public static bool CanManageAvailability(Actor a, Guid personId, Guid? personDepartmentId) =>
+        a.ScopeOf(Permission.AvailabilityManage) switch
+        {
+            PermissionScope.All => true,
+            PermissionScope.Department => personId == a.UserId || (personDepartmentId is Guid d && a.DepartmentId == d),
+            PermissionScope.Own => personId == a.UserId,
+            _ => false
+        };
+
+    /// <summary>A person's work pattern sets what they are expected to log, so it needs availability.manage from Department up, never Own.</summary>
+    public static bool CanChangeWorkPattern(Actor a, Guid personId, Guid? personDepartmentId) =>
+        a.ScopeOf(Permission.AvailabilityManage) >= PermissionScope.Department && CanManageAvailability(a, personId, personDepartmentId);
+
     /// <summary>Attaching a file to a task (§6.18) follows the commenting rule: anyone who can see the task.</summary>
     public static bool CanAttachToTask(Actor a, TaskItem t) => CanViewTask(a, t);
 

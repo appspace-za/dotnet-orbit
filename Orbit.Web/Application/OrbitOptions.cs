@@ -253,6 +253,19 @@ public sealed class CriticalPathOptions
     public int HoursPerWorkingDay { get; set; } = 8;
 }
 
+/// <summary>Report settings (spec §12, §6.22).</summary>
+public sealed class ReportOptions
+{
+    public const string Section = "Reports";
+    public const int DefaultUtilisationTargetPercent = 80;
+
+    /// <summary>Logged time below this share of a person's available time is <i>under target</i> on Time utilisation and My Time.</summary>
+    public int UtilisationTargetPercent { get; set; } = DefaultUtilisationTargetPercent;
+
+    /// <summary>The target in force: the configured one when it is 1 to 100, otherwise 80.</summary>
+    public int EffectiveTarget => UtilisationTargetPercent is >= 1 and <= 100 ? UtilisationTargetPercent : DefaultUtilisationTargetPercent;
+}
+
 /// <summary>The asset register's two windows (spec §6.19). Check intervals are per asset type, edited on the Asset types pages.</summary>
 public sealed class AssetOptions
 {

@@ -181,10 +181,10 @@ else
             @* No @key: the component stays across runs, so the groups opened stay open when a filter changes. *@
             <ReportSprintStatus Report="sprint" />
         }
-        else if (run.TimeSpent is { } spent)
+        else if (run.TimeUtilisation is { } spent)
         {
             @* No @key either: the tasks opened stay open when a filter changes. *@
-            <ReportTimeSpent Report="spent" />
+            <ReportTimeUtilisation Report="spent" />
         }
     </MudPaper>
 }

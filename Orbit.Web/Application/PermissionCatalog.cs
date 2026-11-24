@@ -71,6 +71,9 @@ public static class PermissionCatalog
         new(Permission.TimeLog, "Log time",
             "Log, edit and delete time. Own = your own entries on tasks assigned to you; Department = for anyone in the department.",
             TimeGroup, OwnDeptAll),
+        new(Permission.AvailabilityManage, "Manage availability",
+            "Record unavailable time (leave, sickness, training) and, from Department up, set work patterns: the hours a person is expected to work each weekday. Own = your own unavailable time; Department = your department's people; All = everyone.",
+            TimeGroup, OwnDeptAll),
         new(Permission.SprintsManage, "Manage sprints",
             "Create, edit, start and complete sprints. Sprints are company-wide, so this is all or nothing.",
             PlanningGroup, AllOnlyScopes),
@@ -143,12 +146,15 @@ public static class PermissionCatalog
     public static readonly IReadOnlyDictionary<string, PermissionScope> AllAtScopeAll =
         All.ToDictionary(p => p.Key, _ => PermissionScope.All, StringComparer.Ordinal);
 
-    /// <summary>The permissions that put the Admin menu on the navbar; each item is then shown on its own permission.</summary>
+    /// <summary>
+    /// The permissions that put the Admin menu on the navbar; each item is then shown on its own permission. availability.manage does
+    /// only from Department up (decision 151): at Own it is your own unavailable time, reached from My Time.
+    /// </summary>
     public static readonly IReadOnlyList<string> AdminPermissions =
     [
         Permission.UsersManage, Permission.RolesManage, Permission.DepartmentsManage, Permission.ApiKeysManage,
-        Permission.DirectoryManage, Permission.AgentsManage, Permission.NagiosManage, Permission.CalendarManage, Permission.RequestsConfigure,
-        Permission.ActionsCreate, Permission.MessagesManage, Permission.AuditView
+        Permission.DirectoryManage, Permission.AgentsManage, Permission.NagiosManage, Permission.CalendarManage,
+        Permission.AvailabilityManage, Permission.RequestsConfigure, Permission.ActionsCreate, Permission.MessagesManage, Permission.AuditView
     ];
 
     public static PermissionDefinition? Find(string key) => ByKey.GetValueOrDefault(key);

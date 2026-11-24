@@ -5,7 +5,7 @@ namespace Orbit.Application;
 
 /// <summary>
 /// The pure part of the time reports (§12) shared by the others: the estimate comparison every report makes, and Estimate
-/// accuracy. Time spent has rules of its own (<see cref="TimeSpentRules"/>).
+/// accuracy. Time utilisation has rules of its own (<see cref="TimeUtilisationRules"/>).
 /// <list type="bullet">
 /// <item>Estimates are compared over tasks that have one and aren't Cancelled, against all time logged on them to date.</item>
 /// <item>Every task stands alone: subtask time isn't rolled into the parent (§6.10).</item>

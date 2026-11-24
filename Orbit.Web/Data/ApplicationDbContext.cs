@@ -18,6 +18,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<Comment> Comments => Set<Comment>();
     public DbSet<TimeEntry> TimeEntries => Set<TimeEntry>();
     public DbSet<RunningClock> RunningClocks => Set<RunningClock>();
+    public DbSet<WorkPattern> WorkPatterns => Set<WorkPattern>();
+    public DbSet<UnavailableTime> UnavailableTimes => Set<UnavailableTime>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
     public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
@@ -269,6 +271,29 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             // One running clock per user per task, enforced at the database level as well.
             b.HasIndex(c => new { c.UserId, c.TaskId }).IsUnique();
             b.HasIndex(c => c.TaskId);
+        });
+
+        // Availability (§6.22): a person's dated work patterns and unavailable time die with them; who recorded them is only noted.
+        builder.Entity<WorkPattern>(b =>
+        {
+            b.Ignore(p => p.Week);
+            b.HasOne(p => p.User).WithMany()
+                .HasForeignKey(p => p.UserId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne<ApplicationUser>().WithMany()
+                .HasForeignKey(p => p.CreatedById).OnDelete(DeleteBehavior.SetNull);
+            b.HasIndex(p => new { p.UserId, p.EffectiveFrom }).IsUnique();
+        });
+
+        builder.Entity<UnavailableTime>(b =>
+        {
+            b.HasOne(u => u.User).WithMany()
+                .HasForeignKey(u => u.UserId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne<ApplicationUser>().WithMany()
+                .HasForeignKey(u => u.CreatedById).OnDelete(DeleteBehavior.SetNull);
+            b.HasOne<ApplicationUser>().WithMany()
+                .HasForeignKey(u => u.UpdatedById).OnDelete(DeleteBehavior.SetNull);
+            b.Property(u => u.Note).HasMaxLength(500);
+            b.HasIndex(u => new { u.UserId, u.From });
         });
 
         builder.Entity<AuditLog>(b =>

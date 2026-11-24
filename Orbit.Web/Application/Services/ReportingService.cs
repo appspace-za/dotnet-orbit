@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using Orbit.Application.Availability;
 using Orbit.Application.Models;
 using Orbit.Data;
 using Orbit.Data.Entities;
@@ -6,7 +8,9 @@ using Orbit.Data.Entities;
 namespace Orbit.Application.Services;
 
 /// <summary>Operational reports (§12). Aggregates are computed in SQL and returned as plain DTOs.</summary>
-public sealed class ReportingService(ApplicationDbContext db, IActorProvider actors, CriticalPathService criticalPath)
+public sealed class ReportingService(
+    ApplicationDbContext db, IActorProvider actors, CriticalPathService criticalPath, AvailabilityFactsReader availabilityFacts,
+    IOptions<ReportOptions> reportOptions)
 {
     private const string ClaudeName = "Claude";
 
@@ -118,64 +122,71 @@ public sealed class ReportingService(ApplicationDbContext db, IActorProvider act
     }
 
     /// <summary>
-    /// Time spent (§12): where the time logged in the period (by entry date) went - by person, project, type, source and day, then
-    /// every task worked on with who logged it. Entries are scoped by their task's project and department, as time logging itself is
-    /// (§6.2.1). The time is read once, summed by task, person and day, with every person's entries: the Person filter applies in
-    /// <see cref="TimeSpentRules.Build"/>, after the options it offers are worked out. The people the report covers
-    /// (<see cref="PeopleAsync"/>) are listed when they logged nothing.
+    /// Time utilisation (§12, decision 150): the people of the department reported on - by their home department, the viewer's own
+    /// under a Department-scoped reports.view, everyone when none is chosen - and all of their time in the period (by entry date), on
+    /// any department's task. The time is read once, summed by task, person and day, with every person's entries: the Person filter
+    /// applies in <see cref="TimeUtilisationRules.Build"/>, after the options it offers are worked out. A task the viewer can't open,
+    /// outside the department their reports reach, is marked restricted and listed by number and department only.
     /// </summary>
-    public async Task<TimeSpentReport> TimeSpentAsync(ReportFilter f, CancellationToken ct = default)
+    public async Task<TimeUtilisationReport> TimeUtilisationAsync(ReportFilter f, CancellationToken ct = default)
     {
         var actor = await RequireReportsAsync(ct);
         var from = DateOnly.FromDateTime(f.FromUtc);
         var to = DateOnly.FromDateTime(f.ToUtc); // the day after the period
-        var entries = await Apply(db.TimeEntries.AsNoTracking(), f, actor)
-            .Where(e => e.Date >= from && e.Date < to)
+        (from, _) = TimeUtilisationRules.Clamp(from, to.AddDays(-1));
+        var restricted = RestrictedDepartment(actor);
+        var departmentId = restricted ?? f.DepartmentId;
+
+        var scope = db.Users.AsNoTracking().Where(u => !u.IsSystemAccount);
+        if (departmentId is Guid d) scope = scope.Where(u => u.DepartmentId == d);
+        var people = await scope
+            .Select(u => new ReportPerson(u.Id, u.DisplayName, u.IsActive))
+            .ToDictionaryAsync(u => u.Id, ct);
+        var ids = people.Keys.ToList();
+
+        var entries = await db.TimeEntries.AsNoTracking()
+            .Where(e => ids.Contains(e.UserId) && e.Date >= from && e.Date < to)
             .GroupBy(e => new { e.TaskId, e.UserId, e.Date })
-            .Select(g => new TimeSpentEntry(g.Key.TaskId, g.Key.UserId, g.Key.Date, g.Sum(e => e.DurationMinutes)))
+            .Select(g => new TimeUtilisationEntry(g.Key.TaskId, g.Key.UserId, g.Key.Date, g.Sum(e => e.DurationMinutes)))
             .ToListAsync(ct);
 
         var taskIds = entries.Select(e => e.TaskId).Distinct().ToList();
-        var tasks = new Dictionary<Guid, TimeSpentTaskFacts>();
-        List<TimeSpentPersonTime> toDate = [];
-        var projects = new Dictionary<Guid, TimeSpentProjectFacts>();
+        var tasks = new Dictionary<Guid, TimeUtilisationTaskFacts>();
+        List<TimeUtilisationPersonTime> toDate = [];
+        var projects = new Dictionary<Guid, TimeUtilisationProjectFacts>();
         if (taskIds.Count > 0)
         {
-            tasks = await db.Tasks.AsNoTracking().Where(t => taskIds.Contains(t.Id))
-                .Select(t => new TimeSpentTaskFacts(t.Id, t.Number, t.Title, t.Status, t.Type, t.Source, t.ProjectId,
-                    t.Assignments.Select(x => x.UserId).ToList(), t.EstimateMinutes, t.TimeEntries.Sum(e => (int?)e.DurationMinutes) ?? 0))
-                .ToDictionaryAsync(t => t.Id, ct);
+            var visible = (await Scoping.Tasks(db.Tasks.AsNoTracking().Where(t => taskIds.Contains(t.Id)), actor)
+                .Select(t => t.Id).ToListAsync(ct)).ToHashSet();
+            var facts = await db.Tasks.AsNoTracking().Where(t => taskIds.Contains(t.Id))
+                .Select(t => new
+                {
+                    t.Id, t.Number, t.Title, t.Status, t.Type, t.Source, t.ProjectId, t.DepartmentId, DepartmentName = t.Department.Name,
+                    AssigneeIds = t.Assignments.Select(x => x.UserId).ToList(), t.EstimateMinutes,
+                    TotalMinutes = t.TimeEntries.Sum(e => (int?)e.DurationMinutes) ?? 0
+                })
+                .ToListAsync(ct);
+            tasks = facts.ToDictionary(t => t.Id, t => new TimeUtilisationTaskFacts(t.Id, t.Number, t.Title, t.Status, t.Type, t.Source,
+                t.ProjectId, t.AssigneeIds, t.EstimateMinutes, t.TotalMinutes, t.DepartmentName,
+                Restricted: restricted is Guid r && t.DepartmentId != r && !visible.Contains(t.Id)));
             toDate = await db.TimeEntries.AsNoTracking().Where(e => taskIds.Contains(e.TaskId))
                 .GroupBy(e => new { e.TaskId, e.UserId })
-                .Select(g => new TimeSpentPersonTime(g.Key.TaskId, g.Key.UserId, g.Sum(e => e.DurationMinutes)))
+                .Select(g => new TimeUtilisationPersonTime(g.Key.TaskId, g.Key.UserId, g.Sum(e => e.DurationMinutes)))
                 .ToListAsync(ct);
             var projectIds = tasks.Values.Select(t => t.ProjectId).OfType<Guid>().Distinct().ToList();
             projects = await db.Projects.AsNoTracking().Where(p => projectIds.Contains(p.Id))
-                .Select(p => new TimeSpentProjectFacts(p.Id, p.Number, p.Name))
+                .Select(p => new TimeUtilisationProjectFacts(p.Id, p.Number, p.Name))
                 .ToDictionaryAsync(p => p.Id, ct);
         }
 
-        var covered = await PeopleAsync(f, actor, ct);
-        var ids = entries.Select(e => e.UserId).Concat(covered).Distinct().ToList();
-        var people = await db.Users.AsNoTracking().Where(u => ids.Contains(u.Id))
-            .Select(u => new ReportPerson(u.Id, u.IsSystemAccount ? ClaudeName : u.DisplayName, u.IsActive || u.IsSystemAccount))
-            .ToDictionaryAsync(u => u.Id, ct);
-        return TimeSpentRules.Build(from, to.AddDays(-1), entries, tasks, toDate, projects, people, covered, f.PersonId);
-    }
-
-    /// <summary>
-    /// The people Time spent lists even with nothing logged (decision 44): active people (never the Claude user) whose own
-    /// department is the one reported on - the project's when only a project is chosen - or everyone when neither is.
-    /// </summary>
-    private async Task<List<Guid>> PeopleAsync(ReportFilter f, Actor actor, CancellationToken ct)
-    {
-        var departmentId = RestrictedDepartment(actor) ?? f.DepartmentId;
-        if (departmentId is null && f.ProjectId is Guid p)
-            departmentId = await db.Projects.AsNoTracking().Where(x => x.Id == p).Select(x => (Guid?)x.DepartmentId).FirstOrDefaultAsync(ct)
-                ?? Guid.Empty; // an unknown project covers nobody
-        var q = db.Users.AsNoTracking().Where(u => u.IsActive && !u.IsSystemAccount);
-        if (departmentId is Guid d) q = q.Where(u => u.DepartmentId == d);
-        return await q.Select(u => u.Id).ToListAsync(ct);
+        // Each person's availability over the period, day by day (§6.22): their patterns, the holidays, their unavailable time.
+        var last = to.AddDays(-1);
+        var known = await availabilityFacts.ReadAsync(ids, from, last, ct);
+        var holidays = await availabilityFacts.HolidaysAsync(from, last, ct);
+        var availability = known.ToDictionary(k => k.Key,
+            k => new ReportAvailability(k.Value.Patterns.Count > 0, AvailabilityRules.Days(k.Value, holidays, from, last)));
+        return TimeUtilisationRules.Build(from, last, entries, tasks, toDate, projects, people, availability,
+            reportOptions.Value.EffectiveTarget, f.PersonId);
     }
 
     /// <summary>Tasks set to Done in the period, grouped by assignee: the estimate against all time logged on them.</summary>

@@ -59,6 +59,12 @@ public static class AuditAction
     public const string Generated = "Generated";
     public const string Deactivated = "Deactivated";
     public const string Reactivated = "Reactivated";
+    /// <summary>A person's availability (§6.22), recorded on the person. The details carry dates and minutes, never a reason or note.</summary>
+    public const string WorkPatternSet = "WorkPatternSet";
+    public const string WorkPatternRemoved = "WorkPatternRemoved";
+    public const string UnavailableAdded = "UnavailableAdded";
+    public const string UnavailableUpdated = "UnavailableUpdated";
+    public const string UnavailableRemoved = "UnavailableRemoved";
     public const string PasswordReset = "PasswordReset";
     public const string Revoked = "Revoked";
     public const string Unlocked = "Unlocked";

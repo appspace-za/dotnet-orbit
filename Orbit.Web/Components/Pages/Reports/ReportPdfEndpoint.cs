@@ -1,4 +1,6 @@
+using System.Globalization;
 using Orbit.Application;
+using Orbit.Application.Availability;
 using Orbit.Application.Models;
 using Orbit.Application.Services;
 using Orbit.Auth;
@@ -40,7 +42,7 @@ public static class ReportPdfEndpoint
                 return AccessDeniedReason.Forbid(http, ex);
             }
             var bytes = ReportPdfBuilder.Build(run.Definition.Title, run.FilterSummary, Tables(run),
-                landscape: run.ProjectReport is not null || run.AssetReport is not null || run.SprintReport is not null || run.TimeSpent is not null);
+                landscape: run.ProjectReport is not null || run.AssetReport is not null || run.SprintReport is not null || run.TimeUtilisation is not null);
             return Results.File(bytes, "application/pdf", run.FileName);
         }).RequireAuthorization(Policies.Permission(Permission.ReportsView));
         return endpoints;
@@ -65,42 +67,113 @@ public static class ReportPdfEndpoint
         if (run.ProjectReport is not null) tables.AddRange(ProjectStatusTables(run.ProjectReport));
         if (run.AssetReport is not null) tables.AddRange(AssetStatusTables(run.AssetReport));
         if (run.SprintReport is not null) tables.AddRange(SprintStatusSections(run.SprintReport));
-        if (run.TimeSpent is not null) tables.AddRange(TimeSpentSections(run.TimeSpent));
+        if (run.TimeUtilisation is not null) tables.AddRange(TimeUtilisationSections(run.TimeUtilisation));
         return tables;
     }
 
     /// <summary>
-    /// Time spent (decision 149): the five charts, the summary, By person and By task - one row per task, its people in one cell, so
-    /// a month's couple of hundred tasks stay a table rather than a table each.
+    /// Time utilisation (decisions 149, 150): the five charts, the summary, By person, the timesheet grid - weekly past 31 days, which is
+    /// what fits across a landscape page - and By task, one row per task with its people in one cell, so a month's couple of hundred
+    /// tasks stay a table rather than a table each. No reason for anyone's unavailable time appears (§6.22).
     /// </summary>
-    public static IEnumerable<ReportPdfBuilder.Section> TimeSpentSections(TimeSpentReport r)
+    public static IEnumerable<ReportPdfBuilder.Section> TimeUtilisationSections(TimeUtilisationReport r)
     {
-        foreach (var charts in TimeSpentCharts.PdfSections(r)) yield return charts;
+        foreach (var charts in TimeUtilisationCharts.PdfSections(r)) yield return charts;
 
         var s = r.Summary;
         static string Minutes(int m) => TimeFormat.Minutes(m);
-        yield return new ReportPdfBuilder.Table(["Logged", "People", "Tasks", "Estimated", "Logged to date", "Variance"],
+        static string Percent(int? p) => p is int v ? $"{v}%" : "-";
+        var target = r.TargetPercent;
+        yield return new ReportPdfBuilder.Table(
+            ["Available", "Unavailable", "Logged", "Utilisation", "Unlogged", "Tasks", "Estimated", "Logged to date", "Variance"],
             [[
-                Minutes(s.Minutes), s.People + (s.LoggedNothing > 0 ? $"\n{s.LoggedNothing} logged nothing" : ""),
+                Minutes(s.AvailableMinutes) + (s.HolidayDays > 0 ? $"\n{s.HolidayDays} holiday{(s.HolidayDays == 1 ? "" : "s")}" : ""),
+                Minutes(s.UnavailableMinutes),
+                Minutes(s.Minutes),
+                Percent(s.UtilisationPercent) + (s.UnderTarget > 0 ? $"\n{s.UnderTarget} under {target}%" : "") + (s.LoggedNothing > 0 ? $"\n{s.LoggedNothing} logged nothing" : ""),
+                Minutes(s.UnloggedMinutes) + (s.UnloggedPeople > 0 ? $"\nacross {s.UnloggedPeople} {(s.UnloggedPeople == 1 ? "person" : "people")}" : ""),
                 Tasks(s.Tasks, s.UnestimatedTasks), Estimated(s.Estimate), Actual(s.Estimate),
                 Variance(s.Estimate) + (s.Estimate.OverTasks > 0 ? $"\n{s.Estimate.OverTasks} over estimate" : "")
-            ]], "Summary", [1.3f, 1.6f, 2, 1.4f, 1.5f, 2]);
+            ]], "Summary", [1.4f, 1.2f, 1.2f, 1.5f, 1.5f, 1.6f, 1.2f, 1.3f, 1.6f]);
 
         var people = r.People.Select(p => (IReadOnlyList<string>)
-            [p.Name, Minutes(p.Minutes), p.LoggedNothing ? "-" : ShareText(p.Minutes, s.Minutes), p.Tasks.ToString()]).ToList();
-        if (people.Count > 0) people.Add(["Total", Minutes(s.Minutes), "", s.Tasks.ToString()]);
-        yield return new ReportPdfBuilder.Table(["Person", "Logged", "Share", "Tasks"], people, "By person", [4, 1.4f, 1, 1]);
+        [
+            p.Name + (p.HasPattern ? "" : "\nNo work pattern"), Minutes(p.AvailableMinutes), Minutes(p.UnavailableMinutes), Minutes(p.Minutes),
+            Percent(p.UtilisationPercent) + (p.UnderTarget ? $" (under {target}%)" : ""), Minutes(p.UnloggedMinutes), p.Tasks.ToString()
+        ]).ToList();
+        if (people.Count > 0)
+            people.Add(["Total", Minutes(s.AvailableMinutes), Minutes(s.UnavailableMinutes), Minutes(s.Minutes), Percent(s.UtilisationPercent),
+                Minutes(s.UnloggedMinutes), s.Tasks.ToString()]);
+        yield return new ReportPdfBuilder.Table(["Person", "Available", "Unavailable", "Logged", "Utilisation", "Unlogged", "Tasks"], people,
+            "By person", [3.4f, 1.2f, 1.2f, 1.2f, 1.6f, 1.2f, 0.8f]);
 
-        static string PeopleOf(TimeSpentTaskRow t) => string.Join("\n", t.People.Select(p =>
+        foreach (var grid in TimesheetTables(r)) yield return grid;
+
+        static string PeopleOf(TimeUtilisationTaskRow t) => string.Join("\n", t.People.Select(p =>
             $"{p.Name} {Minutes(p.Minutes)} ({ShareText(p.Minutes, t.Minutes)})" + (p.IsAssignee ? " · assignee" : "")));
         var tasks = r.Tasks.Select(t => (IReadOnlyList<string>)
-            [$"{t.Number} {t.Title}\n{(t.Project is { } p ? $"{p.Number} {p.Name}".Trim() : "No project")}", t.Type.ToString(),
+            [$"{t.Number} {(t.Restricted ? $"({t.DepartmentName})" : t.Title)}\n{(t.Project is { } p ? $"{p.Number} {p.Name}".Trim() : "No project")}", t.Type.ToString(),
              t.Status.Label(), Minutes(t.Minutes), ShareText(t.Minutes, s.Minutes), Estimate(t.EstimateMinutes), Minutes(t.TotalMinutes),
              Marker(t.Status, t.EstimateMinutes, t.IsOver), PeopleOf(t)]).ToList();
         if (tasks.Count > 0)
             tasks.Add(["Total", "", "", Minutes(s.Minutes), "", Estimated(s.Estimate), Actual(s.Estimate), Variance(s.Estimate), ""]);
         yield return new ReportPdfBuilder.Table(["Task", "Type", "Status", "Logged", "Share", "Estimate", "To date", "", "People"], tasks,
             "By task", [4.2f, 1.2f, 1.4f, 1.1f, 0.9f, 1.1f, 1.1f, 1.4f, 3.6f]);
+    }
+
+    /// <summary>A timesheet table holds at most this many buckets beside the names: more and QuestPDF can't fit a cell in its column.</summary>
+    public const int TimesheetColumnsPerTable = 31;
+
+    /// <summary>
+    /// The timesheet grid for the PDF (§12): a row per person, by name, a column per day (per ISO week past 31 days, per month past
+    /// 366), each cell logged / available in hours - "*" under the target, "U" with unavailable time, "hol" a holiday nobody logged
+    /// on, "-" nothing to show, "over" time logged with no availability, a holiday included - and the person's total. Cells can't be
+    /// shaded in a PDF table, so the marks say it. Past <see cref="TimesheetColumnsPerTable"/> buckets (a year in weeks, years in
+    /// months) the grid is split into tables of that many, each captioned with its part, the total on the last.
+    /// </summary>
+    private static IEnumerable<ReportPdfBuilder.Table> TimesheetTables(TimeUtilisationReport r)
+    {
+        var c = CultureInfo.InvariantCulture;
+        static string H(int m) => GridHours(m);
+        string Header(TimeUtilisationCell cell) => r.PdfGridBucketSize switch
+        {
+            TimeBucketSize.Day => cell.From.ToString("ddd d", c),
+            TimeBucketSize.Week => cell.From.ToString("d MMM", c),
+            _ => cell.From.ToString("MMM yyyy", c)
+        };
+        static string Cell(TimeUtilisationCell cell) =>
+            cell.Over ? $"{H(cell.Minutes)} over"
+            : cell.AllHoliday && cell.Blank ? "hol"
+            : cell.Blank ? (cell.Unavailable ? "U" : "-")
+            : $"{H(cell.Minutes)}/{H(cell.AvailableMinutes)}" + (cell.UnderTarget ? "*" : "") + (cell.Unavailable ? " U" : "");
+        var title = r.PdfGridBucketSize switch
+        {
+            TimeBucketSize.Day => "Timesheet by day",
+            TimeBucketSize.Week => "Timesheet by week",
+            _ => "Timesheet by month"
+        };
+        var legend = $"(logged / available, hours; * under {r.TargetPercent}%, U unavailable time, hol public holiday)";
+        var buckets = r.PdfGrid.FirstOrDefault()?.Cells.Count ?? 0;
+        var parts = Math.Max(1, (buckets + TimesheetColumnsPerTable - 1) / TimesheetColumnsPerTable);
+        for (var part = 0; part < parts; part++)
+        {
+            var skip = part * TimesheetColumnsPerTable;
+            var last = part == parts - 1;
+            var first = r.PdfGrid.FirstOrDefault();
+            List<string> headers = ["Person", .. first is null ? [] : first.Cells.Skip(skip).Take(TimesheetColumnsPerTable).Select(Header)];
+            if (last) headers.Add("Total");
+            var rows = r.PdfGrid.Select(g =>
+            {
+                List<string> row = [g.Name, .. g.Cells.Skip(skip).Take(TimesheetColumnsPerTable).Select(Cell)];
+                if (last) row.Add($"{H(g.Minutes)}/{H(g.AvailableMinutes)}" + (g.UtilisationPercent is int p ? $" · {p}%" : ""));
+                return (IReadOnlyList<string>)row;
+            }).ToList();
+            var widths = new List<float> { 3f };
+            widths.AddRange(Enumerable.Repeat(1f, headers.Count - (last ? 2 : 1)));
+            if (last) widths.Add(2f);
+            yield return new ReportPdfBuilder.Table(headers, rows,
+                $"{title}{(parts > 1 ? $" ({part + 1} of {parts})" : "")} {legend}", widths, FontSize: 7f);
+        }
     }
 
     /// <summary>
