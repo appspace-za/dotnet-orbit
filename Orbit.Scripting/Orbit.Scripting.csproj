@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -10,8 +10,8 @@
   <ItemGroup>
     <!-- 5.0.0: Orbit.Web's Microsoft.EntityFrameworkCore.Design pins Microsoft.CodeAnalysis.CSharp at exactly 5.0.0. -->
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="5.0.0" />
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.1" />
-    <PackageReference Include="Npgsql" Version="10.0.3" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.2" />
+    <PackageReference Include="Npgsql" Version="10.0.4" />
   </ItemGroup>
 
 </Project>
