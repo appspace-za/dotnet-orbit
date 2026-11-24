@@ -125,8 +125,9 @@ scopes below it, and a role with no grants sees nothing.
 | `messages.manage` | All | Admin > Messages: the emails Orbit sends when something happens, to whom and saying what, and the emails sent | - | - |
 
 The navbar follows the same grants: Today needs **Edit tasks**, Tasks **View tasks**, Projects **Edit
-projects**, Sprints **Plan tasks**, Recurring **Create tasks**, My Time **Log time**, Availability **Manage
-availability** and Assets **View assets**, each at any scope. The sprint Planning page has no menu item: its buttons on the Sprints page and a sprint's
+projects**, Sprints **Plan tasks**, Recurring **Create tasks**, My Time **Log time** and Assets **View assets**, each at
+any scope. **Admin > Availability** needs **Manage availability** at *Department* or *All*; at *Own*, My Time links to
+your own availability instead. The sprint Planning page has no menu item: its buttons on the Sprints page and a sprint's
 page show with **Plan tasks**. Hiding a link blocks nothing - the pages keep their own rules.
 
 The Dashboard is always there. It has three views, switched under its header: **My work** (your own tasks and your
@@ -281,7 +282,7 @@ check-in.
 and last days, and the dropdown names the sprint while the dates match it (spec §6.10). Each entry shows its task's
 **Type** and **Sprint**: the sprint the task is in now, or *Backlog* / *Not Planned*. Above the entries it sets the time
 you logged against the time you were available - *Logged 32h of 40h available · 80%* - in amber below the utilisation
-target (see [Availability](#availability)).
+target (see [Availability](#availability)). Its **Availability** button, top right, opens your own availability page.
 
 A project is owned by one department, but someone whose role may create tasks in every department can file
 tasks under it for other departments (unassigned, or assigned to someone in that department). Each such task
@@ -609,12 +610,13 @@ January's figures alone. Everyone starts on the organisation's working days time
 *Other*) and a note. Public holidays from **Admin > Working Calendar** come off everyone's day, and nobody counts as
 available before their account existed or while it was deactivated.
 
-The **Availability** page shows the people you manage as a grid, a day per column for a week or a month: the hours
+The **Availability** page (**Admin > Availability**, under *Working Calendar*) shows the people you manage as a grid, a day per column for a week or a month: the hours
 each is available, a reduced day shaded with its reason, a holiday greyed. Click a name for the person's page - their
 pattern and its history, and their unavailable time - or a day to record unavailable time on it. **Manage
 availability** decides who does what: at *Own* you record your own unavailable time, at *Department* you also set the
 patterns of your department's people, at *All* anyone's. A reason and note are seen only by the person and whoever
-manages them: reports and the activity log carry hours only. **Admin > Users** shows each person's weekly hours.
+manages them: reports and the activity log carry hours only. At *Own* there's no menu item: the *Availability* button
+on My Time opens your own page. **Admin > Users** shows each person's weekly hours.
 
 ## Reports
 

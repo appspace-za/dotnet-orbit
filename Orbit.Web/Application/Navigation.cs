@@ -72,13 +72,23 @@ public static class Navigation
     /// <summary>My Time: time.log at Own or wider.</summary>
     public static bool ShowsMyTime(Actor a) => a.Has(Permission.TimeLog);
 
-    /// <summary>Availability (§6.22): availability.manage at Own or wider - at Own it opens on the person's own page.</summary>
-    public static bool ShowsAvailability(Actor a) => a.Has(Permission.AvailabilityManage);
+    /// <summary>
+    /// Admin > Availability (§6.22, decision 151), the team grid: availability.manage at Department or wider, for whoever manages other
+    /// people's. At Own there is only your own page, reached from My Time (<see cref="OwnAvailability"/>).
+    /// </summary>
+    public static bool ShowsAvailability(Actor a) => a.ScopeOf(Permission.AvailabilityManage) >= PermissionScope.Department;
+
+    /// <summary>
+    /// The viewer's own Availability page, which My Time's Availability button opens (§6.10, decision 151): for anyone who may record
+    /// their own unavailable time, availability.manage at Own or wider; null without it, or for an actor with no user.
+    /// </summary>
+    public static string? OwnAvailability(Actor a) =>
+        a.UserId is Guid me && a.Has(Permission.AvailabilityManage) ? $"/Availability/{me}" : null;
 
     /// <summary>Assets: assets.view at Own or wider.</summary>
     public static bool ShowsAssets(Actor a) => a.Has(Permission.AssetsView);
 
-    /// <summary>The main menu, in order. Configuring request flows is in the Admin menu.</summary>
+    /// <summary>The main menu, in order. Configuring request flows and the team's availability are in the Admin menu.</summary>
     public static readonly IReadOnlyList<NavItem> Main =
     [
         new("Dashboard", "/", _ => true),
@@ -88,7 +98,6 @@ public static class Navigation
         new("Sprints", "/Sprints", ShowsPlanning),
         new("Recurring", "/Recurring", ShowsRecurring),
         new("My Time", "/Time/My", ShowsMyTime),
-        new("Availability", "/Availability", ShowsAvailability),
         new("Assets", "/Assets", ShowsAssets),
         new("Requests", "/Requests", AccessPolicy.CanSubmitRequests),
         new("Reports", "/Reports", AccessPolicy.CanViewReports)
@@ -105,6 +114,7 @@ public static class Navigation
         new("Agents", "/Admin/Agents", a => a.Has(Permission.AgentsManage)),
         new("Nagios", "/Admin/Nagios", a => a.Has(Permission.NagiosManage)),
         new("Working Calendar", "/Admin/Calendar", a => a.Has(Permission.CalendarManage)),
+        new("Availability", "/Availability", ShowsAvailability),
         new("Request flows", "/RequestCatalogue", AccessPolicy.CanConfigureRequests),
         new("Actions", "/Actions", a => a.Has(Permission.ActionsCreate)),
         new("Messages", "/Admin/Messages", a => a.Has(Permission.MessagesManage)),

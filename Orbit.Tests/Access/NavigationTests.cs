@@ -10,18 +10,20 @@ public class NavigationTests
 
     private static List<string> Menu(Actor a) => Navigation.Visible(a).Select(i => i.Label).ToList();
 
-    /// <summary>NAV-001: the shipped roles keep the menu they always had; the built-in role also gets every Admin item.</summary>
+    /// <summary>
+    /// NAV-001: the shipped roles keep the menu they always had; the built-in role also gets every Admin item. A Department Admin's
+    /// Admin menu has the department's request flows and its people's availability; a Member, who manages only their own, has none.
+    /// </summary>
     [Fact]
     public void Shipped_roles_see_their_full_menus()
     {
-        string[] full = ["Dashboard", "Today", "Tasks", "Projects", "Sprints", "Recurring", "My Time", "Availability", "Assets", "Requests"];
+        string[] full = ["Dashboard", "Today", "Tasks", "Projects", "Sprints", "Recurring", "My Time", "Assets", "Requests"];
         Assert.Equal(full, Menu(TestActors.Member(Finance)));
         Assert.Equal(full, Menu(TestActors.DepartmentAdmin(Finance)));
         Assert.Equal([.. full, "Reports"], Menu(TestActors.SystemAdmin()));
         Assert.Equal(Navigation.Admin.Count, Navigation.AdminVisible(TestActors.SystemAdmin()).Count);
         Assert.Empty(Navigation.AdminVisible(TestActors.Member(Finance)));
-        // A Department Admin configures the department's request flows, which are in the Admin menu.
-        Assert.Equal(["Request flows"], Navigation.AdminVisible(TestActors.DepartmentAdmin(Finance)).Select(i => i.Label));
+        Assert.Equal(["Availability", "Request flows"], Navigation.AdminVisible(TestActors.DepartmentAdmin(Finance)).Select(i => i.Label));
     }
 
     /// <summary>NAV-001: each Admin-menu permission on its own opens exactly one Admin item - the menu and the catalogue's list agree.</summary>
@@ -44,8 +46,16 @@ public class NavigationTests
         var auditor = TestActors.Grants(null, (Permission.TasksView, PermissionScope.All), (Permission.ProjectsView, PermissionScope.All));
         Assert.Equal(["Dashboard", "Tasks"], Menu(auditor));
         Assert.Equal(["Dashboard"], Menu(TestActors.Nobody(Finance)));
-        // Availability (§6.22): your own unavailable time at Own is enough for the menu item.
-        Assert.Equal(["Dashboard", "Availability"], Menu(TestActors.Grants(Finance, (Permission.AvailabilityManage, PermissionScope.Own))));
+        // Availability (§6.22, decision 151) is in the Admin menu, under Working Calendar, for whoever manages other people's - not at
+        // Own, which reaches your own page from My Time.
+        var own = TestActors.Grants(Finance, (Permission.AvailabilityManage, PermissionScope.Own));
+        Assert.Equal(["Dashboard"], Menu(own));
+        Assert.Empty(Navigation.AdminVisible(own));
+        var manager = TestActors.Grants(Finance, (Permission.AvailabilityManage, PermissionScope.Department));
+        Assert.Equal(["Dashboard"], Menu(manager));
+        Assert.Equal("/Availability", Navigation.AdminVisible(manager).Single().Href);
+        var labels = Navigation.Admin.Select(i => i.Label).ToList();
+        Assert.Equal(labels.IndexOf("Working Calendar") + 1, labels.IndexOf("Availability"));
         // Configuring request flows and the action library are in the Admin menu, not the main one.
         var configurer = TestActors.Grants(Finance, (Permission.RequestsConfigure, PermissionScope.Department));
         Assert.Equal(["Dashboard"], Menu(configurer));
@@ -162,5 +172,22 @@ public class NavigationTests
         Assert.Equal("/Tasks?AssigneeId=none&OpenOnly=true", Navigation.UnassignedTasks);
         var query = Navigation.UnassignedTasks.Split('?')[1];
         Assert.All(query.Split('&'), pair => Assert.Contains(pair.Split('=')[0], TaskListKeys.Remembered));
+    }
+
+    /// <summary>
+    /// NAV-010: My Time's Availability button opens the viewer's own Availability page (§6.10, §6.22, decision 151) when they may
+    /// record their own unavailable time - availability.manage at any scope - since the menu item is only for those who manage others.
+    /// Without the permission, or with no user of their own, there is no button.
+    /// </summary>
+    [Fact]
+    public void My_Time_opens_your_own_availability_when_you_may_manage_it()
+    {
+        var me = Guid.NewGuid();
+        Assert.Equal($"/Availability/{me}", Navigation.OwnAvailability(TestActors.With(DefaultRoles.MemberGrants, Finance, userId: me)));
+        Assert.Equal($"/Availability/{me}", Navigation.OwnAvailability(TestActors.With(DefaultRoles.DepartmentAdminGrants, Finance, userId: me)));
+        var noAvailability = new Dictionary<string, PermissionScope>(DefaultRoles.MemberGrants);
+        noAvailability.Remove(Permission.AvailabilityManage);
+        Assert.Null(Navigation.OwnAvailability(TestActors.With(noAvailability, Finance, userId: me)));
+        Assert.Null(Navigation.OwnAvailability(Actor.System));
     }
 }

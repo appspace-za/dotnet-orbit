@@ -147,12 +147,15 @@ public static class PermissionCatalog
     public static readonly IReadOnlyDictionary<string, PermissionScope> AllAtScopeAll =
         All.ToDictionary(p => p.Key, _ => PermissionScope.All, StringComparer.Ordinal);
 
-    /// <summary>The permissions that put the Admin menu on the navbar; each item is then shown on its own permission.</summary>
+    /// <summary>
+    /// The permissions that put the Admin menu on the navbar; each item is then shown on its own permission. availability.manage does
+    /// only from Department up (decision 151): at Own it is your own unavailable time, reached from My Time.
+    /// </summary>
     public static readonly IReadOnlyList<string> AdminPermissions =
     [
         Permission.UsersManage, Permission.RolesManage, Permission.DepartmentsManage, Permission.ApiKeysManage,
-        Permission.DirectoryManage, Permission.AgentsManage, Permission.NagiosManage, Permission.CalendarManage, Permission.RequestsConfigure,
-        Permission.ActionsCreate, Permission.MessagesManage, Permission.AuditView
+        Permission.DirectoryManage, Permission.AgentsManage, Permission.NagiosManage, Permission.CalendarManage,
+        Permission.AvailabilityManage, Permission.RequestsConfigure, Permission.ActionsCreate, Permission.MessagesManage, Permission.AuditView
     ];
 
     public static PermissionDefinition? Find(string key) => ByKey.GetValueOrDefault(key);

@@ -9,7 +9,8 @@
    older range showing while the new one loaded sent the page back to it, and back again, for ever (§13 item 143).
    The Sprint dropdown (active and completed sprints, newest first) fills From and To with a sprint's dates in one go. It
    shows the sprint the range is exactly (TimeRules.SprintForRange), read from the address too, so it needs no key of its
-   own; any other range leaves it blank. Each entry shows its task's type and the sprint the task is in now (§13 item 148). *@
+   own; any other range leaves it blank. Each entry shows its task's type and the sprint the task is in now (§13 item 148).
+   The Availability button at the top right opens the viewer's own Availability page (decision 151), which has no menu item at Own. *@
 
 <PageTitle>My Time - Orbit</PageTitle>
 
@@ -30,6 +31,10 @@ else
             <div class="orbit-subtitle">Time you logged between @Ui.Day(s.From) and @Ui.Day(s.To).</div>
         </div>
         <div class="orbit-actions">
+            @if (_ownAvailability is string availability)
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Href="@availability" title="Your work pattern and unavailable time">Availability</MudButton>
+            }
             <FilterSelect Label="Sprint" Value="@(TimeRules.SprintForRange(_sprints, _from, _to)?.Id.ToString() ?? "")" ValueChanged="PickSprint"
                           Options="_sprintOptions" Title="Fill From and To with a sprint's dates" Class="orbit-field-sm" />
             <MudDatePicker Date="PickerDate.Of(_from)" DateChanged="d => Go(PickerDate.Day(d), _to)" Label="From" DateFormat="yyyy-MM-dd" Editable="true" AutoClose="true"
@@ -110,6 +115,8 @@ else
     private MyTimeSummary? _summary;
     /// <summary>The viewer's available minutes in the range (§6.22): their work pattern less holidays and unavailable time.</summary>
     private int? _available;
+    /// <summary>The viewer's own Availability page, for the Availability button (<see cref="Navigation.OwnAvailability"/>); null without the permission.</summary>
+    private string? _ownAvailability;
     /// <summary>The range in the address, which the pickers show. Set before the entries load, so they show it while they do.</summary>
     private DateOnly _from, _to;
     /// <summary>The Sprint dropdown's sprints (active and completed, newest first), fetched with the first range and kept.</summary>
@@ -125,6 +132,7 @@ else
         {
             _summary = await s.Get<TimeEntryService>().MyTimeAsync(from, to);
             _available = await s.Get<AvailabilityService>().MineAsync(from, to);
+            _ownAvailability = Navigation.OwnAvailability(await s.Get<IActorProvider>().GetAsync());
             if (_sprintsLoaded) return;
             _sprints = await s.Get<SprintService>().ListStartedAsync();
             _sprintOptions = _sprints.Select(sp => (sp.Id.ToString(), $"{sp.Name} ({sp.Status})")).ToList();
