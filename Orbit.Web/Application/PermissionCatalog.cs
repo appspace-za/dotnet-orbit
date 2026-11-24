@@ -28,7 +28,6 @@ public static class PermissionCatalog
     public const string TasksGroup = "Tasks";
     public const string ProjectsGroup = "Projects";
     public const string TimeGroup = "Time tracking";
-    public const string AvailabilityGroup = "Availability";
     public const string PlanningGroup = "Planning";
     public const string InsightGroup = "Reports and audit";
     public const string AssetsGroup = "Assets";
@@ -74,7 +73,7 @@ public static class PermissionCatalog
             TimeGroup, OwnDeptAll),
         new(Permission.AvailabilityManage, "Manage availability",
             "Record unavailable time (leave, sickness, training) and, from Department up, set work patterns: the hours a person is expected to work each weekday. Own = your own unavailable time; Department = your department's people; All = everyone.",
-            AvailabilityGroup, OwnDeptAll),
+            TimeGroup, OwnDeptAll),
         new(Permission.SprintsManage, "Manage sprints",
             "Create, edit, start and complete sprints. Sprints are company-wide, so this is all or nothing.",
             PlanningGroup, AllOnlyScopes),
